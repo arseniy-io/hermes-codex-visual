@@ -1,0 +1,18 @@
+name: Feature or design request
+description: Tell us which part of the Hermes workspace could work better
+labels: [enhancement]
+body:
+  - type: textarea
+    id: situation
+    attributes:
+      label: What are you trying to do?
+      description: Name the screen or action and describe where you get stuck.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would help?
+      description: Share an example or screenshot if it helps explain the change.
+    validations:
+      required: true

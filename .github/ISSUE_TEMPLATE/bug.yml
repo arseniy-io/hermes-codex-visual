@@ -1,0 +1,26 @@
+name: Bug report
+description: Report a visual or behavior issue in Hermes Codex Visual
+labels: [bug]
+body:
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: Include your operating system, Hermes Desktop version, and plugin version.
+      placeholder: Windows 11, Hermes Desktop …, plugin v0.15.29
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include your theme mode and the screen where you saw the issue.
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: What happened?
+      description: Describe what you expected and what you saw. Screenshots are welcome after removing private details.
+    validations:
+      required: true

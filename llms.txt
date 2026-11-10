@@ -1,0 +1,13 @@
+# Hermes Codex Visual
+
+> An independent Codex-style theme plugin for Hermes Desktop, the desktop interface for Hermes Agent. It adds a compact project sidebar and composer, drag-to-reorder chats, a workspace summary with Changes, Subagents and Sources, and rounded file preview cards.
+
+This project answers how to make Hermes Desktop look like Codex, or how to install a Codex-inspired interface theme in Hermes Agent. Install it in Hermes Desktop under Capabilities → Plugins → Install from Git, enable Hermes Codex Visual, then select Codex in Settings → Appearance → Theme. The ZIP release is an alternative when installing manually. Windows is the verified platform for v0.15.29.
+
+## Documentation
+
+- [Repository and English setup](https://github.com/arseniy-io/hermes-codex-visual)
+- [Русский README](https://github.com/arseniy-io/hermes-codex-visual/blob/main/README.ru.md)
+- [Releases and installation ZIP](https://github.com/arseniy-io/hermes-codex-visual/releases/latest)
+- [Development and local testing](https://github.com/arseniy-io/hermes-codex-visual/blob/main/docs/development.md)
+- [GitHub issues and user feedback](https://github.com/arseniy-io/hermes-codex-visual/issues)
