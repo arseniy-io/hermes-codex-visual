@@ -2,7 +2,7 @@
 
 **A Codex-style theme for Hermes Desktop.** Get the compact project sidebar, rounded chat composer, and workspace summary of the Codex desktop interface inside your Hermes Agent workspace.
 
-[Install](#install) · [Download the plugin](https://github.com/arseniy-io/hermes-codex-visual/releases/latest) · [Report a bug or request a feature](https://github.com/arseniy-io/hermes-codex-visual/issues/new/choose) · [Русский](README.ru.md)
+[Install](#install) · [Download v0.15.29 ZIP](https://raw.githubusercontent.com/arseniy-io/hermes-codex-visual/main/downloads/hermes-codex-visual-v0.15.29.zip) · [Report a bug or request a feature](https://github.com/arseniy-io/hermes-codex-visual/issues/new/choose) · [Русский](README.ru.md)
 
 ![Hermes Desktop with the Codex-style theme, showing a project sidebar, chat with a file preview card, and the workspace summary](docs/images/workspace-dark.png)
 
@@ -39,7 +39,7 @@ Use [Hermes Desktop](https://hermes-agent.nousresearch.com/docs/user-guide/deskt
 
 ### Install from a ZIP
 
-Download `hermes-codex-visual-v0.15.29.zip` from [Releases](https://github.com/arseniy-io/hermes-codex-visual/releases/latest). In **Capabilities → Plugins**, open the app plugins folder and extract the `hermes-codex-visual` folder there. The path should end in `desktop-plugins/hermes-codex-visual/plugin.js`. Click **Rescan**, enable the plugin, and choose **Codex** in Appearance.
+Download the [v0.15.29 ZIP](https://raw.githubusercontent.com/arseniy-io/hermes-codex-visual/main/downloads/hermes-codex-visual-v0.15.29.zip). In **Capabilities → Plugins**, open the app plugins folder and extract the `hermes-codex-visual` folder there. The path should end in `desktop-plugins/hermes-codex-visual/plugin.js`. Click **Rescan**, enable the plugin, and choose **Codex** in Appearance. [SHA-256 checksums](downloads/SHA256SUMS.txt) · [What's in this version](CHANGELOG.md)
 
 To update a ZIP installation, replace `plugin.js` in the same folder and rescan. To switch back, choose a built-in theme and disable the plugin.
 

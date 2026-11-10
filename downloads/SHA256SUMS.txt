@@ -1,0 +1,2 @@
+0de2df5fe558349463b118679de87e426ee03f0a5be28e217c407fb43ff83bbe  hermes-codex-visual-v0.15.29.zip
+edf21dbead2090b64e2feffac3abb24be7044cbb064f3a4df5eafc6e8dc9f953  plugin.js

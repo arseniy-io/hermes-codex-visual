@@ -2,7 +2,7 @@
 
 **Тема в стиле Codex для Hermes Desktop.** Компактная боковая панель проектов, скруглённое поле ввода и сводка чата работают прямо в Hermes Agent.
 
-[Установка](#установка) · [Скачать плагин](https://github.com/arseniy-io/hermes-codex-visual/releases/latest) · [Сообщить об ошибке или предложить идею](https://github.com/arseniy-io/hermes-codex-visual/issues/new/choose) · [English](README.md)
+[Установка](#установка) · [Скачать ZIP v0.15.29](https://raw.githubusercontent.com/arseniy-io/hermes-codex-visual/main/downloads/hermes-codex-visual-v0.15.29.zip) · [Сообщить об ошибке или предложить идею](https://github.com/arseniy-io/hermes-codex-visual/issues/new/choose) · [English](README.md)
 
 ![Hermes Desktop с темой Codex. Слева список проектов, в центре чат с карточкой файла, справа сводка](docs/images/workspace-dark.png)
 
@@ -39,7 +39,7 @@
 
 ### Установка из ZIP
 
-Скачай `hermes-codex-visual-v0.15.29.zip` из [выпусков](https://github.com/arseniy-io/hermes-codex-visual/releases/latest). В «Возможности → Плагины» открой папку плагинов приложения и распакуй туда папку `hermes-codex-visual`. Путь должен заканчиваться на `desktop-plugins/hermes-codex-visual/plugin.js`. Нажми «Пересканировать», включи плагин и выбери **Codex** во «Внешнем виде».
+Скачай [ZIP v0.15.29](https://raw.githubusercontent.com/arseniy-io/hermes-codex-visual/main/downloads/hermes-codex-visual-v0.15.29.zip). В «Возможности → Плагины» открой папку плагинов приложения и распакуй туда папку `hermes-codex-visual`. Путь должен заканчиваться на `desktop-plugins/hermes-codex-visual/plugin.js`. Нажми «Пересканировать», включи плагин и выбери **Codex** во «Внешнем виде». [Контрольные суммы SHA-256](downloads/SHA256SUMS.txt) · [Что вошло в версию](CHANGELOG.md)
 
 Чтобы обновить версию из ZIP, замени `plugin.js` в той же папке и запусти пересканирование. Чтобы вернуться к обычному виду, выбери штатную тему и выключи плагин.
 
