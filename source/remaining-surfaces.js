@@ -11,7 +11,6 @@ export function registerRemainingSurfaces(ctx, active) {
   const scopeRow = `${cap} div:has(> span + button[data-slot="select-trigger"] > [data-slot="select-value"])`
   const filterRow = 'button.row-hover[aria-pressed]'
   const filters = `${cap} [data-catalog] [data-tour="overlay-nav"] > ${filterRow}`
-  const catalogCard = `${cap} [data-catalog] [data-catalog-card]`
   const dialog = `${active} [data-slot="dialog-content"]`
   const profiles = `${active}[data-hcv-screen="profiles"] [data-overlay-surface]`
   const profileRows = `${profiles} [data-panel-row]`
@@ -101,11 +100,6 @@ export function registerRemainingSurfaces(ctx, active) {
   ${codexIconRules(`${scopeRow} > button > .codicon-chevron-down`, 'down')}
   ${filters} { min-block-size: 26px; block-size: 26px; padding: 3px 6px; border-radius: 7px; }
   ${filters} + ${filterRow} { margin-block-start: var(--hcv-unit); }
-  ${catalogCard} > div { padding-inline: 10px; }
-  ${catalogCard} button[aria-haspopup="dialog"]:focus-visible::after {
-    outline: 2px solid var(--hcv-focus);
-    outline-offset: -3px;
-  }
   ${connectorDialog} [data-slot="add-server-form"] { gap: 16px; }
   ${connectorDialog} [data-slot="add-server-form"] label > span { font-size: 13px; line-height: 18px; }
   ${connectorTools} [data-slot="tool-row"] {
@@ -246,11 +240,6 @@ export function registerRemainingSurfaces(ctx, active) {
     ${directory} section > .grid:has(> [data-slot="connector-row-card"]) { grid-template-columns: minmax(0, 1fr); }
   }
   @media (hover: hover) and (pointer: fine) {
-    ${catalogCard}:hover {
-      border-color: var(--hcv-hairline);
-      background: color-mix(in srgb, var(--hcv-form-surface) 76%, var(--hcv-hover));
-      box-shadow: none;
-    }
     ${connector}:hover { background: var(--hcv-hover); border-color: var(--hcv-stroke); }
     ${connectorTools} [data-slot="tool-row"]:hover { background: var(--hcv-hover); }
     ${panelRows}:hover { background: var(--hcv-hover); }

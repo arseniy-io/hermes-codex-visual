@@ -1,2 +1,2 @@
-0de2df5fe558349463b118679de87e426ee03f0a5be28e217c407fb43ff83bbe  hermes-codex-visual-v0.15.29.zip
-edf21dbead2090b64e2feffac3abb24be7044cbb064f3a4df5eafc6e8dc9f953  plugin.js
+47c2d11c819ec0306defe0715a31cdea83e3e45387c33567ea79d093f58de3d8  hermes-codex-visual-v0.15.46.zip
+82fa934325ac5dd41a3a1a71631c3f4093b9acd435951b5f66aa44d03ae206d5  plugin.js

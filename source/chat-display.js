@@ -210,11 +210,15 @@ function displayStyles(active, chat) {
     mask: ${codexMask('down')} center / contain no-repeat;
   }
   ${toggle}[aria-expanded="true"]::after { rotate: 180deg; }
-  /* Codex Desktop y5H2: rounded editor, padded text, right-aligned actions.
-     The editor and send action are still Hermes's own controls. */
+  /* y5H2 uses rounded-3xl and 12px padding; see 9ec44337a842.css. */
   ${viewport} ${editSelector} .composer-human-message-container {
-    border-radius: 24px;
+    --hcv-edit-radius: 20px;
+    border-radius: var(--hcv-edit-radius);
+    corner-shape: superellipse(1.5);
     background: transparent;
+  }
+  @supports (corner-shape: superellipse(1.5)) {
+    ${viewport} ${editSelector} .composer-human-message-container { --hcv-edit-radius: 25px; }
   }
   ${frame} {
     display: grid;
@@ -224,8 +228,9 @@ function displayStyles(active, chat) {
     padding: 12px;
     overflow: visible;
     border: 0;
-    border-radius: 24px;
-    background: var(--hcv-bubble);
+    border-radius: var(--hcv-edit-radius, 20px);
+    corner-shape: superellipse(1.5);
+    background: light-dark(color-mix(in oklab, var(--hcv-text) 5%, transparent), var(--hcv-bubble));
   }
   ${frame} > ${editInput} {
     grid-column: 1 / -1;
@@ -234,7 +239,8 @@ function displayStyles(active, chat) {
     max-block-size: min(40vh, 24rem);
     padding: 0;
     color: var(--hcv-text);
-    line-height: var(--conversation-line-height);
+    font-size: 14px;
+    line-height: 21px;
     overscroll-behavior: contain;
   }
   ${frame}:has(> ${editInput}:focus-visible) {

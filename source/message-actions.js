@@ -45,7 +45,7 @@ function styles(active, transcript) {
   const menu = `${active} ${menuSelector}`
   return `
 @media (forced-colors: none) {
-  /* Codex vHM0 and .bubble-vBnidZ (006493501c2d.css). */
+  /* Codex vHM0 and .bubble-vBnidZ (fce177e1b845.css). */
   ${enhanced} { min-inline-size: 0; }
   ${enhanced} ${bubbleSelector} {
     inline-size: fit-content;
@@ -53,6 +53,7 @@ function styles(active, transcript) {
     padding: 10px 16px;
     border: 0;
     border-radius: 22px;
+    corner-shape: superellipse(1.5);
   }
   ${enhanced} ${restoreButton},
   ${enhanced} .human-message-with-todos-wrapper:has(> ${rowSelector} > time:not([hidden])) > ${nativeTimestamp} { display: none; }
@@ -105,19 +106,22 @@ function styles(active, transcript) {
     position: fixed;
     inset: auto;
     margin: 0;
-    padding: 6px;
+    padding: 4px;
     max-inline-size: calc(100vw - 16px);
-    border: 1px solid var(--hcv-hairline);
-    border-radius: var(--hcv-menu-radius);
-    background: var(--hcv-menu);
-    color: var(--hcv-text);
-    box-shadow: var(--hcv-menu-shadow);
+    border: 0;
+    border-radius: var(--hcv-dropdown-radius);
+    corner-shape: superellipse(1.5);
+    background: var(--hcv-dropdown-background);
+    color: var(--hcv-dropdown-text);
+    box-shadow: var(--hcv-dropdown-shadow);
+    backdrop-filter: none;
     font: 13px/20px var(--hcv-ui-font);
   }
   ${menu} button {
     min-block-size: 28px;
     padding-inline: 8px;
-    border-radius: var(--hcv-popup-button-radius);
+    border-radius: var(--hcv-dropdown-row-radius);
+    corner-shape: superellipse(1.5);
     cursor: pointer;
   }
   @media (hover: hover) {

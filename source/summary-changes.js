@@ -82,7 +82,7 @@ function RepositoryChanges({ cwd, connectionId, profile, copy }) {
           type: 'button', className: 'hcv-changes-file', title: file.path, 'aria-label': file.path,
           'aria-expanded': open, 'aria-controls': open ? diffId : undefined,
           onClick: () => setSelected(previous => previous === file.path ? null : file.path),
-        }, icon(open ? 'down' : 'right'), icon('artifacts'),
+        }, icon('right'), icon('artifacts'),
         h('span', { className: 'hcv-changes-path', dir: 'auto' }, file.path),
         h('span', { className: 'hcv-changes-counts' },
           h('span', { 'data-hcv-count': 'added' }, '+' + (file.added || 0)),
@@ -116,18 +116,37 @@ export function registerSummaryChanges(ctx, active) {
     ${pane} button:focus-visible, ${pane} pre:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }
     ${pane} .hcv-changes-icon { display: inline-block; inline-size: 16px; block-size: 16px; flex: none; }
     ${pane} .hcv-changes-refresh { display: grid; place-items: center; inline-size: 24px; block-size: 24px; padding: 0; border-radius: 7px; }
-    ${pane} .hcv-changes-file { display: flex; align-items: center; gap: 8px; inline-size: 100%; min-block-size: 28px; padding: 4px 8px; border-radius: 8px; text-align: start; }
-    ${pane} button:hover, ${pane} .hcv-changes-file[aria-expanded="true"] { background: var(--hcv-hover); }
+    /* Adapt the Codex full-review file header from 131264.31ce2394bb.js to the Hermes fallback list. */
+    ${pane} .hcv-changes-file {
+      display: flex; align-items: center; gap: 8px; inline-size: 100%;
+      padding: 8px 8px 8px 12px; border-block-end: 1px solid var(--hcv-hairline);
+      border-radius: 0; text-align: start; font-size: 14px;
+    }
+    ${pane} .hcv-changes-file > .hcv-changes-icon:first-child {
+      inline-size: 14px; block-size: 14px; rotate: 0deg; color: var(--hcv-muted);
+    }
+    ${pane} .hcv-changes-file[aria-expanded="true"] > .hcv-changes-icon:first-child { rotate: 90deg; }
+    ${pane} .hcv-changes-file > .hcv-changes-icon:nth-child(2) { color: var(--hcv-muted); }
+    ${pane} button:hover { background: var(--hcv-hover); }
+    ${pane} .hcv-changes-file:hover > .hcv-changes-icon:first-child { color: var(--hcv-text); }
     ${pane} .hcv-changes-path { flex: 1; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    ${pane} .hcv-changes-counts { display: flex; gap: 6px; font-variant-numeric: tabular-nums; }
-    ${pane} :is([data-hcv-count="added"], [data-hcv-diff-line="added"]) { color: light-dark(#008241, #40c977); }
-    ${pane} :is([data-hcv-count="removed"], [data-hcv-diff-line="removed"]) { color: light-dark(#aa2626, #f28080); }
+    ${pane} .hcv-changes-counts {
+      display: flex; gap: 4px; margin-inline: 4px; line-height: 1;
+      font-variant-numeric: tabular-nums; letter-spacing: -.025em;
+    }
+    ${pane} [data-hcv-count="added"] { color: light-dark(#00a240, #40c977); }
+    ${pane} [data-hcv-count="removed"] { color: light-dark(#ba2623, #fa423e); }
+    ${pane} [data-hcv-diff-line="added"] { color: light-dark(#008241, #40c977); }
+    ${pane} [data-hcv-diff-line="removed"] { color: light-dark(#aa2626, #f28080); }
     ${pane} [data-hcv-diff-line="hunk"] { color: var(--hcv-muted); }
-    ${pane} .hcv-change-detail { margin: 4px 0 8px; overflow: hidden; border: 1px solid var(--hcv-hairline); border-radius: 8px; }
+    ${pane} .hcv-change-detail { margin: 1px 0 8px; overflow: hidden; border-radius: 0 0 10px 10px; }
     ${pane} .hcv-change-detail p { padding: 8px 12px; margin: 0; color: var(--hcv-muted); }
     ${pane} [data-hcv-change-diff] { max-block-size: min(55dvh, 480px); overflow: auto; margin: 0; padding: 8px 12px; font: 12px/18px var(--hcv-mono-font, ui-monospace, monospace); tab-size: 4; }
     ${pane} .hcv-changes-status { margin: 12px 16px; color: var(--hcv-muted); }
     ${pane} .hcv-changes-content .hcv-changes-status { margin-inline: 0; }
+    @media (prefers-reduced-motion: no-preference) {
+      ${pane} .hcv-changes-file > .hcv-changes-icon:first-child { transition: rotate 150ms ease; }
+    }
   `
   document.head.append(style)
   ctx.onDispose(() => style.remove())

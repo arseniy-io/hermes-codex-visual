@@ -1,0 +1,122 @@
+import assert from 'node:assert/strict'
+
+export async function verifyPolish({ page, expect, sidebar, screenshot, navigation }) {
+  const strip = sidebar.locator('[data-zone-tabstrip="grp-sessions"] [role="tablist"]')
+  await expect(strip.locator('[data-tree-tab="terminal"]')).toBeVisible()
+  const tabLayout = await strip.evaluate(list => ({
+    width: list.clientWidth,
+    scrollWidth: list.scrollWidth,
+    labels: [...list.querySelectorAll('[role="tab"] .truncate')].map(label => ({
+      text: label.textContent.trim(), width: label.clientWidth, textWidth: label.scrollWidth,
+    })),
+  }))
+  assert.equal(tabLayout.labels.length, 3)
+  assert(tabLayout.scrollWidth <= tabLayout.width + 1, JSON.stringify(tabLayout))
+  for (const label of tabLayout.labels) assert(label.textWidth <= label.width + 1, JSON.stringify(label))
+  await screenshot('polish-sidebar-tabs.png')
+
+  const cron = sidebar.locator('[data-hcv-cron-sidebar]')
+  const cronToggle = cron.getByRole('button', { name: 'Cron-задачи', exact: true })
+  await expect(cronToggle).toBeVisible()
+  const footer = sidebar.locator('[data-slot="profile-rail"]')
+  await expect(footer).toBeVisible()
+  assert((await cron.boundingBox()).y < (await footer.boundingBox()).y)
+  await cronToggle.click()
+  const job = cron.getByRole('button', { name: 'Проверка Cron в боковой панели', exact: true })
+  await expect(job).toBeVisible()
+  await screenshot('polish-sidebar-cron.png')
+  await job.click()
+  await expect(page).toHaveURL(/\/cron(?:[/?#]|$)/)
+  const cronPanel = page.locator('[data-overlay-surface]')
+  await expect(cronPanel.getByText('Проверка Cron в боковой панели', { exact: true }).first()).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(cronPanel).toHaveCount(0)
+  await cronToggle.click()
+
+  const summary = page.locator('[data-hcv-context-card]')
+  const toggle = page.locator('[data-hcv-context-toggle]')
+  const bounds = page.locator('[data-chat-surface][data-composer-target="main"] > [data-slot="composer-bounds"]')
+  const inset = () => bounds.evaluate(node => parseFloat(getComputedStyle(node).marginInlineEnd))
+  const before = await inset()
+  assert(before > 250)
+  const cardX = (await summary.boundingBox()).x
+  const cdp = await page.context().newCDPSession(page)
+  await cdp.send('Animation.enable')
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await cdp.send('Animation.setPlaybackRate', { playbackRate: .1 })
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  await expect(summary).toHaveAttribute('inert', '')
+  const exit = await page.locator('html').evaluate(node => node.getAnimations().map(animation => ({
+    property: animation.transitionProperty, time: animation.effect.getTiming().duration,
+  })))
+  assert(exit.some(animation => animation.property === '--hcv-summary-progress' && animation.time === 300), JSON.stringify(exit))
+  await expect.poll(inset).toBeLessThan(before - 2)
+  assert(await inset() > 0, 'The reserved space moves during the closing transition')
+  assert((await summary.boundingBox()).x > cardX, 'The summary slides right as the layout moves')
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  await cdp.send('Animation.setPlaybackRate', { playbackRate: 1 })
+  await expect.poll(inset).toBe(before)
+  await expect(summary).toBeVisible()
+  await screenshot('polish-summary-open.png')
+  await toggle.click()
+  await expect(summary).toBeHidden()
+  await expect.poll(inset).toBe(0)
+  await screenshot('polish-summary-closed.png')
+
+  const projects = sidebar.getByRole('button', { name: 'Проекты', exact: true })
+  const recent = sidebar.locator('[data-hcv-recents-toggle]')
+  const projectRegion = sidebar.locator('[data-sessions-mode="projects"] > [data-slot="sidebar-group"]:has([data-hcv-projects-header]) > [data-slot="sidebar-group-content"]')
+  await expect(projects).toHaveAttribute('aria-expanded', 'true')
+  await expect(projectRegion).toBeVisible()
+  const startTop = (await recent.boundingBox()).y
+  await cdp.send('Animation.setPlaybackRate', { playbackRate: .1 })
+  await projects.click()
+  await expect(projects).toHaveAttribute('aria-expanded', 'false')
+  await expect(projectRegion).toHaveAttribute('inert', '')
+  const closing = await projectRegion.evaluate(node => node.getAnimations().map(animation => animation.effect.getTiming()))
+  assert(closing.some(timing => timing.duration === 450 && timing.delay === 0), JSON.stringify(closing))
+  await expect.poll(async () => (await recent.boundingBox()).y).toBeLessThan(startTop - 12)
+  await projects.click()
+  await cdp.send('Animation.setPlaybackRate', { playbackRate: 1 })
+  await expect(projects).toHaveAttribute('aria-expanded', 'true')
+  await expect(projectRegion).not.toHaveAttribute('data-hcv-disclosure-motion', '')
+  await expect(projectRegion).not.toHaveAttribute('inert', '')
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await projects.click()
+  await expect(projectRegion).toHaveCount(0)
+  await toggle.click()
+  await expect(summary).toBeVisible()
+  assert.equal(await summary.evaluate(node => node.getAnimations().length), 0)
+  await screenshot('polish-projects-collapsed.png')
+
+  await navigation('capabilities').click()
+  await page.locator('[data-tour="tab-skills"]').click()
+  const cap = page.locator('html[data-hcv-screen="capabilities"] section.h-full.min-w-0.overflow-hidden')
+  const scope = cap.locator('div:has(> span + button[data-slot="select-trigger"] > [data-slot="select-value"]) > button')
+  await expect(scope).toBeVisible()
+  await scope.click()
+  const longProfile = 'visual-layout-long-profile-20261109'
+  await page.getByRole('option', { name: new RegExp(longProfile) }).click()
+  await expect(scope).toContainText(longProfile)
+  const fits = await scope.evaluate(button => {
+    const value = button.querySelector('[data-slot="select-value"]')
+    const arrow = button.querySelector('.codicon-chevron-down')
+    return value.getBoundingClientRect().right <= arrow.getBoundingClientRect().left &&
+      arrow.getBoundingClientRect().right < button.getBoundingClientRect().right &&
+      value.scrollWidth <= value.clientWidth + 1
+  })
+  assert(fits, 'The long profile and arrow fit inside the select')
+  await expect(page.locator('[data-tour="tab-skills"]')).toHaveCSS('height', '26px')
+  const filter = cap.locator('[data-catalog] button.row-hover[aria-pressed]').first()
+  await expect(filter).toHaveCSS('padding-inline-start', '6px')
+  await expect(filter).toHaveCSS('min-height', '26px')
+  const skill = cap.locator('[data-catalog-card]').first()
+  await expect(skill).toBeVisible()
+  await skill.hover()
+  await expect(skill).toHaveCSS('border-top-width', '1px')
+  await expect(skill).toHaveCSS('box-shadow', 'none')
+  await screenshot('polish-capabilities.png')
+  console.log(JSON.stringify({ tabs: tabLayout, cron: true, summary: exit, immediateProjectCollapse: true, profileFits: fits }))
+}

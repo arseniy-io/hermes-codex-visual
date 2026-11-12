@@ -12,6 +12,13 @@ export function registerShellSurfaces(ctx, active) {
   const openFolder = `${empty} > button`
   const rows = `${panel} :is([data-project-tree] [class~="group/row"], [class~="group/review-row"])`
   const panelActions = `${panel} :is([class~="group/project-header"], [class~="group/review-row"], [data-suppress-pane-reveal-side]) button[data-size="icon-xs"]`
+  // ReviewScopeRow renders both controls, with TabDropdown used by the native narrow layout.
+  const scopeRow = '[data-suppress-pane-reveal-side]:has(> div > button[aria-pressed]):has(> div > button[aria-haspopup="menu"])'
+  const reviewScope = `${panel} > ${scopeRow}`
+  const reviewHeader = `${panel}:has(> ${scopeRow}) > [class~="group/project-header"]`
+  const reviewPicker = `${reviewScope} > div > button[aria-haspopup="menu"]`
+  const reviewFooter = `${panel} > [data-suppress-pane-reveal-side]:has(> div > textarea):has(> div > button > span.underline)`
+  const askForPr = `${reviewFooter} > div > button:has(> span.underline)`
   const previewToolbar = `${active} .flex.h-full.flex-col.overflow-hidden.bg-transparent > .flex.h-7.shrink-0.items-center.justify-end.gap-3:has(> button.underline-offset-4, > div > button > :is(svg.tabler-icon-pencil, svg.tabler-icon-x))`
   const previewActions = `:is(${previewToolbar} > button, ${previewToolbar} > div > button)`
 
@@ -40,6 +47,24 @@ export function registerShellSurfaces(ctx, active) {
   ${overlay}.right-0 { border-start-start-radius: 12px; border-end-start-radius: 12px; }
   ${overlay}.left-0 { border-start-end-radius: 12px; border-end-end-radius: 12px; }
   ${header} { block-size: 32px; gap: 2px; padding-inline: 12px 6px; }
+  ${reviewHeader} { padding-inline: 8px; }
+  ${reviewScope} { padding: 0 8px 4px; }
+  ${reviewScope} > div:has(> button[aria-pressed]) { display: none; }
+  ${reviewScope} > div:has(> button[aria-haspopup="menu"]) { display: flex; block-size: auto; padding: 0; }
+  ${reviewPicker}, ${askForPr} {
+    min-inline-size: 0;
+    max-inline-size: 100%;
+    block-size: ${codex.quietControl.height};
+    border-radius: ${codex.quietControl.radius};
+    color: var(--hcv-muted);
+    font: 500 12px/16px var(--hcv-ui-font);
+  }
+  ${reviewPicker} { gap: 6px; padding-inline: 8px; }
+  ${reviewPicker} > .codicon { flex: none; }
+  ${codexIconRules(`${reviewPicker} > .codicon-chevron-down`, 'down')}
+  ${reviewFooter} { padding: 8px; gap: 4px; }
+  ${askForPr} { padding-inline: 8px 28px; background-color: transparent; }
+  ${askForPr} > span { text-decoration-line: none; }
   ${label} {
     gap: 6px;
     padding-inline-start: 0;
@@ -163,7 +188,7 @@ export function registerShellSurfaces(ctx, active) {
     text-transform: none;
   }
 
-  :is(${openFolder}, ${panelActions}, ${previewActions}, ${statusActions}, ${profiles} button, ${gatewayTools}, ${layouts} button):focus-visible {
+  :is(${openFolder}, ${panelActions}, ${previewActions}, ${statusActions}, ${profiles} button, ${gatewayTools}, ${layouts} button, ${reviewPicker}, ${askForPr}):focus-visible {
     outline: 2px solid var(--hcv-focus);
     outline-offset: -2px;
   }
@@ -171,6 +196,10 @@ export function registerShellSurfaces(ctx, active) {
 @media (forced-colors: none) and (hover: hover) {
   :is(${openFolder}, ${panelActions}, ${previewActions}:not(.bg-primary), ${statusActions}, ${gatewayTools}):hover:not(:disabled, [aria-disabled="true"]) {
     background-color: var(--hcv-hover-menu);
+  }
+  :is(${reviewPicker}, ${askForPr}):is(:hover, [data-state="open"]):not(:disabled) {
+    background-color: var(--hcv-hover-menu);
+    color: var(--hcv-text);
   }
   ${gatewayTools}:has(> svg.tabler-icon-power):hover { color: var(--destructive); }
   ${rows}:hover:not([aria-selected="true"]) { background-color: var(--hcv-hover); }

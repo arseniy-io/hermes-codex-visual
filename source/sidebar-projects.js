@@ -1,7 +1,7 @@
 import { host } from '@hermes/plugin-sdk'
 import { codexIconRules, codexIconStyle, codexReference as codex } from './codex-reference.js'
 import { nativeProjectActivity } from './sidebar-recents.js'
-import { attachSidebarChatOrder, sidebarChatOrderStyles } from './sidebar-chat-order.js'
+import { attachSidebarOrder, sidebarOrderStyles } from './sidebar-chat-order.js'
 
 const media = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
 const folderRows = '[data-sessions-project]:not([data-sessions-mode])'
@@ -54,16 +54,17 @@ function blockSize(node) {
 // Nothing is reparented or copied; the closing list stops receiving input.
 export function disclosure(button, native, region, regionId, timing = sectionMotion) {
   const direct = button === native
+  const toggle = typeof native === 'function' ? native : () => { if (native.isConnected) native.click() }
   const initialExpanded = button.getAttribute('aria-expanded')
   const initialControls = button.getAttribute('aria-controls')
   let pending = false
   let forwarding = false
   let motion
   let marked
-  function nativeClick() {
+  function toggleRegion() {
     forwarding = true
     try {
-      native.click()
+      toggle()
     } finally {
       forwarding = false
     }
@@ -84,12 +85,12 @@ export function disclosure(button, native, region, regionId, timing = sectionMot
   function play(node, opening, from, startOpacity) {
     cancel()
     if (!node.isConnected || media()) {
-      if (!opening && native.isConnected) nativeClick()
+      if (!opening && button.isConnected) toggleRegion()
       return
     }
     const natural = blockSize(node)
     if (!node.offsetHeight) {
-      if (!opening && native.isConnected) nativeClick()
+      if (!opening && button.isConnected) toggleRegion()
       return
     }
     const wasInert = node.inert
@@ -107,7 +108,7 @@ export function disclosure(button, native, region, regionId, timing = sectionMot
     const current = motion = { node, height, fade, closing: !opening, wasInert }
     height.onfinish = () => {
       if (motion !== current) return
-      if (!opening && native.isConnected && region() === node) nativeClick()
+      if (!opening && button.isConnected && region() === node) toggleRegion()
       cancel()
     }
   }
@@ -117,7 +118,7 @@ export function disclosure(button, native, region, regionId, timing = sectionMot
     const reduced = media()
     if (!node || reduced) {
       pending = !node && !reduced
-      if (!direct) nativeClick()
+      if (!direct) toggleRegion()
       return
     }
     if (direct) event.stopPropagation()
@@ -131,7 +132,7 @@ export function disclosure(button, native, region, regionId, timing = sectionMot
     if (!event.matches || !motion) return
     const closing = motion.closing && motion.node === region()
     cancel()
-    if (closing && native.isConnected) nativeClick()
+    if (closing && button.isConnected) toggleRegion()
   }
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
   button.addEventListener('click', onClick, direct)
@@ -185,6 +186,15 @@ function openNativeEdit(trigger, alive) {
   })
 }
 
+export function positionSidebarPreview(card, rect) {
+  const gap = codex.sidebar.previewOffset
+  const width = card.offsetWidth
+  const fitsRight = rect.right + width + gap + 8 <= innerWidth
+  const left = fitsRight ? rect.right + gap : rect.left - width - gap
+  card.style.left = `${Math.max(8, Math.min(innerWidth - width - 8, left))}px`
+  card.style.top = `${Math.max(8, Math.min(innerHeight - card.offsetHeight - 8, rect.top))}px`
+}
+
 function projectPreview(content, t) {
   const card = el('section', { 'data-hcv-project-preview': '' })
   card.hidden = true
@@ -226,12 +236,7 @@ function projectPreview(content, t) {
     if (!showing || !showing.row.isConnected || !content.isConnected) return close()
     const rect = showing.row.getBoundingClientRect()
     if (rect.bottom <= 0 || rect.top >= innerHeight) return close()
-    const width = card.offsetWidth
-    const height = card.offsetHeight
-    const gap = codex.sidebar.previewOffset
-    const left = rect.right + width + gap + 8 <= innerWidth ? rect.right + gap : rect.left - width - gap
-    card.style.left = `${Math.max(8, Math.min(innerWidth - width - 8, left))}px`
-    card.style.top = `${Math.max(8, Math.min(innerHeight - height - 8, rect.top))}px`
+    positionSidebarPreview(card, rect)
   }
   async function projectData(id) {
     const connection = host.state.connectionId.get()
@@ -338,7 +343,7 @@ function projectPreview(content, t) {
 export function attachProjects(content, t, storage) {
   const rows = new Map()
   const preview = projectPreview(content, t)
-  const chatOrder = attachSidebarChatOrder(content, storage)
+  const order = attachSidebarOrder(content, storage)
   let section
   let reveal
 
@@ -361,6 +366,7 @@ export function attachProjects(content, t, storage) {
     entry.toggle?.removeAttribute('data-hcv-native-project-action')
     entry.name.remove()
     entry.status.remove()
+    entry.empty?.remove()
     rows.delete(key)
   }
   function syncSection(tree) {
@@ -395,7 +401,7 @@ export function attachProjects(content, t, storage) {
       const mode = view?.dataset.sessionsMode
       if (reveal && (reveal.connection !== host.state.connectionId.get() || reveal.profile !== host.state.profile.get())) reveal = undefined
       if (mode === 'project') {
-        chatOrder.sync([])
+        order.sync({ chats: [], projects: [] })
         // Hermes can enter a project after launch from the palette, project
         // creation, or a restored scope. Use its own back action each time.
         const back = view.querySelector('button[class~="group/back"]')
@@ -422,15 +428,25 @@ export function attachProjects(content, t, storage) {
         const text = link?.textContent.trim()
         if (!text) continue
         const toggle = row.querySelector(':scope > div > button[data-row-actions]:has(> .codicon-chevron-right)')
+        const id = item.dataset.sessionsProject
+        const emptyKey = !toggle && id && id !== 'home'
+          ? JSON.stringify(['emptyProjectOpen', host.state.connectionId.get(), host.state.profile.get(), id])
+          : null
         seen.add(item)
         let entry = rows.get(item)
-        if (entry && (entry.link !== link || entry.toggle !== toggle)) {
+        let restoreFocus = false
+        let previousOpen
+        if (entry && (entry.link !== link || entry.toggle !== toggle || entry.emptyKey !== emptyKey)) {
+          restoreFocus = document.activeElement === entry.name
+          if (entry.toggle && !toggle) previousOpen = entry.name.ariaExpanded === 'true'
           clearRow(item, entry)
           entry = undefined
         }
         if (!entry) {
-          const name = el(toggle ? 'button' : 'span', {
-            ...(toggle ? { type: 'button', 'data-row-actions': '' } : {}),
+          const empty = emptyKey ? el('div', { 'data-hcv-project-empty': '' }) : null
+          const expandable = Boolean(toggle || empty)
+          const name = el(expandable ? 'button' : 'span', {
+            ...(expandable ? { type: 'button', 'data-row-actions': '' } : {}),
             'data-hcv-project-name': '',
           }, text)
           const status = projectStatus()
@@ -439,19 +455,36 @@ export function attachProjects(content, t, storage) {
           row.setAttribute('data-hcv-project-row', '')
           link.setAttribute('data-hcv-native-project-action', '')
           toggle?.setAttribute('data-hcv-native-project-action', '')
-          const id = item.dataset.sessionsProject
-          const region = () => item.querySelector(':scope > div.grid:not([data-hcv-project-row])')
-          const motion = toggle ? disclosure(name, toggle, region, `hcv-project-${encodeURIComponent(id)}`) : null
-          entry = { row, name, link, toggle, id, region, motion, status, menu: row.querySelector('[data-row-actions] button[aria-haspopup="menu"]') }
+          const region = empty
+            ? () => empty.hidden ? null : empty
+            : () => item.querySelector(':scope > div.grid:not([data-hcv-project-row])')
+          let action = toggle
+          if (empty) {
+            empty.hidden = !(previousOpen ?? storage.get(emptyKey, false) === true)
+            empty.append(el('span'))
+            item.append(empty)
+            action = () => {
+              empty.hidden = !empty.hidden
+              storage.set(emptyKey, !empty.hidden)
+            }
+          }
+          const motion = action ? disclosure(name, action, region, `hcv-project-${encodeURIComponent(id)}`) : null
+          entry = { item, row, name, link, toggle, id, region, motion, status, empty, emptyKey, menu: row.querySelector('[data-row-actions] button[aria-haspopup="menu"]') }
           entry.detach = preview.attach(entry)
           rows.set(item, entry)
+          if (restoreFocus && expandable) name.focus({ preventScroll: true })
         } else if (entry.name.textContent !== text) entry.name.textContent = text
+        const emptyLabel = entry.empty?.firstElementChild
+        if (emptyLabel) {
+          const label = t('recentEmpty')
+          if (emptyLabel.textContent !== label) emptyLabel.textContent = label
+        }
         entry.motion?.sync()
-        projectLists.push({ project: entry.id, list: entry.region() })
+        projectLists.push({ project: entry.id, list: entry.toggle ? entry.region() : null })
         showStatus(entry.status, entry.name.ariaExpanded === 'true' ? '' : activity.get(entry.id) || '', t)
       }
       for (const [key, entry] of rows) if (!seen.has(key)) clearRow(key, entry)
-      chatOrder.sync(projectLists)
+      order.sync({ chats: projectLists, projects: [...rows.values()] })
       if (section && reveal) {
         if (section.button.ariaExpanded === 'false') {
           if (reveal.header !== section.button) {
@@ -469,7 +502,7 @@ export function attachProjects(content, t, storage) {
       }
     },
     dispose() {
-      chatOrder.dispose()
+      order.dispose()
       for (const [key, entry] of rows) clearRow(key, entry)
       clearSection()
       preview.dispose()
@@ -484,13 +517,17 @@ export function projectSidebarStyles(active) {
   const caret = '[data-hcv-icon="sidebarDisclosure"]'
   const row = `${active} ${projectRow}`
   const preview = `${active} ${previewCard}`
+  const project = `${active} ${folderRows}`
+  const nameFont = '430 14px/21px var(--hcv-ui-font)'
   const actions = `${header} ${sectionActions}`
+  const rowActions = `${row} > [data-row-actions]`
+  const rowAction = `${rowActions} button`
   const status = '[data-hcv-project-status]'
   const unread = '[data-hcv-project-status="unread"]:not([hidden])'
   const unreadHeader = `${header}:has(> ${unread})`
   const readAction = 'button:has(> .codicon-check-all)'
   return `
-  ${sidebarChatOrderStyles(active)}
+  ${sidebarOrderStyles(active)}
   ${active} [data-hcv-native-project-action] { display: none !important; }
   ${active} [data-tour="sessions-sidebar"] [data-sessions-mode="project"]:has(button[class~="group/back"]) { visibility: hidden; }
   ${active} [data-hcv-disclosure-motion] {
@@ -512,16 +549,36 @@ export function projectSidebarStyles(active) {
     text-align: start;
     border-radius: 8px;
     color: var(--hcv-text);
-    font: 400 13px/20px var(--hcv-ui-font);
+    font: ${nameFont};
   }
   ${row} button[data-hcv-project-name] { cursor: pointer; }
+  ${project} .hover-marquee-inner { font: ${nameFont}; line-height: 20px; }
+  ${project} > [data-hcv-project-empty] {
+    padding: 4px 32px;
+    color: var(--hcv-muted);
+    font: ${nameFont};
+  }
+  ${project} > [data-hcv-project-empty] > span { opacity: .5; }
   ${row} { position: relative; }
-  ${row}[data-hcv-preview-open] { background: var(--hcv-hover); }
+  ${row}:is(:hover, [data-hcv-preview-open], [data-state="open"], :has(> [data-row-actions] button[data-state="open"])) {
+    background: var(--hcv-hover);
+  }
+  ${rowActions} { padding-inline-end: 4px; }
+  ${rowActions}, ${rowActions} > div[class~="group/group-actions"] > div { column-gap: 8px; }
+  ${rowAction} {
+    inline-size: 20px; block-size: 20px; padding: 0;
+    border-color: transparent; background: transparent; box-shadow: none; color: var(--hcv-muted);
+  }
+  ${rowAction}::before { content: none; }
+  ${rowAction}:is(:hover, :focus-visible, [data-state="open"]) {
+    border-color: transparent; background: transparent; box-shadow: none; color: var(--hcv-text);
+  }
+  ${rowAction} > .codicon { font-size: 14px !important; }
   ${row}:has(> ${status}:not([hidden])) { padding-inline-end: 23px; }
   ${row} > ${status} {
     position: absolute; inset-inline-end: 5px; inset-block-start: 50%; translate: 0 -50%;
   }
-  ${row}:has(> [data-row-actions]):is(:hover, :has(:focus-visible), [data-hcv-preview-open]) > ${status} { opacity: 0; }
+  ${row}:has(> [data-row-actions]):is(:hover, :has(:focus-visible, [data-state="open"]), [data-hcv-preview-open], [data-state="open"]) > ${status} { opacity: 0; }
   ${header} { min-block-size: 32px; padding: 0 4px 0 8px; column-gap: 0; }
   ${active} ${toggle} {
     display: flex; align-items: center; gap: 4px; min-block-size: 28px;
@@ -562,17 +619,22 @@ export function projectSidebarStyles(active) {
   ${preview} :is(header, [data-hcv-project-preview-row]):not([hidden]) {
     display: grid; grid-template-columns: 16px minmax(0, 1fr); align-items: center; gap: 6px;
   }
-  ${preview} header { font: 500 14px/24px var(--hcv-ui-font); }
+  ${preview} header { font: 500 14px/20px var(--hcv-ui-font); }
   ${preview} header > :last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  ${preview} [data-hcv-project-preview-row] { font-size: 13px; }
   ${preview} :is([data-hcv-project-preview-path], [data-hcv-project-preview-edit]) {
     border-block-start: 1px solid var(--hcv-hairline); padding-block-start: 6px;
   }
   ${preview} [data-hcv-project-preview-path] > :last-child { word-break: break-all; }
   ${preview} [data-hcv-icon] { display: inline-block; inline-size: 16px; block-size: 16px; flex: none; color: var(--hcv-muted); }
   ${preview} button { inline-size: 100%; text-align: start; border-radius: 6px; cursor: pointer; }
+  @supports (corner-shape: superellipse(1.5)) {
+    ${preview} { border-radius: ${codex.sidebar.previewRadius * 1.25}px; corner-shape: superellipse(1.5); }
+  }
   ${active} :is(${sectionHeader}, ${previewCard}) button:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }
+  ${preview} button:focus-visible { background: var(--hcv-dropdown-hover); outline-offset: 0; }
   @media (hover: hover) and (pointer: fine) {
-    ${preview} button:hover { background: var(--hcv-hover); }
+    ${preview} button:hover { background: var(--hcv-dropdown-hover); }
   }
   @media (any-hover: none) {
     ${actions} button { opacity: 1; }
@@ -581,6 +643,7 @@ export function projectSidebarStyles(active) {
     ${preview} { transition: opacity 150ms var(--hcv-enter), scale 150ms var(--hcv-enter), display 150ms allow-discrete; }
     ${preview}[hidden] { transition: opacity 100ms var(--hcv-exit), scale 100ms var(--hcv-exit), display 100ms allow-discrete; }
     @starting-style { ${preview}:not([hidden]) { opacity: 0; scale: .95; } }
+    ${preview} button { transition: background-color 150ms var(--hcv-enter); }
     ${active} ${toggle} ${caret} { transition: opacity 150ms var(--hcv-enter), rotate 150ms var(--hcv-enter); }
   }
 `

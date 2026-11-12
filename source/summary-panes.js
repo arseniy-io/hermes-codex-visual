@@ -3,7 +3,7 @@ import {
   DropdownMenuTrigger, host, useI18n, useValue,
 } from '@hermes/plugin-sdk'
 import { createElement as h } from 'react'
-import { codexIconStyle } from './codex-reference.js'
+import { codexIconStyle, codexReference as codex } from './codex-reference.js'
 
 const workspacePrefix = 'hermes-codex-visual-summary-'
 const panePrefix = 'plugin-workspace:' + workspacePrefix
@@ -75,6 +75,7 @@ export function registerSummaryPanes(ctx, active, views) {
   const plus = document.createElement('button')
   plus.type = 'button'
   plus.dataset.hcvSummaryAddTab = ''
+  plus.setAttribute('aria-haspopup', 'menu')
   plus.addEventListener('pointerdown', event => event.stopPropagation())
   plus.addEventListener('click', () => {
     const { x, y, width, height } = plus.getBoundingClientRect()
@@ -107,19 +108,25 @@ export function registerSummaryPanes(ctx, active, views) {
   const stripObserver = new MutationObserver(queue)
   stripObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-selected'] })
 
-  const tab = active + ' [data-tree-tab^="' + panePrefix + '"]'
+  const tab = active + ' [data-zone-tabstrip] [role="tab"][data-tree-tab^="' + panePrefix + '"][aria-selected]:has(> .pane-tab-content):not([data-vertical])'
   const style = document.createElement('style')
   style.dataset.hcvSummaryPanes = ''
   style.textContent = [
     '@media (forced-colors: none) {',
     active + ' [data-hcv-summary-pane] { height: 100%; min-height: 0; min-width: 0; overflow: hidden; background: var(--hcv-chat); color: var(--hcv-text); font: 13px/20px var(--hcv-ui-font); }',
-    tab + ' { flex: 0 1 204px; min-inline-size: 72px; min-block-size: 28px; border-radius: 8px; font: 13px/20px var(--hcv-ui-font); }',
-    tab + '[aria-selected="true"] { background: var(--hcv-selected); box-shadow: inset 0 0 0 .5px var(--hcv-hairline); }',
-    ...Object.keys(views).map(kind => active + ' ' + paneTab(kind) + ' .pane-tab-content::before { content: ""; display: inline-block; inline-size: 16px; block-size: 16px; flex: none; margin-inline-start: 8px; background: currentColor; mask: ' + codexIconStyle(glyphs[kind]).mask + '; }'),
+    // App shell tab in Codex 961657.80cc563d2f.js, desktop tokens in 9ec44337a842.css.
+    tab + ' { align-self: center; flex: 0 1 204px; min-inline-size: 72px; block-size: 32px; border-radius: 8px; border-inline-start-color: transparent; background-color: transparent; color: light-dark(rgb(26 28 31 / 50%), rgb(255 255 255 / 50%)); }',
+    tab + ' .pane-tab-content .truncate { color: inherit; font: 430 13px/18.5714px var(--hcv-ui-font); letter-spacing: normal; text-transform: none; }',
+    tab + ' .pane-tab-content > span:first-child { margin-inline: 0; }',
+    tab + ':not([aria-selected="true"], [data-selected]):hover { background-color: light-dark(rgb(26 28 31 / 5%), rgb(255 255 255 / 8%)); color: var(--hcv-text); box-shadow: none; }',
+    tab + '[data-selected] { background-color: var(--hcv-selected); color: var(--hcv-text); }',
+    tab + '[aria-selected="true"] { background-color: light-dark(var(--hcv-chat), var(--hcv-selected)); color: var(--hcv-text); box-shadow: inset 0 0 0 .5px var(--hcv-hairline); }',
+    ...Object.keys(views).map(kind => tab + paneTab(kind) + ' .pane-tab-content::before { content: ""; display: inline-block; inline-size: 16px; block-size: 16px; flex: none; margin-inline-start: 6px; background: currentColor; mask: ' + codexIconStyle(glyphs[kind]).mask + '; }'),
     active + ' [data-hcv-summary-picker] [data-hcv-icon] { display: inline-block; inline-size: 16px; block-size: 16px; flex: none; }',
-    active + ' [data-hcv-summary-add-tab] { -webkit-app-region: no-drag; align-self: center; flex: none; inline-size: 24px; block-size: 24px; margin-inline-start: 4px; border-radius: 8px; color: var(--hcv-muted); }',
-    active + ' [data-hcv-summary-add-tab]::before { content: ""; display: inline-block; inline-size: 14px; block-size: 14px; vertical-align: middle; background: currentColor; mask: ' + codexIconStyle('plus').mask + '; }',
+    active + ' [data-hcv-summary-add-tab] { -webkit-app-region: no-drag; align-self: center; display: grid; place-items: center; flex: none; inline-size: ' + codex.quietControl.height + '; block-size: ' + codex.quietControl.height + '; margin-inline-start: 4px; border-radius: ' + codex.quietControl.radius + '; color: var(--hcv-muted); }',
+    active + ' [data-hcv-summary-add-tab]::before { content: ""; display: block; inline-size: 16px; block-size: 16px; background: currentColor; mask: ' + codexIconStyle('plus').mask + '; }',
     active + ' [data-hcv-summary-add-tab]:hover { background: var(--hcv-hover); color: var(--hcv-text); }',
+    tab + ':focus-visible, ' + active + ' [data-hcv-summary-add-tab]:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }',
     active + ' [data-hcv-summary-picker] { min-inline-size: 170px; }',
     '}',
   ].join('\n')

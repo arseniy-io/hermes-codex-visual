@@ -13,6 +13,7 @@ const transcript = '[data-slot="aui_thread-content"]'
 const pair = '[data-slot="aui_turn-pair"]'
 const prompt = '[data-slot="aui_user-message-root"][data-message-id]'
 const generated = '[data-hcv-agent-rows]'
+const agentAvatar = 'data-hcv-delegate-avatar'
 const notice = '[data-slot="aui_system-message-root"] [data-slot="aui_background-result"]'
 const final = (status) => ['completed', 'failed', 'interrupted'].includes(status)
 const isActive = ({ status }) => status === 'running' || status === 'queued'
@@ -46,7 +47,7 @@ const language = () => document.documentElement.lang.toLowerCase().startsWith('r
 
 const assetUrls = new Map()
 function avatarUrl(seed, dark) {
-  // Keep an agent's badge stable when the theme changes.
+  // Keep an agent’s badge stable when the theme changes.
   let hash = 0
   for (let i = 0; i < seed.length; i++) hash = (31 * hash + seed.charCodeAt(i)) % 0x7fffffff
   const index = hash % agentAvatars.length
@@ -183,7 +184,7 @@ function eventActivity(event, previous) {
 
 function activityRows(agents) {
   return ['started', 'queued', 'dispatched', 'completed', 'failed', 'interrupted'].map((kind) => [
-    kind, agents.filter((agent) => kind === 'started' ? agent.started : agent.status === kind),
+    kind, agents.filter((agent) => agent.status === (kind === 'started' ? 'running' : kind)),
   ]).filter(([, list]) => list.length)
 }
 
@@ -239,10 +240,35 @@ function enhanceCard(card, id, expanded, key) {
     if (expanded.size > 100) expanded.delete(expanded.values().next().value)
   })
   card.before(rows)
-  return { rows, remove() {
+  return { rows, glyphs: new Map(), remove() {
     rows.remove()
+    for (const glyph of this.glyphs.keys()) {
+      glyph.removeAttribute(agentAvatar)
+      glyph.style.removeProperty('--hcv-delegate-avatar')
+    }
     if (assigned && card.id === assignedId) card.removeAttribute('id')
   } }
+}
+
+function styleDelegateRows(state, agents, dark) {
+  const previous = state.glyphs
+  const next = new Map()
+  for (const { button, seed } of agents) {
+    const glyph = button.previousElementSibling
+    if (!glyph) continue
+    const image = avatarUrl(seed, dark)
+    if (previous.get(glyph) !== image) {
+      glyph.setAttribute(agentAvatar, '')
+      glyph.style.setProperty('--hcv-delegate-avatar', 'url("' + image + '")')
+    }
+    next.set(glyph, image)
+  }
+  for (const glyph of previous.keys()) {
+    if (next.has(glyph)) continue
+    glyph.removeAttribute(agentAvatar)
+    glyph.style.removeProperty('--hcv-delegate-avatar')
+  }
+  state.glyphs = next
 }
 
 function localWatchProfile(agent, scope) {
@@ -344,16 +370,33 @@ function css(active) {
   const chat = active + ' ' + surface
   const card = active + ' [data-hcv-context-card] [data-hcv-summary-agents]'
   const rows = chat + ' ' + generated
+  const native = rows + ' + ' + delegate
+  const task = native + ' > div'
+  const line = task + ' > [data-conversation-scaffold]'
+  const glyph = line + ' > [' + agentAvatar + ']'
   return [
     '@media (forced-colors: none) {',
-    rows + ':is(button) { display: grid; inline-size: 100%; gap: 4px; min-inline-size: 0; border-radius: 6px; text-align: start; cursor: pointer; }',
+    rows + ':is(button) { display: grid; inline-size: fit-content; max-inline-size: 100%; gap: 4px; min-inline-size: 0; border-radius: 6px; text-align: start; cursor: pointer; }',
     rows + ':is(div) { display: grid; gap: 4px; }',
     rows + '[aria-expanded="false"] + ' + delegate + ' { display: none; }',
-    rows + ' [data-hcv-agent-activity] { display: flex; align-items: baseline; gap: 6px; min-block-size: 24px; color: var(--hcv-muted); font-size: var(--conversation-text-font-size); line-height: var(--conversation-line-height); }',
-    rows + ' [data-hcv-agent-activity] > span:last-child { min-inline-size: 0; overflow-wrap: anywhere; }',
+    rows + ' [data-hcv-agent-activity] { display: flex; align-items: center; gap: 4px; min-inline-size: 0; color: var(--hcv-activity-text); font-size: var(--hcv-activity-font); line-height: 1.5; }',
+    rows + ' [data-hcv-agent-activity] > span:last-child { min-inline-size: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }',
+    rows + ':is(button) [data-hcv-agent-activity]:last-child::after { content: ""; flex: none; inline-size: 12px; block-size: 12px; background: var(--hcv-activity-glyph); mask: ' + codexMask('right') + ' center / contain no-repeat; opacity: 0; }',
+    rows + ':is(:hover, :focus-visible, [aria-expanded="true"]) [data-hcv-agent-activity]:last-child::after { opacity: 1; }',
+    rows + '[aria-expanded="true"] [data-hcv-agent-activity]:last-child::after { rotate: 90deg; }',
+    '@media (prefers-reduced-motion: no-preference) { ' + rows + ' [data-hcv-agent-activity]:last-child::after { transition: rotate 300ms; } }',
     rows + ':hover [data-hcv-agent-activity], ' + rows + ':focus-visible [data-hcv-agent-activity] { color: var(--hcv-text); }',
     active + ' [data-hcv-agent-icons] { display: inline-flex; flex: none; align-items: center; align-self: flex-start; gap: 4px; min-block-size: var(--conversation-line-height, 21px); }',
     active + ' [data-hcv-agent-icons] img, ' + card + ' li img { inline-size: .875rem; block-size: .875rem; flex: none; }',
+    rows + ' [data-hcv-agent-icons] img { inline-size: 16px; block-size: 16px; }',
+    native + ' { gap: 4px; margin-inline-start: 8px; padding-inline-start: 16px; border-inline-start: 1px solid var(--hcv-activity-border); }',
+    task + ' { padding: 0; border: 0; border-radius: 0; }',
+    line + ' { opacity: 1; gap: 4px; --conversation-tool-font-size: var(--hcv-activity-font); --conversation-scaffold-text: var(--hcv-activity-text); }',
+    line + ' > .codicon-agent { display: none; }',
+    line + ' > button:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; border-radius: 6px; }',
+    glyph + ' { position: relative; inline-size: 16px; block-size: 16px; }',
+    glyph + ':not(:has([role="status"], svg.text-destructive)) { background: var(--hcv-delegate-avatar) center / contain no-repeat; }',
+    glyph + ':not(:has([role="status"], svg.text-destructive)) > * { position: absolute; inline-size: 1px; block-size: 1px; clip-path: inset(50%); overflow: hidden; }',
     card + ' { border-block-start: 1px solid color-mix(in srgb, var(--hcv-muted) 14%, transparent); margin-block-start: 6px; padding-block-start: 7px; color: var(--hcv-muted); }',
     card + ' [data-hcv-agents-heading] { min-block-size: 28px; display: flex; align-items: center; font-size: 12px; }',
     card + ' summary { position: relative; color: var(--hcv-muted); list-style: none; cursor: pointer; gap: 6px; }',
@@ -539,6 +582,7 @@ export function registerSubagents(ctx, active) {
       }
       const state = cards.get(card)
       if (state.rows.nextElementSibling !== card) card.before(state.rows)
+      styleDelegateRows(state, entries, dark)
       renderActivity(state, entries, lang, dark)
     }
 

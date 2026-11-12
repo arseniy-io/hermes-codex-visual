@@ -230,7 +230,7 @@ export function AgentPane({ agents, scope, lang, dark, avatarUrl, nativeActions,
 
 export function agentPaneStyles(active) {
   const pane = active + ' [data-hcv-subagents-pane]'
-  // Codex 26.1103.7773.0: 829094/JNYD → 301018/bw7M, e77f816560c6.css.
+  // Codex Desktop 26.1106.6628.0: 400463/JNYD → 301018/bw7M, 9ec44337a842.css.
   // The native panel provides the tab strip and its outer geometry.
   return `
 ${pane} {
@@ -238,6 +238,8 @@ ${pane} {
   color: var(--hcv-text, var(--foreground)); background: var(--hcv-chat, var(--background));
   font-family: var(--hcv-ui-font, var(--font-sans));
   --hcv-agent-muted: var(--hcv-muted, var(--muted-foreground));
+  --hcv-agent-tertiary: light-dark(rgb(26 28 31 / 50%), rgb(255 255 255 / 50%));
+  --hcv-agent-row-hover: light-dark(rgb(249 249 249 / 92%), rgb(0 0 0 / 92%));
   --hcv-agent-divider: var(--hcv-hairline, var(--border));
 }
 ${pane} [hidden] { display: none !important; }
@@ -247,24 +249,26 @@ ${pane} [data-hcv-subagent-column] { margin-inline: auto; max-inline-size: var(-
 ${pane} [data-hcv-subagent-group="done"] { margin-block-start: 24px; }
 ${pane} [data-hcv-subagent-group] h2 {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  margin: 0 0 8px; padding-inline: 8px; color: var(--hcv-agent-muted);
-  font-size: 13px; font-weight: 400; line-height: 20px;
+  margin: 0 0 8px; padding-inline: 8px; color: var(--hcv-agent-tertiary);
+  font-size: 13px; font-weight: 430; line-height: 18.5714px;
 }
+${pane} [data-hcv-subagent-group] h2 > span { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 ${pane} [data-hcv-subagent-group] h2 small { flex: none; font-size: 12px; font-variant-numeric: tabular-nums; }
 ${pane} [data-hcv-subagent-group] ul { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
 ${pane} [data-hcv-subagent-row] {
   display: flex; align-items: flex-start; gap: 12px; min-block-size: 40px; inline-size: 100%;
   padding: 8px; border: 0; border-radius: 10px; background: transparent; text-align: start; cursor: pointer;
 }
+${pane} [data-hcv-subagent-row]:not(:has([data-hcv-subagent-preview])) { align-items: center; }
 ${pane} [data-hcv-subagent-avatar] { display: block; inline-size: 24px; block-size: 24px; flex: none; }
 ${pane} [data-hcv-subagent-row-body] { display: block; min-inline-size: 0; flex: 1; }
 ${pane} [data-hcv-subagent-row-title] { display: flex; align-items: center; gap: 8px; min-block-size: 24px; font-size: 13px; line-height: 20px; }
 ${pane} :is([data-hcv-subagent-name], [data-hcv-subagent-model], [data-hcv-subagent-preview]) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 ${pane} [data-hcv-subagent-name] { min-inline-size: 0; flex: 1; unicode-bidi: plaintext; }
-${pane} [data-hcv-subagent-trailing] { flex: none; color: var(--hcv-agent-muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+${pane} [data-hcv-subagent-trailing] { flex: none; color: var(--hcv-agent-tertiary); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 ${pane} [data-hcv-subagent-trailing]:empty { display: none; }
 ${pane} :is([data-hcv-subagent-empty], [data-hcv-subagent-preview]) { color: var(--hcv-agent-muted); font-size: 13px; line-height: 20px; }
-${pane} [data-hcv-subagent-empty] { margin: 0; padding: 4px 8px; }
+${pane} [data-hcv-subagent-empty] { margin: 0; padding: 4px 8px; color: var(--hcv-agent-tertiary); }
 ${pane} [data-hcv-subagent-preview] { display: block; unicode-bidi: plaintext; }
 ${pane} [data-hcv-subagent-more] {
   margin-block-start: 8px; margin-inline-start: 44px; min-block-size: 26px; padding-inline: 6px;
@@ -276,7 +280,7 @@ ${pane} [data-hcv-subagent-header] {
   padding: 0 16px; border-block-end: 1px solid var(--hcv-agent-divider); flex: none;
 }
 ${pane} [data-hcv-subagent-header] h2 { margin: 0; font-size: 13px; font-weight: 500; line-height: 20px; }
-${pane} [data-hcv-subagent-model] { flex: 0 1 auto; max-inline-size: 50%; color: var(--hcv-agent-muted); font-size: 12px; }
+${pane} [data-hcv-subagent-model] { flex: 0 1 auto; max-inline-size: 50%; color: var(--hcv-agent-tertiary); font-size: 12px; }
 ${pane} [data-hcv-subagent-back] {
   display: grid; place-items: center; inline-size: 24px; block-size: 24px; flex: none;
   border-radius: 8px; color: var(--hcv-agent-muted); cursor: pointer;
@@ -304,6 +308,10 @@ ${pane} [data-hcv-subagent-actions] button {
 }
 ${pane} :is(button, summary):focus-visible { outline: 2px solid var(--hcv-focus, Highlight); outline-offset: -2px; }
 ${pane} :is(button, summary):is(:hover, :focus-visible) { background: var(--hcv-hover, var(--muted)); color: var(--hcv-text, var(--foreground)); }
+${pane} :is([data-hcv-subagent-row], [data-hcv-subagent-back]):is(:hover, :focus-visible) {
+  background: var(--hcv-agent-row-hover);
+}
+${pane} :is([data-hcv-subagent-row], [data-hcv-subagent-back]):focus-visible { outline-offset: 0; }
 @media (forced-colors: active) {
   ${pane} :is(button, summary):focus-visible { outline-color: Highlight; }
   ${pane} [data-hcv-subagent-glyph] { forced-color-adjust: none; color: ButtonText; }

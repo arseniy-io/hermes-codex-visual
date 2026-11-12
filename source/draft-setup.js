@@ -151,7 +151,6 @@ function newDraftBar(form, current, localEnvironment) {
   let connection
   let dataScope
   let worktree = { label: '', branch: '' }
-  let version = 0
   let bridge
   let disposed = false
   const scope = () => JSON.stringify([host.state.connectionId.get(), host.state.profile.get()])
@@ -163,15 +162,16 @@ function newDraftBar(form, current, localEnvironment) {
   const projects = button('folder', labels().noProject)
   const device = button('laptop', labels().device)
   const gear = button('settings', '')
-  const search = node('input', { type: 'search', autofocus: '', 'data-hcv-draft-search': '' })
+  const search = node('input', { type: 'search', 'data-hcv-draft-search': '' })
   const results = node('div', { 'data-hcv-draft-projects': '' })
   const create = button('plus', labels().create, () => void createProject())
   const noProject = button('close', labels().none, () => void selectProject(null))
   const projectFooter = node('div', { 'data-hcv-draft-menu-footer': '' })
   projectFooter.append(create.element, noProject.element)
   const searchRow = node('label', { 'data-hcv-draft-search-row': '' })
-  searchRow.append(icon('search'), search)
-  projectMenu.append(searchRow, results, projectFooter)
+  const separator = () => node('div', { 'data-hcv-draft-menu-separator': '', role: 'separator' })
+  searchRow.append(icon('activitySearch'), search)
+  projectMenu.append(searchRow, separator(), results, separator(), projectFooter)
 
   function bind(opener, popup, end = false) {
     opener.popoverTargetElement = popup
@@ -182,7 +182,6 @@ function newDraftBar(form, current, localEnvironment) {
     })
     popup.addEventListener('toggle', (event) => {
       opener.setAttribute('aria-expanded', String(event.newState === 'open'))
-      if (event.newState === 'open') position(popup, opener, end)
     })
     popup.addEventListener('keydown', (event) => {
       if (event.key !== 'Escape' || event.isComposing || event.defaultPrevented) return
@@ -284,10 +283,13 @@ function newDraftBar(form, current, localEnvironment) {
   environment.element.append(envValue, icon('right'))
   const gitOptions = node('div', { 'data-hcv-draft-branches': '' })
   const gitSetup = node('div', { 'data-hcv-draft-git-setup': '' })
+  let branchRequest
   gitSetup.append(newWorktree.element, branch.element, environment.element)
   gearMenu.append(gitHeading, gitSetup, gitOptions)
   gearMenu.addEventListener('beforetoggle', (event) => {
     if (event.newState !== 'open') return
+    branchRequest = null
+    branch.element.removeAttribute('aria-busy')
     newWorktree.element.disabled = !localGit() || !(worktreeTrigger() || worktree.projectId)
     branch.element.disabled = !localGit()
     const cwd = host.state.cwd.get()
@@ -308,13 +310,20 @@ function newDraftBar(form, current, localEnvironment) {
     const git = localGit()
     const cwd = host.state.cwd.get()
     const key = scope()
-    if (!git || !cwd) return
+    if (!git || !cwd || branchRequest) return
+    const pending = git.branchList(cwd).catch(() => null)
+    branchRequest = pending
+    branch.element.setAttribute('aria-busy', 'true')
+    branchValue.textContent = labels().loading
+    const ready = () => activeHere(key) && cwd === host.state.cwd.get() && gearMenu.matches(':popover-open')
+    const branches = await pending
+    if (branchRequest !== pending) return
+    branchRequest = null
+    branch.element.removeAttribute('aria-busy')
+    branchValue.textContent = worktree.branch || labels().noBranch
+    if (!ready()) return
     gitSetup.hidden = true
     gitHeading.textContent = labels().branch
-    gitOptions.replaceChildren(node('p', { role: 'status' }, labels().loading))
-    const ready = () => activeHere(key) && cwd === host.state.cwd.get() && gearMenu.matches(':popover-open')
-    const branches = await git.branchList(cwd).catch(() => null)
-    if (!ready()) return
     const localBranches = branches?.filter(row => !row.isRemote && row.name) || []
     if (!localBranches.length) {
       gitOptions.replaceChildren(node('p', { role: 'status' }, labels().branchError))
@@ -342,17 +351,20 @@ function newDraftBar(form, current, localEnvironment) {
       }
       return row
     }))
-    gitOptions.querySelector('[aria-current="true"], button')?.focus()
+    gitOptions.querySelector('[aria-current="true"], button')?.focus({ preventScroll: true })
   }
 
   let catalog
+  let catalogRequest
   function renderProjects() {
     const text = search.value.trim().toLowerCase()
     const cwd = normalized(host.state.cwd.get())
     const list = catalog?.filter(({ label, path }) => (label + ' ' + path).toLowerCase().includes(text)) || []
+    const focusedPath = results.contains(document.activeElement) ? document.activeElement.title : null
     if (!list.length) {
-      const message = catalog === null ? labels().projectError : catalog ? labels().empty : labels().loading
+      const message = catalog ? labels().empty : catalog === null || !canRequest() ? labels().projectError : labels().loading
       results.replaceChildren(node('p', { role: 'status' }, message))
+      if (focusedPath) search.focus({ preventScroll: true })
       return
     }
     results.replaceChildren(...list.map(({ label, path }) => {
@@ -364,28 +376,41 @@ function newDraftBar(form, current, localEnvironment) {
       }
       return row
     }))
+    if (focusedPath) {
+      const target = Array.from(results.children).find(item => item.title === focusedPath) || search
+      target.focus({ preventScroll: true })
+    }
   }
 
-  projectMenu.addEventListener('toggle', async (event) => {
-    if (event.newState !== 'open') return
-    const key = scope()
-    const requestId = ++version
-    catalog = undefined
-    search.value = ''
-    search.focus()
-    renderProjects()
-    try {
-      if (!canRequest()) throw new Error('Gateway unavailable')
-      const reply = await request('projects.tree', { preview_limit: 1 })
-      if (!activeHere(key) || requestId !== version || !projectMenu.matches(':popover-open')) return
-      catalog = (reply.projects || []).filter(row => !row.isNoProject && row.label)
+  function loadCatalog(key) {
+    if (catalogRequest || !canRequest()) return
+    const pending = request('projects.tree', { preview_limit: 1 }).then(reply =>
+      (reply.projects || []).filter(row => !row.isNoProject && row.label)
         .map(row => ({ label: row.label, path: row.path || row.repos?.find(repo => repo.path)?.path }))
         .filter(row => typeof row.path === 'string' && row.path.trim())
-    } catch {
-      if (!activeHere(key) || requestId !== version) return
-      catalog = null
-    }
+    ).catch(() => catalog ?? null)
+    catalogRequest = pending
+    void pending.then(next => {
+      if (catalogRequest !== pending) return
+      catalogRequest = null
+      if (!activeHere(key) || JSON.stringify(next) === JSON.stringify(catalog)) return
+      catalog = next
+      if (projectMenu.matches(':popover-open')) renderProjects()
+    })
+  }
+
+  projectMenu.addEventListener('beforetoggle', (event) => {
+    if (event.newState !== 'open') return
+    results.style.blockSize = catalog === undefined && canRequest() ? '84px' : ''
+    search.value = ''
     renderProjects()
+    loadCatalog(scope())
+  })
+  projectMenu.addEventListener('toggle', (event) => {
+    if (event.newState !== 'open') return
+    // Keep the menu and search stationary while rows arrive or are filtered.
+    results.style.blockSize = results.getBoundingClientRect().height + 'px'
+    search.focus({ preventScroll: true })
   })
   search.addEventListener('input', renderProjects)
   projectMenu.addEventListener('keydown', (event) => {
@@ -482,11 +507,14 @@ function newDraftBar(form, current, localEnvironment) {
     const cwd = host.state.cwd.get()
     if (key !== dataScope) {
       dataScope = key
+      catalog = undefined
+      catalogRequest = null
       worktree = { label: '', branch: '' }
       const active = host.state.connectionId.get()
       connection = active && active !== 'local' ? { kind: 'remote', label: '…' } : null
       for (const menu of [projectMenu, localMenu, gearMenu]) menu.hidePopover()
     }
+    if (catalog === undefined) loadCatalog(key)
     localize()
     const active = host.state.connectionId.get()
     const [devices, info] = await Promise.all([
@@ -532,6 +560,8 @@ function newDraftBar(form, current, localEnvironment) {
 function styles(active) {
   const draft = active + ' ' + toolbar
   const menu = active + ' [data-hcv-draft-menu]'
+  const projectMenu = menu + '[data-hcv-draft-menu="projects"]'
+  const projectSearch = projectMenu + ' [data-hcv-draft-search]'
   const native = active + ' [data-hcv-draft-native-menu]'
   const popper = active + ' [data-radix-popper-content-wrapper]:has(> [data-hcv-draft-native-menu])'
   const control = '[data-hcv-draft-button]'
@@ -559,12 +589,21 @@ function styles(active) {
     menu + ' ' + control + ' > ' + glyph + '[data-hcv-draft-icon="check"] { margin-inline-start: auto; }',
     active + ' [data-hcv-draft-menu-heading] { min-block-size: 28px; display: flex; align-items: center; padding-inline: 8px; color: var(--hcv-muted); }',
     draft + ' [data-hcv-draft-detail] { margin-inline-start: auto; color: var(--hcv-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }',
-    draft + ' [data-hcv-draft-search-row] { display: flex; min-block-size: 36px; margin-inline: 4px; padding-inline: 3px; gap: 6px; align-items: center; color: var(--hcv-muted); border-block-end: 1px solid var(--hcv-hairline); }',
-    draft + ' [data-hcv-draft-search-row]:focus-within { color: var(--hcv-text); background: color-mix(in srgb, var(--hcv-text) 3%, transparent); }',
-    draft + ' [data-hcv-draft-search] { inline-size: 100%; min-inline-size: 0; min-block-size: 30px; background: transparent; color: var(--hcv-text); outline: none; }',
-    draft + ' [data-hcv-draft-projects] { max-block-size: min(40vh, 230px); overflow-y: auto; overscroll-behavior: contain; padding-block: 4px; }',
-    draft + ' :is([data-hcv-draft-projects], [data-hcv-draft-branches]) p { margin: 0; padding: 7px; color: var(--hcv-muted); }',
-    draft + ' [data-hcv-draft-menu-footer] { border-block-start: 1px solid var(--hcv-stroke); padding-block-start: 4px; }',
+    // Codex Desktop: ZZgR menu input and bqtn separator used by Rvqv.
+    projectMenu + ' { max-block-size: min(350px, var(--hcv-draft-max-height, 60vh)); border: 0; border-radius: var(--hcv-dropdown-radius); background: var(--hcv-dropdown-background); color: var(--hcv-dropdown-text); font: 430 13px/calc(1.25 / .875) var(--hcv-ui-font); box-shadow: var(--hcv-dropdown-shadow); }',
+    projectMenu + ' [data-hcv-draft-search-row] { display: flex; align-items: center; gap: 6px; padding: 5px 8px; color: var(--hcv-dropdown-muted); }',
+    projectSearch + ' { flex: 1; min-inline-size: 0; appearance: none; padding: 0; border: 0; background: transparent; color: var(--hcv-dropdown-text); font: inherit; outline: none; box-shadow: none; }',
+    projectSearch + '::placeholder { color: var(--hcv-dropdown-muted); opacity: 1; }',
+    projectSearch + '::-webkit-search-cancel-button { appearance: none; }',
+    projectMenu + ' [data-hcv-draft-menu-separator] { block-size: 1px; margin: 4px 8px; background: var(--hcv-dropdown-outline); }',
+    projectMenu + ' ' + control + ' { min-block-size: 0; padding: 5px 8px; border-radius: var(--hcv-dropdown-row-radius); font: inherit; }',
+    projectMenu + ' ' + control + ':is(:hover, :focus, [aria-current="true"]):not(:disabled) { background-color: var(--hcv-dropdown-hover); color: var(--hcv-dropdown-text); }',
+    '@supports (corner-shape: superellipse(1.5)) {',
+    projectMenu + ', ' + projectMenu + ' ' + control + ' { corner-shape: superellipse(1.5); }',
+    '}',
+    projectMenu + ' [data-hcv-draft-projects] { max-block-size: min(40vh, 230px); overflow-y: auto; overscroll-behavior: contain; }',
+    projectMenu + ' [data-hcv-draft-projects] p { margin: 0; padding: 8px; color: var(--hcv-dropdown-muted); }',
+    draft + ' [data-hcv-draft-branches] p { margin: 0; padding: 7px; color: var(--hcv-muted); }',
     native + ' [role^="menuitem"] { padding: 0 8px; }',
     native + ' [role^="menuitem"] > span:first-child { gap: 6px; }',
     native + ' [data-slot="dropdown-menu-separator"] { margin-inline: 8px; }',

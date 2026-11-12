@@ -1,10 +1,11 @@
 import { createElement as h, Fragment, useEffect, useRef, useState } from 'react'
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
   host, TITLEBAR_AREAS, useTheme,
 } from '@hermes/plugin-sdk'
 import { codexIconStyle, codexIconRules, codexMask, codexReference as codex } from './codex-reference.js'
 import { attachProjects, projectSidebarStyles } from './sidebar-projects.js'
+import { attachChatPreview, chatPreviewStyles, registerChatPreviewMarker } from './sidebar-chat-preview.js'
 import { createRecentRows, NativeRecentRows, projectGroupingAction } from './sidebar-recents.js'
 import { attachSidebarCron, sidebarCronStyles } from './sidebar-cron.js'
 
@@ -81,88 +82,81 @@ function edit(command) {
 
 function WindowMenus({ menus }) {
   const [current, setCurrent] = useState(null)
-  const leaveTimer = useRef(0)
-  const keepOpen = () => clearTimeout(leaveTimer.current)
+  const openMenu = useRef(null)
+  const triggers = useRef(new Map())
+
+  function show(id) {
+    openMenu.current = id
+    setCurrent(id)
+  }
 
   useEffect(() => {
     const wide = window.matchMedia('(forced-colors: none) and (min-width: 800px) and (min-height: 480px)')
-    const dismiss = () => {
-      keepOpen()
-      setCurrent(null)
-    }
+    const dismiss = () => show(null)
     wide.addEventListener('change', dismiss)
     window.addEventListener('blur', dismiss)
     return () => {
-      keepOpen()
       wide.removeEventListener('change', dismiss)
       window.removeEventListener('blur', dismiss)
     }
   }, [])
 
-  function leave(event, label) {
-    if (event.pointerType !== 'mouse') return
-    keepOpen()
-    // Let the pointer cross the gap between the trigger and the portaled menu.
-    leaveTimer.current = setTimeout(() => {
-      setCurrent(previous => previous?.label === label && previous.preview ? null : previous)
-    }, 160)
+  function move(event, index) {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+    event.preventDefault()
+    const offset = event.key === 'ArrowLeft' ? -1 : 1
+    const [id] = menus[(index + offset + menus.length) % menus.length]
+    if (openMenu.current) show(id)
+    else triggers.current.get(id)?.focus()
   }
 
-  return h('nav', { 'aria-label': 'Меню окна', 'data-hcv-window-menu': '' }, menus.map(([label, items]) => {
-    const open = current?.label === label
-    const preview = open && current.preview
+  return h('nav', { 'aria-label': 'Меню окна', 'data-hcv-window-menu': '' }, menus.map(([id, label, items], index) => {
+    const open = current === id
     const change = (next) => {
-      keepOpen()
-      setCurrent(previous => next ? { label, preview: false } : previous?.label === label ? null : previous)
+      if (next || openMenu.current === id) show(next ? id : null)
     }
-    const engage = (event) => {
-      event.preventDefault()
-      change(true)
-      document.getElementById(event.currentTarget.getAttribute('aria-controls'))?.focus({ preventScroll: true })
-    }
-    return h(DropdownMenu, { key: label, modal: false, open, onOpenChange: change },
+    return h(DropdownMenu, { key: id, modal: false, open, onOpenChange: change },
       h(DropdownMenuTrigger, { asChild: true }, h('button', {
         type: 'button',
+        ref: node => { if (node) triggers.current.set(id, node); else triggers.current.delete(id) },
         'data-hcv-menu-button': '',
         onPointerEnter: (event) => {
-          if (event.pointerType !== 'mouse' || event.buttons) return
-          keepOpen()
-          setCurrent(previous => previous?.label === label ? previous : { label, preview: true })
+          if (event.pointerType === 'mouse' && !event.buttons && openMenu.current && openMenu.current !== id) show(id)
         },
-        onPointerLeave: (event) => leave(event, label),
-        onPointerDown: (event) => {
-          if (preview && event.button === 0 && !event.ctrlKey) engage(event)
-        },
-        onKeyDown: (event) => {
-          if (preview && ['Enter', ' ', 'ArrowDown'].includes(event.key)) engage(event)
-        },
+        onKeyDown: (event) => move(event, index),
         onClick: (event) => {
-          if (event.detail === 0) change(!open || preview)
+          if (event.detail === 0) change(!open)
         },
       }, label)),
-      // Unmount the previous popup immediately when moving between triggers.
       open && h(DropdownMenuContent, {
         align: 'start',
-        'data-hcv-window-menu-content': '',
-        onPointerEnter: keepOpen,
-        onPointerLeave: (event) => leave(event, label),
-        onOpenAutoFocus: (event) => { if (preview) event.preventDefault() },
+        sideOffset: 0,
+        collisionPadding: 6,
+        'data-hcv-window-menu-content': id,
+        onKeyDown: (event) => move(event, index),
         onCloseAutoFocus: (event) => {
-          if (preview || document.querySelector('[data-hcv-menu-button][aria-expanded="true"]')) event.preventDefault()
+          if (openMenu.current) event.preventDefault()
         },
         onInteractOutside: (event) => {
           if (event.target.closest?.('[data-hcv-menu-button]')) event.preventDefault()
         },
-      }, items.map(([title, run, disabled]) => h(DropdownMenuItem, {
-        key: title,
-        disabled: typeof disabled === 'function' ? disabled() : disabled,
-        // Mouse preview leaves the typing focus where it was.
-        onPointerMove: (event) => { if (preview && event.pointerType === 'mouse') event.preventDefault() },
-        onPointerLeave: (event) => { if (preview && event.pointerType === 'mouse') event.preventDefault() },
-        onSelect: () => setTimeout(run, 0),
-      }, title))),
+      }, items.map(([title, run, disabled, shortcut], position) => title === null
+        ? h(DropdownMenuSeparator, { key: position })
+        : h(DropdownMenuItem, {
+          key: title,
+          textValue: title,
+          disabled: typeof disabled === 'function' ? disabled() : disabled,
+          onSelect: () => setTimeout(run, 0),
+        },
+        h('span', { 'data-hcv-window-menu-label': '' }, title),
+        shortcut && h('span', { 'data-hcv-window-menu-shortcut': '', 'aria-hidden': true }, shortcut()),
+        ))),
     )
   }))
+}
+
+function windowMenuShortcut(action, fallback) {
+  return () => keybindLabel(action, fallback, '+')
 }
 
 function WindowChrome({ themeName, recentRows }) {
@@ -179,12 +173,22 @@ function WindowChrome({ themeName, recentRows }) {
 
   if (!selected) return null
   const menus = [
-    ['Файл', [['Новый чат', newChat], ['Файлы проекта', () => host.revealPane('files')], ['Настройки', () => host.navigate('/settings')]]],
-    ['Правка', [['Отменить ввод', () => edit('undo')], ['Повторить ввод', () => edit('redo')], ['Выделить текст ввода', () => edit('selectAll')]]],
-    ['Вид', [['Сеансы', () => host.revealPane('sessions')], ['Боты', () => host.revealPane('hermes-bots:pane')],
+    ['file', 'Файл', [
+      ['Новый чат', newChat, false, windowMenuShortcut('session.new', 'mod+n')],
+      ['Файлы проекта', () => host.revealPane('files')],
+      [null],
+      ['Настройки', () => host.navigate('/settings'), false, windowMenuShortcut('nav.settings', 'mod+,')],
+    ]],
+    ['edit', 'Правка', [
+      ['Отменить ввод', () => edit('undo')],
+      ['Повторить ввод', () => edit('redo')],
+      [null],
+      ['Выделить текст ввода', () => edit('selectAll')],
+    ]],
+    ['view', 'Вид', [['Сеансы', () => host.revealPane('sessions')], ['Боты', () => host.revealPane('hermes-bots:pane')], [null],
       ['Группировка проектов и чатов', openGrouping, () => !visibleControl(filterSelector)],
-      ['Правая панель', () => visibleControl('[data-tour="right-pane-toggle"]')?.click()]]],
-    ['Справка', [['О программе', () => host.navigate('/settings?tab=about')]]],
+      ['Правая панель', () => visibleControl('[data-tour="right-pane-toggle"]')?.click(), false, windowMenuShortcut('view.toggleRightSidebar', 'mod+j')]]],
+    ['help', 'Справка', [['О программе', () => host.navigate('/settings?tab=about')]]],
   ]
   return h(Fragment, null,
     h('div', { 'data-hcv-history': '' },
@@ -315,6 +319,10 @@ function recentsControl(groupId, rows, t) {
       for (const session of (result.recents?.sessions ?? []).filter(session => session.id && !session.pinned).slice(0, 12)) {
         const title = session.title?.trim() || t('untitledChat')
         const row = element('button', { type: 'button', title }, title)
+        const seconds = Number(session.last_active || session.started_at)
+        const date = new Date(seconds * 1000)
+        row.dataset.hcvPreviewSession = session.id
+        if (seconds > 0 && Number.isFinite(date.getTime())) row.dataset.hcvPreviewTime = date.toISOString()
         row.addEventListener('click', async () => {
           if (!current()) return
           try {
@@ -353,8 +361,24 @@ function sidebarMenuBehavior(content) {
   const triggerSelector = '[data-sessions-mode] :is([class~="group/workspace"], .row-hover) [data-row-actions] button[aria-haspopup="menu"][aria-expanded="true"][aria-controls]'
   let open
   let returnFocus
+  const placement = new MutationObserver(alignMenu)
+
+  function alignMenu() {
+    if (!open?.menu.isConnected) return
+    const { menu, trigger, wrapper } = open
+    const rect = trigger.getBoundingClientRect()
+    const base = wrapper.getBoundingClientRect()
+    const width = menu.offsetWidth
+    const center = rect.left + rect.width / 2
+    const left = Math.max(8, Math.min(window.innerWidth - width - 8,
+      center < window.innerWidth / 2 ? rect.left : rect.right - width))
+    const origin = Math.max(0, Math.min(width, center - left))
+    menu.style.setProperty('--hcv-sidebar-menu-shift', `${left - base.left}px`)
+    menu.style.setProperty('--hcv-sidebar-menu-origin', `${origin}px ${menu.dataset.side === 'top' ? 'bottom' : 'top'}`)
+  }
 
   function clear() {
+    placement.disconnect()
     open?.menu.removeAttribute('data-hcv-sidebar-menu')
     open?.menu.style.removeProperty('--hcv-sidebar-menu-shift')
     open?.menu.style.removeProperty('--hcv-sidebar-menu-origin')
@@ -382,22 +406,14 @@ function sidebarMenuBehavior(content) {
         if (open && !open.menu.isConnected) clear()
         return
       }
-      if (open?.menu !== menu) {
+      if (open?.menu !== menu || open.wrapper !== wrapper) {
         clear()
-        open = { menu, trigger }
+        open = { menu, trigger, wrapper }
+        // Radix repositions its end-aligned wrapper after the menu width changes.
+        placement.observe(wrapper, { attributes: true, attributeFilter: ['style'] })
         menu.setAttribute('data-hcv-sidebar-menu', '')
       }
-      // Keep Radix in charge of flipping and vertical collision. Translate
-      // horizontally toward the center of the window and clamp to its edges.
-      const rect = trigger.getBoundingClientRect()
-      const base = wrapper.getBoundingClientRect()
-      const width = menu.offsetWidth
-      const center = rect.left + rect.width / 2
-      const left = Math.max(8, Math.min(window.innerWidth - width - 8,
-        center < window.innerWidth / 2 ? rect.left : rect.right - width))
-      const origin = Math.max(0, Math.min(width, center - left))
-      menu.style.setProperty('--hcv-sidebar-menu-shift', `${left - base.left}px`)
-      menu.style.setProperty('--hcv-sidebar-menu-origin', `${origin}px ${menu.dataset.side === 'top' ? 'bottom' : 'top'}`)
+      alignMenu()
     },
     dispose() {
       document.removeEventListener('keydown', handleEscape, true)
@@ -407,17 +423,21 @@ function sidebarMenuBehavior(content) {
   }
 }
 
-function newTerminalShortcut() {
+function keybindLabel(action, fallback, separator) {
   let binding
   try {
-    binding = JSON.parse(localStorage.getItem('hermes.desktop.keybinds'))?.['view.newTerminal']
+    binding = JSON.parse(localStorage.getItem('hermes.desktop.keybinds'))?.[action]
   } catch {
     // Match the native keybind store's default for unreadable settings.
   }
-  const combo = Array.isArray(binding) ? binding.find(value => typeof value === 'string') : 'ctrl+shift+`'
-  const mod = /Mac/.test(navigator.platform) ? '⌘' : 'Ctrl'
-  const labels = { ctrl: 'Ctrl', mod, meta: mod, alt: 'Alt', shift: 'Shift' }
-  return combo?.split('+').map(key => labels[key] || key.toUpperCase()).join(' + ')
+  const combo = Array.isArray(binding) ? binding.find(value => typeof value === 'string') : fallback
+  const mac = /Mac/.test(navigator.platform)
+  const labels = { ctrl: 'Ctrl', mod: mac ? '⌘' : 'Ctrl', meta: mac ? '⌘' : 'Win', alt: 'Alt', shift: 'Shift' }
+  return combo?.split('+').map(key => labels[key] || key.toUpperCase()).join(separator)
+}
+
+function newTerminalShortcut() {
+  return keybindLabel('view.newTerminal', 'ctrl+shift+`', ' + ')
 }
 
 function attachSidebarHeader(group, t) {
@@ -655,6 +675,7 @@ function registerSidebar(ctx, active, recentRows) {
   const contrast = window.matchMedia('(forced-colors: none)')
   const flatList = flatRecents(recentRows, ctx.i18n.t)
   let projects
+  let chatPreview
   let cron
   let projectContent
   let mounted
@@ -682,12 +703,15 @@ function registerSidebar(ctx, active, recentRows) {
       : null
     if (projectContent !== sidebar) {
       projects?.dispose()
+      chatPreview?.dispose()
       cron?.dispose()
       projectContent = sidebar
       projects = sidebar ? attachProjects(sidebar, ctx.i18n.t, ctx.storage) : undefined
+      chatPreview = sidebar ? attachChatPreview(sidebar) : undefined
       cron = sidebar ? attachSidebarCron(sidebar, ctx.storage) : undefined
     }
     projects?.sync()
+    chatPreview?.sync()
     cron?.sync()
     const content = wide.matches ? sidebar : null
     const group = enabled && wide.matches
@@ -755,6 +779,7 @@ function registerSidebar(ctx, active, recentRows) {
     flatList.sync(undefined)
     header?.remove()
     projects?.dispose()
+    chatPreview?.dispose()
     cron?.dispose()
   })
   schedule()
@@ -762,6 +787,7 @@ function registerSidebar(ctx, active, recentRows) {
 
 export function registerWorkspaceChrome(ctx, themeName) {
   ctx.i18n.register(sidebarCopy)
+  registerChatPreviewMarker(ctx)
   const active = `html[data-hermes-codex-visual][data-hermes-theme="${themeName}"]`
   const shell = `${active}:has([data-hcv-window-menu])`
   const side = `${shell} [data-hcv-sidebar-shell]`
@@ -779,7 +805,11 @@ export function registerWorkspaceChrome(ctx, themeName) {
   const flatGroup = `${flat} [data-slot="sidebar-group"]`
   const flatOpenGroup = `${flatGroup}:has(> [data-slot="sidebar-group-content"])`
   const neutralHeadings = `${side} :is([data-hcv-recents-toggle], [data-hcv-show-projects], [data-hcv-flat-recent])`
-  const chromeButton = `${shell} :is([data-hcv-history] button, [data-hcv-menu-button], [data-hcv-sidebar-bar] button, ${recentsButton})`
+  const chromeButton = `${shell} :is([data-hcv-history] button, [data-hcv-sidebar-bar] button, ${recentsButton})`
+  const windowBar = `${shell} [data-hcv-window-menu]`
+  const windowButton = `${windowBar} [data-hcv-menu-button]`
+  const windowPopup = `${shell} [data-slot="dropdown-menu-content"][data-hcv-window-menu-content]`
+  const windowItem = `${windowPopup} > [role="menuitem"]`
   const recentRows = createRecentRows()
   const stylesheet = element('style', { 'data-hcv-chrome-styles': '' })
   stylesheet.textContent = `
@@ -788,6 +818,7 @@ export function registerWorkspaceChrome(ctx, themeName) {
     --hcv-sidebar-heading: light-dark(color-mix(in oklab, var(--hcv-text) 50%, transparent), rgb(255 255 255 / 50%));
   }
   ${projectSidebarStyles(active)}
+  ${chatPreviewStyles(active)}
   ${sidebarCronStyles(active)}
   ${flat} [data-hcv-flat-list] { display: contents; }
   ${flat} [data-hcv-flat-list]:has(> [data-slot="sidebar-group"]) + [data-slot="sidebar-group"] { display: none; }
@@ -859,16 +890,15 @@ export function registerWorkspaceChrome(ctx, themeName) {
 @media (forced-colors: none) and (min-width: 800px) and (min-height: 480px) {
   ${shell} [data-tree-split="spl-root"] { padding-block-start: 39px; }
   ${shell} [data-titlebar-cluster="left"] {
-    inset-inline-start: 5px;
-    inset-block-start: 5px;
-    gap: 4px;
+    inset-inline-start: 6px;
+    inset-block-start: 4px;
+    gap: 6px;
   }
   ${shell} [data-titlebar-cluster="right"] {
     inset-block-start: 51px;
     right: calc(13px + var(--hcv-sidebar-right-offset, 0px));
   }
-  ${shell} :is([data-hcv-history], [data-hcv-window-menu]) { display: flex; align-items: center; gap: 3px; }
-  ${shell} [data-hcv-history] { order: -1; }
+  ${shell} [data-hcv-history] { order: -1; display: flex; align-items: center; gap: 6px; }
   ${chromeButton} {
     display: flex;
     align-items: center;
@@ -883,14 +913,101 @@ export function registerWorkspaceChrome(ctx, themeName) {
     block-size: 28px;
     justify-content: center;
   }
+  ${shell} [data-titlebar-cluster="left"] > [data-size="icon-titlebar"] {
+    inline-size: 28px;
+    block-size: 28px;
+  }
   ${shell} [data-hcv-icon] { display: inline-block; inline-size: 16px; block-size: 16px; flex: none; }
-  ${shell} [data-hcv-menu-button] { block-size: 28px; padding-inline: 8px; font-size: 13px; }
-  ${shell} [data-hcv-window-menu-content][data-state] { animation: none; }
   ${chromeButton}:not(:disabled, [data-hcv-recents-menu] button):is(:hover, :focus-visible, [data-state="open"]) {
     color: var(--hcv-text);
     background: var(--hcv-hover);
   }
   ${shell} [data-hcv-history] button:disabled { opacity: .32; cursor: default; }
+
+  /* Windows application menu from Codex e6/eY/eJ, separate from contextual menus. */
+  ${shell} {
+    --hcv-window-text: light-dark(#1a1c1f, #dfdfdf);
+    --hcv-window-muted: light-dark(rgb(26 28 31 / .495), rgb(255 255 255 / .498));
+    --hcv-window-ink: light-dark(#1a1c1f, #ffffff);
+    --hcv-window-row-hover: light-dark(rgb(26 28 31 / .0535), rgb(255 255 255 / .078));
+    --hcv-window-divider: light-dark(rgb(26 28 31 / .117), rgb(255 255 255 / .156));
+  }
+  ${windowBar} {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding-inline: 4px 8px;
+    user-select: none;
+  }
+  ${windowButton} {
+    padding: 4px 10px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--hcv-window-muted);
+    font: 400 14px/1 ${codex.font};
+    -webkit-app-region: no-drag;
+  }
+  ${windowButton}:is(:hover, :focus-visible) {
+    background: color-mix(in srgb, var(--hcv-window-text) 5%, transparent);
+  }
+  ${windowButton}[aria-expanded="true"] {
+    background: color-mix(in srgb, var(--hcv-window-ink) 3.2%, transparent);
+    color: var(--hcv-window-text);
+  }
+  /* Deliver outside presses to the menu while the window's drag zones are covered. */
+  ${shell}:has([data-hcv-window-menu] [aria-expanded="true"]) :is([class~="[-webkit-app-region:drag]"], [data-window-drag-handle]) {
+    -webkit-app-region: no-drag;
+  }
+  ${windowPopup}[data-state] {
+    --hcv-window-max: min(calc(100vw - 16px), var(--radix-dropdown-menu-content-available-width, 100vw));
+    display: flex;
+    flex-direction: column;
+    min-inline-size: min(220px, var(--hcv-window-max));
+    max-inline-size: var(--hcv-window-max);
+    max-block-size: calc(100vh - 12px);
+    padding: 4px 0;
+    border: 0;
+    border-radius: 6px;
+    background: light-dark(#f8f8f9, #1f1f1f);
+    color: var(--hcv-window-text);
+    box-shadow: 0 4px 12px #0000006b;
+    font: 400 12px/18px ${codex.font};
+    animation: none;
+    user-select: none;
+  }
+  ${windowPopup}[data-hcv-window-menu-content="view"] { min-inline-size: min(300px, var(--hcv-window-max)); }
+  ${windowItem} {
+    flex: none;
+    min-block-size: 28px;
+    margin-inline: 4px;
+    padding: 5px 16px;
+    gap: 8px;
+    border-radius: 6px;
+    color: inherit;
+    font: inherit;
+    outline: none;
+    box-shadow: none;
+  }
+  ${windowItem}::before { content: none; }
+  ${windowItem}:is(:hover, :focus, [data-highlighted]):not([data-disabled]) {
+    background: var(--hcv-window-row-hover);
+    color: inherit;
+  }
+  ${windowItem}[data-disabled] { opacity: .6; }
+  ${windowItem} [data-hcv-window-menu-label] { flex: 1; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  ${windowItem} [data-hcv-window-menu-shortcut] { flex: none; color: color-mix(in srgb, var(--hcv-window-text) 75%, transparent); }
+  ${windowItem} [data-hcv-window-menu-shortcut]:empty { display: none; }
+  ${windowPopup} > [role="separator"] {
+    flex: none;
+    block-size: .5px;
+    margin: 8px 0;
+    background: var(--hcv-window-divider);
+  }
+  @supports (corner-shape: superellipse(1.5)) {
+    ${windowButton} { border-radius: 10px; corner-shape: superellipse(1.5); }
+    ${windowPopup}[data-state], ${windowItem} { border-radius: 7.5px; }
+  }
 
   ${shell} [data-tree-group="grp-main"][data-window-top] > [data-panel-header]:has([data-zone-tabstrip]) {
     block-size: 48px !important;
@@ -982,12 +1099,14 @@ export function registerWorkspaceChrome(ctx, themeName) {
     padding-block: 2px 10px;
   }
   ${side} [data-slot="sidebar-menu"] > li > button {
-    min-block-size: 32px;
+    min-block-size: ${codex.sidebar.rowHeight}px;
+    block-size: ${codex.sidebar.rowHeight}px;
     padding-inline: 8px;
     border-radius: 8px;
     font-size: 13px;
     font-weight: 430;
   }
+  ${side} [data-slot="sidebar-menu"] { gap: 1px; }
   ${side} [data-sessions-mode="projects"] > [data-slot="sidebar-group"] {
     flex: none;
     min-block-size: 0;
@@ -1006,7 +1125,7 @@ export function registerWorkspaceChrome(ctx, themeName) {
   ${side} [data-sessions-mode] > [data-slot="sidebar-group"] > :first-child span > .dither { display: none; }
   ${side} [data-sessions-mode] > [data-slot="sidebar-group"] > :first-child button:not(${flatRecent}) > .codicon-chevron-right { opacity: 1; }
   ${codexIconRules(`${side} [data-sessions-mode] > [data-slot="sidebar-group"] > :first-child button:not(${flatRecent}) > .codicon-chevron-right`, 'right')}
-  ${side} [data-sessions-mode="projects"] .row-hover { min-block-size: 28px; border-radius: 9px; }
+  ${side} [data-sessions-mode="projects"] .row-hover { min-block-size: ${codex.sidebar.rowHeight}px; border-radius: 9px; }
   ${side} [data-sessions-project]:not([data-sessions-mode]) :is(.codicon-folder-library, .codicon-repo)::before {
     content: '';
     display: block;
@@ -1015,7 +1134,7 @@ export function registerWorkspaceChrome(ctx, themeName) {
     background: currentColor;
     mask: ${codexMask('folder')} center / contain no-repeat;
   }
-  ${side} [data-sessions-project]:not([data-sessions-mode]):has(> .grid + .grid) .codicon-folder-library::before { mask-image: ${codexMask('folderOpen')}; }
+  ${side} [data-hcv-project-row]:has([data-hcv-project-name][aria-expanded="true"]) .codicon-folder-library::before { mask-image: ${codexMask('folderOpen')}; }
   ${codexIconRules(`${side} [data-sessions-project]:not([data-sessions-mode]) .codicon-home`, 'home')}
   ${side} [data-hcv-recents] { margin-block: 12px 5px; }
   ${side} [data-hcv-recents-header] { display: flex; align-items: center; justify-content: space-between; padding-inline: 0 4px; min-block-size: 32px; }
@@ -1046,14 +1165,16 @@ export function registerWorkspaceChrome(ctx, themeName) {
   ${side} [data-hcv-recents-body] { display: grid; grid-template-rows: 0fr; opacity: 0; }
   ${side} [data-hcv-recents-open] [data-hcv-recents-body] { grid-template-rows: 1fr; opacity: 1; }
   ${side} [data-hcv-recents-menu] {
-    position: fixed; inset: auto; margin: 0; padding: 6px; inline-size: 210px;
-    border: 1px solid var(--hcv-hairline); border-radius: var(--hcv-menu-radius);
-    background: var(--hcv-menu); color: var(--hcv-text); box-shadow: var(--hcv-menu-shadow);
+    position: fixed; inset: auto; margin: 0; padding: 4px; inline-size: 210px;
+    border: 0; border-radius: var(--hcv-dropdown-radius); corner-shape: superellipse(1.5);
+    background: var(--hcv-dropdown-background); color: var(--hcv-dropdown-text);
+    box-shadow: var(--hcv-dropdown-shadow);
     opacity: 0; scale: .95; pointer-events: none; transform-origin: top left;
   }
   ${side} [data-hcv-recents-menu]:popover-open { opacity: 1; scale: 1; pointer-events: auto; }
   ${side} [data-hcv-recents-menu] button {
-    inline-size: 100%; color: var(--hcv-text); text-align: start; border-radius: var(--hcv-popup-button-radius);
+    inline-size: 100%; color: inherit; text-align: start;
+    border-radius: var(--hcv-dropdown-row-radius); corner-shape: superellipse(1.5);
   }
   @media (any-hover: none) {
     ${side} [data-hcv-recents-actions] { opacity: 1; pointer-events: auto; }

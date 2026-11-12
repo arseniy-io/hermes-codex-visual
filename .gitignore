@@ -5,3 +5,12 @@
 /.env
 /.env.*
 __pycache__/
+/AGENTS.md
+/LOCAL-README.md
+/.agents/
+/.make-feature/
+/evidence/
+/verification/*.py
+/docs/*
+!/docs/development.md
+!/docs/images/

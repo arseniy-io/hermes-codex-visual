@@ -368,11 +368,13 @@ function queueStyles(active) {
       inline-size: max-content;
       max-inline-size: calc(100vw - 16px);
       padding: 4px;
-      border: 1px solid var(--hcv-stroke);
-      border-radius: 16px;
-      background: var(--hcv-menu);
+      border: 0;
+      border-radius: var(--hcv-dropdown-radius);
+      corner-shape: superellipse(1.5);
+      background: var(--hcv-dropdown-background);
       color: var(--hcv-queue-text, var(--hcv-text));
-      box-shadow: var(--hcv-menu-shadow);
+      box-shadow: var(--hcv-dropdown-shadow);
+      backdrop-filter: none;
       font: 400 13px/18px var(--hcv-ui-font);
     }
     ${popup} button {
@@ -383,7 +385,8 @@ function queueStyles(active) {
       gap: 7px;
       padding: 3px 7px;
       border: 0;
-      border-radius: 8px;
+      border-radius: var(--hcv-dropdown-row-radius);
+      corner-shape: superellipse(1.5);
       text-align: start;
       background: transparent;
       color: inherit;

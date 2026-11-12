@@ -1,14 +1,20 @@
+import { host } from '@hermes/plugin-sdk'
 import { codexIconRules, codexMask, codexReference as codex } from './codex-reference.js'
 
-const menus = ':is([data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"], [data-slot="context-menu-content"], [data-slot="context-menu-sub-content"], [data-slot="select-content"])'
+const menus = ':is([data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"], [data-slot="context-menu-content"], [data-slot="context-menu-sub-content"], [data-slot="select-content"]):not([data-hcv-window-menu-content])'
 const modelCatalog = '[data-slot="dropdown-menu-content"]:has(> [data-slot="dropdown-menu-search"]):has(> [data-slot="dropdown-menu-item"] > .codicon-settings-gear)'
-const modelMeta = '[data-slot="dropdown-menu-sub-trigger"] > span > span.uppercase.tracking-wide'
+const modelRow = '[data-slot="dropdown-menu-sub-trigger"]'
+const modelMeta = `${modelRow} > span > span.uppercase.tracking-wide, ${modelRow} > [data-slot="badge"].uppercase.tracking-wide`
+const sidebarMenu = '[data-hcv-sidebar-menu]'
 const effortBadge = 'data-hcv-model-effort'
 // Compact labels from Hermes' lib/reasoning-effort.ts, including route clamps.
 const effortLabels = new Set(['Off', 'Min', 'Low', 'Med', 'High', 'XHigh', 'Max', 'Ultra'])
 const items = ':is([data-slot^="dropdown-menu-"][role^="menuitem"], [data-slot^="context-menu-"][role^="menuitem"], [data-slot="select-item"])'
+const menuRows = `${menus} ${items}`
 const popover = '[data-slot="popover-content"]'
 const tip = '[data-slot="tooltip-content"]'
+const button = ':is(button, [role="button"], [data-slot="button"])'
+const quietIcon = '[data-variant="ghost"][data-size^="icon"]'
 const dialog = '[data-slot="dialog-content"]'
 const dialogOverlay = '[data-slot="dialog-overlay"]'
 const notification = '[data-slot="card-stack-surface"] > div > [data-slot="alert"][aria-live]'
@@ -19,12 +25,20 @@ const fields = `:is([data-slot="input"]:not([type="file"], [type="checkbox"], [t
 const checks = ':is([data-slot="checkbox"], [data-slot="checkbox-mark"])'
 const checkIcon = ':is(.codicon-check, svg.tabler-icon-check)'
 const commandItems = '[data-slot="command-item"]'
+const commandMenuSearch = `${popover} [data-slot="command-input-wrapper"]:has(> [data-slot="command-input"]):not(:has(> svg))`
+const menuSearch = `:is([data-slot="dropdown-menu-search"], ${commandMenuSearch})`
 const menuButtons = ':is([data-hcv-draft-menu], [data-hcv-recents-menu], [data-hcv-queue-menu], [data-hcv-message-menu]) button'
-const highlightedItem = `${items}:is(:focus, [data-highlighted], [data-state="open"]):not([data-disabled], [aria-disabled="true"])`
+const enabledItem = `${menuRows}:not([data-disabled], [aria-disabled="true"])`
+const highlightedItem = `${enabledItem}:is(:focus, [data-highlighted], [data-kb-active], [data-state="open"])`
 const toggle = '[data-slot="switch"][role="switch"]'
 const thumb = '[data-slot="switch-thumb"]'
 const pageTabs = '[data-tour="page-tabs"]'
 const pageShell = 'section.h-full.min-w-0.overflow-hidden:not([data-chat-surface])'
+const settingsViews = new Map([
+  ['providers', ['pview', 'accounts']],
+  ['keys', ['kview', 'tools']],
+  ['billing', ['bview', 'overview']],
+])
 
 const menuGlyphs = {
   'archive': 'archive', 'check': 'check', 'check-all': 'markRead', 'chevron-down': 'down',
@@ -33,7 +47,7 @@ const menuGlyphs = {
   'new-folder': 'folderPlus', 'pin': 'pin', 'pinned': 'pin', 'pinned-dirty': 'pin',
   'refresh': 'refresh', 'symbol-color': 'palette', 'target': 'target', 'trash': 'trash',
   'clock': 'schedule', 'root-folder': 'folder', 'account': 'person', 'pulse': 'system',
-  'list-filter': 'filter', 'add': 'plus', 'kebab-vertical': 'more', 'ellipsis': 'more',
+  'list-filter': 'filter', 'add': 'plus', 'kebab-vertical': 'more', 'ellipsis': 'more', 'settings-gear': 'settings',
 }
 
 function screenFromRoute() {
@@ -70,6 +84,16 @@ export function registerInterface(ctx, active) {
     const screen = screenFromRoute()
     if (!root.matches(active) || !screen) root.removeAttribute('data-hcv-screen')
     else if (root.dataset.hcvScreen !== screen) root.dataset.hcvScreen = screen
+    if (root.dataset.hcvScreen === 'settings') {
+      const params = new URLSearchParams(location.hash.split('?')[1])
+      const tab = params.get('tab') || 'config:model'
+      const view = settingsViews.get(tab)
+      root.dataset.hcvSettingsTab = tab
+      root.dataset.hcvSettingsPage = view ? params.get(view[0]) || view[1] : params.get('page') || ''
+    } else {
+      root.removeAttribute('data-hcv-settings-tab')
+      root.removeAttribute('data-hcv-settings-page')
+    }
   }
   const observer = new MutationObserver(setScreen)
   observer.observe(root, { attributes: true, attributeFilter: ['data-hermes-theme', 'data-hermes-codex-visual'] })
@@ -79,17 +103,40 @@ export function registerInterface(ctx, active) {
   ctx.onDispose(() => {
     observer.disconnect()
     root.removeAttribute('data-hcv-screen')
+    root.removeAttribute('data-hcv-settings-tab')
+    root.removeAttribute('data-hcv-settings-page')
   })
   setScreen()
+
+  const rescan = '[data-catalog-actions] button[aria-label]:has(> svg.tabler-icon-refresh)'
+  ctx.addEventListener(document, 'click', event => {
+    if (!root.matches(active) || screenFromRoute() !== 'capabilities' || event.defaultPrevented) return
+    const control = event.target.closest?.(rescan)
+    if (!control || control.matches(':disabled, [aria-disabled="true"]')) return
+    // The native click owns the scan. Its promise is not exposed to plugins.
+    const russian = root.lang.toLowerCase().startsWith('ru')
+    host.notify({
+      id: 'hermes-codex-visual:plugins-rescan',
+      kind: 'info',
+      message: russian ? 'Запущено сканирование плагинов' : 'Plugin scan started',
+    })
+  })
 
   const pages = `${active}:is([data-hcv-screen="capabilities"],[data-hcv-screen="messaging"],[data-hcv-screen="artifacts"]) ${pageShell}`
   const capabilities = `${active}[data-hcv-screen="capabilities"] ${pageShell}`
   const shown = `${active} ${overlays}`
   const sessions = `${active}[data-hcv-screen="command-center"] ${overlays} main`
-  const artifacts = `${active}[data-hcv-screen="artifacts"] ${pageShell}`
-  const cron = `${active}[data-hcv-screen="cron"] ${overlays}`
   const pageSearch = 'div:has(> svg.tabler-icon-search + input[placeholder])'
-  const messageRows = `${active}[data-hcv-screen="messaging"] ${pageShell} button.row-hover`
+  const capabilitySearch = `${capabilities} div:has(> svg.tabler-icon-search):has(> input[placeholder])`
+  const catalogCard = `${capabilities} [data-catalog-card]`
+  const plainCatalogCard = `${catalogCard}:not([data-catalog-editorial-art])`
+  const catalogFilters = `${capabilities} [data-catalog-filters]`
+  const filterMode = `${catalogFilters} .catalog-filter-row > .inline-grid:has(> button[aria-pressed])`
+  const filterPopup = `${active}[data-hcv-screen="capabilities"] ${popover}:has(> [data-catalog-expanded-filters], > .flex.flex-wrap > button[aria-pressed])`
+  const filterChips = `:is(${catalogFilters} .catalog-filter-chips > button, ${filterPopup} button[aria-pressed])`
+  const filterTrigger = `${catalogFilters} .catalog-filter-trigger > button`
+  const catalogActions = `${capabilities} [data-catalog-actions] button[data-slot="button"]`
+  const catalogControls = `:is(${filterMode} > button, ${filterChips}, ${filterTrigger}, ${catalogActions})`
   // Once named/saved, a native tab's context-menu wrapper overwrites its
   // data-slot. The tree-tab id and content structure stay the same.
   const tabs = `${active} [data-zone-tabstrip] [role="tab"][data-tree-tab]:has(> .pane-tab-content):not([data-vertical])`
@@ -129,11 +176,21 @@ ${active} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/lab
     --hcv-enter-time: ${codex.enterTime};
     --hcv-exit-time: ${codex.exitTime};
     --hcv-menu-start-scale: ${codex.menuStartScale};
-    --hcv-highlight-start-scale: ${codex.highlightStartScale};
     /* Codex Desktop menu/form/action radii. See 0fff881d427a.css and e77f816560c6.css. */
     --hcv-menu-radius: calc(5 * var(--hcv-unit));
     --hcv-dialog-radius: calc(6 * var(--hcv-unit));
     --hcv-popup-button-radius: 10px;
+    /* Desktop AppMenu (Lhpx.MX) and surface tokens in 9ec44337a842.css. */
+    --hcv-dropdown-radius: 16px;
+    --hcv-dropdown-row-radius: 12px;
+    --hcv-dropdown-background: light-dark(#fff, #2d2d2d);
+    --hcv-dropdown-text: light-dark(#1a1c1f, #dfdfdf);
+    --hcv-dropdown-muted: light-dark(rgb(26 28 31 / .495), rgb(255 255 255 / .498));
+    --hcv-dropdown-outline: light-dark(rgb(26 28 31 / .078), rgb(255 255 255 / .084));
+    --hcv-dropdown-ring: 0 0 0 .5px var(--hcv-dropdown-outline);
+    --hcv-dropdown-shadow: var(--hcv-dropdown-ring), 0 8px 16px -4px #0000001f;
+    --hcv-popover-shadow: var(--hcv-dropdown-ring), 0 4px 8px -2px #0000001a;
+    --hcv-dropdown-hover: light-dark(rgb(26 28 31 / .0535), rgb(255 255 255 / .078));
     --hcv-hover-menu: color-mix(in srgb, var(--hcv-text) 8%, transparent);
     --hcv-hairline: color-mix(in srgb, var(--hcv-text) 11%, transparent);
     --hcv-form-surface: color-mix(in srgb, var(--hcv-text) 4%, var(--hcv-chat));
@@ -143,33 +200,100 @@ ${active} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/lab
     --hcv-hover-menu: color-mix(in srgb, var(--hcv-text) 12%, transparent);
     --hcv-menu-shadow: 0 12px 32px rgba(0,0,0,.28), 0 2px 6px rgba(0,0,0,.19);
   }
+  ${active}[data-hermes-glass] {
+    --translucency-glass-keep: 100% !important;
+  }
+
+  /* The menu combobox input and separator are separate in Codex ZZgR/bqtn. */
+  ${active} ${menuSearch} {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 8px;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  ${active} ${menuSearch}::before {
+    content: "";
+    flex: none;
+    inline-size: 16px;
+    block-size: 16px;
+    background: var(--hcv-dropdown-muted);
+    mask: ${codexMask('activitySearch')} center / contain no-repeat;
+    pointer-events: none;
+  }
+  ${active} ${menuSearch} > input {
+    flex: 1;
+    min-inline-size: 0;
+    block-size: auto;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--hcv-dropdown-text);
+    font: 430 13px/calc(1.25 / .875) var(--hcv-ui-font);
+    outline: none;
+    box-shadow: none;
+  }
+  ${active} ${menuSearch} > input::placeholder { color: var(--hcv-dropdown-muted); opacity: 1; }
+  ${active} ${commandMenuSearch} {
+    position: relative;
+    margin-block-end: 0;
+    padding-block-end: 14px;
+  }
+  ${active} ${commandMenuSearch}::after {
+    content: "";
+    position: absolute;
+    inset: auto 8px 4px;
+    block-size: 1px;
+    background: var(--hcv-dropdown-outline);
+    pointer-events: none;
+  }
+  ${active} [data-slot="dropdown-menu-search"] + [data-slot="dropdown-menu-separator"] {
+    block-size: 1px;
+    margin: 4px 8px;
+    background: var(--hcv-dropdown-outline);
+  }
 
   /* Native Radix menus retain focus, arrow keys, radio semantics and placement. */
   ${active} :is(${menus}, ${popover}) {
-    border: 1px solid var(--hcv-hairline);
-    border-radius: var(--hcv-menu-radius);
-    background-color: var(--hcv-menu);
-    color: var(--hcv-text);
-    box-shadow: var(--hcv-menu-shadow);
+    border: 0;
+    border-radius: var(--hcv-dropdown-radius);
+    background-color: var(--hcv-dropdown-background);
+    color: var(--hcv-dropdown-text);
+    box-shadow: var(--hcv-dropdown-shadow);
+    backdrop-filter: none;
     font-family: var(--hcv-ui-font);
     --tw-enter-blur: 0px;
     --tw-exit-blur: 0px;
     animation: none;
   }
+  ${active} :is([data-slot="context-menu-content"], [data-slot="context-menu-sub-content"], ${popover}) {
+    box-shadow: var(--hcv-popover-shadow);
+  }
+  @supports (corner-shape: superellipse(1.5)) {
+    ${active} { --hcv-dropdown-radius: 20px; --hcv-dropdown-row-radius: 15px; }
+    ${active} :is(${menus}, ${popover}), ${active} ${menuRows} { corner-shape: superellipse(1.5); }
+  }
+  /* A button label can carry its own underline independently of the button. */
+  ${active} :is(${button}, ${button} :where(.underline, [class*=':underline'])) {
+    text-decoration-line: none;
+  }
+  ${active} :where(${quietIcon}) { border-radius: ${codex.quietControl.radius}; }
   ${active} ${tip} {
     max-inline-size: min(300px, calc(100vw - 24px), var(--radix-tooltip-content-available-width, 300px));
-    padding: ${codex.tooltip.padding};
-    border: 1px solid color-mix(in srgb, var(--hcv-text) 5%, transparent);
-    border-radius: ${codex.tooltip.radius};
+    padding: ${codex.compactTooltip.padding};
+    border: 0;
+    border-radius: ${codex.compactTooltip.radius};
     background: var(--hcv-menu);
     color: var(--hcv-text);
-    box-shadow: var(--hcv-menu-shadow);
+    box-shadow: ${codex.compactTooltip.shadow};
     font: 400 13px/18px var(--hcv-ui-font);
     letter-spacing: -.15px;
     transform-origin: var(--radix-tooltip-content-transform-origin);
     animation: none;
   }
-  ${active} ${tip} [data-slot="tooltip-arrow"] { fill: var(--hcv-menu); }
+  ${active} ${tip} :is([data-slot="tooltip-arrow"], span:has(> [data-slot="tooltip-arrow"])) { display: none; }
   ${active} :is(${dialog}, ${dialogOverlay}) { animation: none; }
   /* A dialog on a route overlay already has a blurred layer behind it.
      Use Codex's solid scrim here to avoid sampling that layer a second time. */
@@ -179,6 +303,8 @@ ${active} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/lab
   }
   ${active}:has(${overlays}) ${dialog} { background-color: var(--hcv-menu); }
   ${active} ${dialog} {
+    background-color: var(--hcv-menu);
+    backdrop-filter: none;
     border: 1px solid var(--hcv-hairline);
     border-radius: var(--hcv-dialog-radius);
     box-shadow: var(--hcv-menu-shadow);
@@ -229,54 +355,38 @@ ${active} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/lab
     transition: none;
   }
   ${active} :is(${dialog}, ${dialogOverlay})[data-state="closed"] { pointer-events: none; }
-  ${active} ${menus} { padding: 6px; font-size: 13px; line-height: 20px; }
-  ${active} [data-slot="dropdown-menu-content"]:is([data-hcv-sidebar-menu], :has(> [role="menuitem"] > .codicon-folder-opened)) {
-    min-inline-size: min(224px, var(--radix-dropdown-menu-content-available-width, 100vw));
+  ${active} ${menus} { padding: 4px; font-size: 13px; line-height: calc(1.25 / .875); }
+  ${active} [data-slot="dropdown-menu-content"]${sidebarMenu} {
+    inline-size: max-content;
+    min-inline-size: min(160px, var(--radix-dropdown-menu-content-available-width, 100vw));
+    max-inline-size: min(calc(100vw - 16px), var(--radix-dropdown-menu-content-available-width, 100vw));
   }
   ${active} [data-hcv-sidebar-menu] { translate: var(--hcv-sidebar-menu-shift, 0px) 0; }
-  ${active} ${items} {
+  ${active} ${menuRows} {
     position: relative;
     min-block-size: 28px;
-    border-radius: var(--hcv-popup-button-radius);
-    gap: 8px;
+    border-radius: var(--hcv-dropdown-row-radius);
+    gap: 6px;
     padding-block: 4px;
-    padding-inline-start: 8px;
+    padding-inline: 8px;
     font-size: 13px;
-    font-weight: 400;
-    line-height: 20px;
-    isolation: isolate;
+    font-weight: 430;
+    line-height: calc(1.25 / .875);
   }
+  ${active} ${menuRows}:not([data-variant="destructive"]) { color: var(--hcv-dropdown-text); }
   ${active} ${highlightedItem} {
-    background: transparent;
+    background-color: var(--hcv-dropdown-hover);
   }
-  ${active} ${items}::before {
-    position: absolute;
-    inset: 0;
-    z-index: -1;
-    border-radius: inherit;
-    background: var(--hcv-hover-menu);
-    opacity: 0;
-    transform: scale(var(--hcv-highlight-start-scale));
-    content: '';
-    pointer-events: none;
-  }
-  ${active} ${highlightedItem}::before {
-    opacity: 1;
-    transform: scale(1);
-  }
-  ${active} ${items}[data-variant="destructive"]::before {
-    background: color-mix(in srgb, var(--destructive) 13%, transparent);
-  }
-  ${active} :is([data-slot="dropdown-menu-separator"], [data-slot="context-menu-separator"], [data-slot="select-separator"]) {
-    margin: 4px 6px;
-    background: var(--hcv-hairline);
+  ${active} ${menus} :is([data-slot="dropdown-menu-separator"], [data-slot="context-menu-separator"], [data-slot="select-separator"]) {
+    margin: 4px 8px;
+    background: var(--hcv-dropdown-outline);
   }
   ${Object.entries(menuGlyphs).map(([native, name]) => codexIconRules(`${active} ${items} .codicon-${native}`, name)).join('')}
   ${codexIconRules(`${active} ${items} ${checkIcon}`, 'check')}
   ${active} ${commandItems} { border-radius: 8px; }
   ${active} ${commandItems}:is(:focus, [data-selected="true"]):not([data-disabled="true"], [aria-disabled="true"]),
   ${active} ${menuButtons}:focus-visible:not(:disabled, [aria-disabled="true"]) {
-    background-color: var(--hcv-hover-menu);
+    background-color: var(--hcv-dropdown-hover);
     color: var(--hcv-text);
   }
   ${codexIconRules(`${active} ${commandItems} ${checkIcon}`, 'check')}
@@ -388,11 +498,6 @@ ${active} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/lab
   }
   ${projectRow}:has([data-state="open"][aria-haspopup="menu"]) { background: var(--hcv-selected); }
   ${projectRow} [data-slot="row-button"] > span { text-decoration: none; }
-  ${projectRow} [data-row-actions] button {
-    inline-size: 26px;
-    block-size: 26px;
-    border-radius: 6px;
-  }
   ${projectRow} [data-row-actions] button:focus-visible,
   ${projectRow}[data-hcv-preview-open] [data-row-actions] button,
   ${projectRow}:has([data-state="open"][aria-haspopup="menu"]) [data-row-actions] button { opacity: 1; }
@@ -409,13 +514,48 @@ ${active} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/lab
     --conversation-caption-font-size: 12px;
     --conversation-caption-line-height: 18px;
   }
-  ${pages} [data-catalog-card], ${pages} [data-tour="artifact-card"] {
+  ${pages} [data-tour="artifact-card"] {
     border: 1px solid var(--hcv-hairline);
     border-radius: 12px;
     background: var(--hcv-form-surface);
   }
-  ${pages} [data-catalog-card] button:has(> .text-lg) > span { font-size: 15px; line-height: 20px; }
-  ${pages} [data-catalog-card] > div { padding-inline: 12px; }
+  /* Codex's catalog cards use a border and a quiet fill on hover.
+     The Hermes featured carousel and artwork keep their native layout. */
+  ${catalogCard} {
+    border-radius: 16px;
+    box-shadow: none;
+  }
+  ${plainCatalogCard} {
+    border-color: var(--hcv-dropdown-outline);
+    background: var(--hcv-chat);
+  }
+  ${plainCatalogCard}[data-catalog-variant="hero"] {
+    border-radius: 12px;
+    background: var(--hcv-form-surface);
+  }
+  ${catalogCard}::after { content: none; }
+  ${capabilities} [data-catalog-hover-group]:has([data-catalog-card]:hover) [data-catalog-card]:not(:hover) {
+    filter: none;
+    opacity: 1;
+  }
+  ${catalogCard}:not([data-catalog-variant="hero"]) button:has(> .text-lg) > span {
+    font-size: 14px;
+    line-height: 20px;
+    font-weight: 600;
+  }
+  ${catalogCard} .catalog-card-description { font-size: 13px; line-height: 18px; }
+  ${catalogCard} button[aria-haspopup="dialog"]:focus-visible::after {
+    outline: 2px solid var(--hcv-focus);
+    outline-offset: -3px;
+  }
+  ${capabilities} .catalog-section-heading h2 {
+    color: var(--hcv-text);
+    font-size: 18px;
+    line-height: 24px;
+    font-weight: 500;
+    letter-spacing: normal;
+  }
+  ${capabilities} .catalog-section-heading p { font-size: 13px; line-height: 18px; }
   ${catalogDetail} {
     background: var(--hcv-chat);
     color: var(--hcv-text);
@@ -433,20 +573,6 @@ ${active} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/lab
     border-radius: 8px;
     border: 1px solid var(--hcv-hairline);
   }
-  ${artifacts} div:has(> table) {
-    border-radius: 12px;
-    border-color: var(--hcv-hairline);
-    background: var(--hcv-form-surface);
-  }
-  ${artifacts} table th {
-    padding: 8px 12px;
-    background: var(--hcv-chat);
-    font-size: 12px;
-    font-weight: 500;
-    letter-spacing: 0;
-    text-transform: none;
-  }
-  ${artifacts} table tbody tr:focus-within { background: var(--hcv-hover); }
   ${pages} ${pageTabs} button {
     min-block-size: 30px;
     padding-inline: 12px;
@@ -465,6 +591,7 @@ ${active} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/lab
     border-radius: 7px;
   }
   ${capabilities} ${pageTabs} button[data-active] > span { text-decoration-line: none; }
+  ${capabilities} ${pageTabs} button[data-active="true"] { background-color: var(--hcv-dropdown-hover); }
   :is(${pages}, ${shown}) ${pageSearch} {
     min-block-size: 32px;
     gap: 8px;
@@ -482,26 +609,91 @@ ${active} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/lab
     line-height: 18px;
   }
   ${codexIconRules(`:is(${pages}, ${shown}) ${pageSearch} > svg.tabler-icon-search`, 'search')}
-  ${messageRows}, ${cron} [data-panel-row] {
+  /* okCa (739301.37a39f26d6.js), used by the Skills and Plugins catalogs.
+     The native scope badge may sit between the search icon and input. */
+  ${capabilitySearch} {
+    block-size: auto;
     min-block-size: 32px;
-    border-radius: 8px;
-    font-size: 13px;
+    gap: 8px;
+    padding: 0 10px;
+    border: 1px solid var(--hcv-dropdown-outline);
+    border-radius: 999px;
+    background-color: transparent;
+    box-shadow: none;
+    opacity: 1;
   }
-  ${messageRows} { padding-inline: 8px 10px; }
-  ${cron} header > div > h2 { font-size: 20px; line-height: 26px; letter-spacing: -.01em; }
-  ${cron} [data-panel-row] > button:first-child { padding-inline: 8px; }
-  ${codexIconRules(`${cron} .codicon-watch`, 'schedule')}
-  ${codexIconRules(`${cron} .codicon-kebab-vertical`, 'more')}
-  ${codexIconRules(`${cron} .codicon-add`, 'plus')}
+  ${capabilitySearch}:focus-within { border-color: var(--hcv-focus); }
+  ${capabilitySearch} > input {
+    block-size: auto;
+    min-block-size: 30px;
+    font-size: 14px;
+    line-height: 18px;
+  }
+  ${capabilitySearch} > input:focus-visible { outline: none; }
+  ${capabilitySearch} > svg.tabler-icon-search {
+    inline-size: 16px;
+    block-size: 16px;
+    color: var(--hcv-muted);
+  }
+  ${codexIconRules(`${capabilitySearch} > svg.tabler-icon-search`, 'search')}
+  ${capabilities} [data-catalog-actions] { gap: 6px; }
+  ${catalogFilters} .catalog-filter-row,
+  ${catalogFilters} .catalog-filter-chips { gap: 8px; }
+  ${filterMode} {
+    padding: 2px;
+    gap: 2px;
+    border-radius: 999px;
+    background: var(--hcv-hover);
+  }
+  ${catalogControls} {
+    border-color: transparent;
+    background-color: transparent;
+    color: var(--hcv-muted);
+    box-shadow: none;
+    text-decoration: none;
+  }
+  ${filterMode} > button,
+  ${filterChips} {
+    min-block-size: 24px;
+    padding-inline: 8px;
+    border-radius: 999px;
+    font-size: 13px;
+    line-height: 18px;
+  }
+  ${catalogControls}:is([aria-pressed="true"], [data-state="open"]) {
+    background-color: var(--hcv-dropdown-hover);
+    color: var(--hcv-text);
+  }
+  ${catalogControls}:focus-visible {
+    outline: 2px solid var(--hcv-focus);
+    outline-offset: -2px;
+  }
+  ${catalogFilters} .catalog-filter-trigger > span {
+    font-size: 13px;
+    letter-spacing: normal;
+    text-transform: none;
+  }
+  ${filterTrigger}, ${catalogActions} {
+    min-block-size: 26px;
+    border-radius: ${codex.quietControl.radius};
+  }
+  ${catalogActions}:not([data-size^="icon"]) { padding-inline: 8px; }
+  ${catalogControls}:active:not(:disabled) {
+    background-color: var(--hcv-hover-menu);
+    color: var(--hcv-text);
+  }
+  ${codexIconRules(`${filterTrigger} > svg.tabler-icon-filter-2`, 'filter')}
+  ${codexIconRules(`${capabilities} ${rescan} > svg.tabler-icon-refresh`, 'refresh')}
   ${shown} {
     padding: clamp(10px, 2.4vw, 32px);
     background-color: rgb(0 0 0 / .24);
-    backdrop-filter: blur(2px);
+    backdrop-filter: none;
   }
   ${shown} > div > [data-glass-raised] {
     border: 1px solid var(--hcv-hairline);
     border-radius: var(--hcv-dialog-radius);
     background-color: var(--hcv-chat);
+    backdrop-filter: none;
     box-shadow: var(--hcv-menu-shadow);
   }
   ${shown} main {
@@ -561,13 +753,19 @@ ${active} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/lab
   }
 
   @media (hover: hover) and (pointer: fine) {
-    ${capabilities} ${pageTabs} button[data-active="false"]:hover { background-color: var(--hcv-hover); }
-    ${active} ${items}:hover:not([data-disabled], [aria-disabled="true"])::before {
-      opacity: 1;
-      transform: scale(1);
+    ${active} :where(${quietIcon}):hover:not(:disabled, [aria-disabled="true"], [aria-pressed="true"], [data-state="open"]) {
+      background-color: var(--hcv-dropdown-hover);
+      color: var(--hcv-text);
     }
+    ${capabilities} ${pageTabs} button[data-active="false"]:hover { background-color: var(--hcv-dropdown-hover); }
+    ${capabilitySearch}:hover:not(:focus-within) { border-color: var(--hcv-stroke); }
+    ${catalogControls}:hover:not(:disabled, [aria-pressed="true"], [data-state="open"]) {
+      background-color: var(--hcv-dropdown-hover);
+      color: var(--hcv-text);
+    }
+    ${active} ${enabledItem}:hover { background-color: var(--hcv-dropdown-hover); }
     ${active} ${menuButtons}:hover:not(:disabled, [aria-disabled="true"]) {
-      background-color: var(--hcv-hover-menu);
+      background-color: var(--hcv-dropdown-hover);
     }
     ${noticeDetails}:hover,
     ${quietPopupButtons}:hover:not(:disabled, [aria-disabled="true"]) {
@@ -582,8 +780,10 @@ ${active} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/lab
     ${paneAdd}:hover,
     ${nav} button.row-hover:not([aria-current="page"]):hover,
     ${sessions} > div > div > ul > li:hover { background-color: var(--hcv-hover); }
-    ${artifacts} table tbody tr:hover { background-color: var(--hcv-hover); }
-    ${pages} [data-catalog-card]:hover, ${pages} [data-tour="artifact-card"]:hover {
+    ${plainCatalogCard}:not([data-catalog-variant="hero"]):hover {
+      background-color: var(--hcv-dropdown-hover);
+    }
+    ${pages} [data-tour="artifact-card"]:hover {
       border-color: var(--hcv-stroke);
       background: var(--hcv-hover);
     }
@@ -608,15 +808,10 @@ ${active} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/lab
       transition: translate ${codex.switch.thumbTime} var(--hcv-move),
         background-color var(--hcv-enter-time) var(--hcv-ease);
     }
-    ${active} ${items}::before {
-      transition: opacity var(--hcv-exit-time) var(--hcv-ease),
-        transform var(--hcv-enter-time) var(--hcv-enter);
-    }
     ${popupButtons}, ${noticeDetails} {
       transition: background-color var(--hcv-enter-time) var(--hcv-ease),
         color var(--hcv-enter-time) var(--hcv-ease);
     }
-    ${active} ${items}:active:not([data-disabled])::before { transform: scale(var(--hcv-highlight-start-scale)); }
     ${active} :is(${menus}, ${popover}) {
       transform-origin: var(--hcv-sidebar-menu-origin, var(--radix-dropdown-menu-content-transform-origin,
         var(--radix-context-menu-content-transform-origin,
@@ -631,12 +826,20 @@ ${active} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/lab
       pointer-events: none;
     }
     ${tabs}, ${paneAdd}, ${card} button, ${projectRow}, ${projectRow} button,
-    ${messageRows}, ${cron} [data-panel-row], :is(${pages}, ${shown}) ${pageSearch},
+    :is(${pages}, ${shown}) ${pageSearch},
     ${nav} button, ${sessions} > div > div > ul > li,
-    ${pages} :is([data-catalog-card], [data-tour="artifact-card"], ${pageTabs} button) {
+    ${pages} :is([data-tour="artifact-card"], ${pageTabs} button) {
       transition: background-color var(--hcv-enter-time) var(--hcv-ease),
         color var(--hcv-enter-time) var(--hcv-ease),
         border-color var(--hcv-enter-time) var(--hcv-ease);
+    }
+    ${catalogCard}, ${capabilitySearch}, ${catalogControls} {
+      transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    ${catalogCard}, ${capabilitySearch}, ${catalogControls} {
+      transition: none;
     }
   }
   @media (max-width: 760px) {

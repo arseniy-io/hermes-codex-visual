@@ -175,6 +175,7 @@ export function registerComposer(ctx, active) {
   const root = document.documentElement
   const enabled = () => root.matches(active)
   const menu = `${active} ${composer} [data-slot="composer-completion-drawer"]`
+  const suggestions = `${active} ${composer} ${drawer}`
   const slash = `${active} ${composer} ${slashMenu}`
   const rowTip = `${active}:has(${slashMenu} > button:is([data-state="delayed-open"], [data-state="instant-open"])) [data-slot="tooltip-content"]`
   const sheet = document.createElement('style')
@@ -200,6 +201,17 @@ export function registerComposer(ctx, active) {
         scrollbar-width: thin;
         scrollbar-color: color-mix(in srgb, var(--hcv-text) 20%, transparent) transparent;
       }
+      /* Codex Lx2J.W uses the solid suggestion surface with no drop shadow. */
+      ${suggestions} {
+        max-block-size: min(320px, calc(100dvh - 144px));
+        padding: 4px;
+        border-color: var(--hcv-dropdown-outline);
+        border-radius: var(--hcv-dropdown-radius);
+        corner-shape: superellipse(1.5);
+        background: var(--hcv-dropdown-background);
+        box-shadow: none;
+        backdrop-filter: none;
+      }
       ${slash} > div:not(:has(*)) {
         padding-inline: 8px;
         text-transform: none;
@@ -207,14 +219,15 @@ export function registerComposer(ctx, active) {
         font: inherit;
         color: var(--hcv-muted);
       }
-      ${slash} > button {
+      ${suggestions} > button {
         gap: 8px;
         min-block-size: 28px;
-        padding: 4px 8px;
-        border-radius: 8px;
+        padding: 5px 8px;
+        border-radius: var(--hcv-dropdown-row-radius);
+        corner-shape: superellipse(1.5);
       }
-      ${menu} > button:is(:hover, [data-highlighted]):not(:disabled) {
-        background: var(--hcv-hover-menu);
+      ${suggestions} > button:is(:hover, :focus-visible, [data-highlighted]):not(:disabled) {
+        background: var(--hcv-dropdown-hover);
       }
       ${slash} > button > [data-ref],
       ${slash} > button > span:nth-child(3) { color: var(--hcv-muted); }

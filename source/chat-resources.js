@@ -29,6 +29,7 @@ export function registerChatResources(ctx, active) {
   style.dataset.hcvChatResources = ''
   style.textContent = `
 @media (forced-colors: none) {
+  /* fLcv and qO6B in 739301.37a39f26d6.js, Desktop tokens in 9ec44337a842.css. */
   :is(${preview}, ${artifact}) {
     box-sizing: border-box;
     inline-size: 100%;
@@ -39,8 +40,9 @@ export function registerChatResources(ctx, active) {
     padding: 12px;
     border: 0;
     border-radius: 10px;
-    box-shadow: inset 0 0 0 .5px var(--hcv-stroke);
-    background: var(--hcv-panel);
+    corner-shape: superellipse(1.5);
+    box-shadow: inset 0 0 0 .5px var(--hcv-hairline);
+    background: color-mix(in oklab, var(--hcv-panel) 50%, transparent);
     color: var(--hcv-text);
     font-family: var(--hcv-ui-font);
   }
@@ -51,6 +53,9 @@ export function registerChatResources(ctx, active) {
     gap: 0 10px;
   }
   ${artifact} { gap: 10px; }
+  @supports (corner-shape: superellipse(1.5)) {
+    :is(${preview}, ${artifact}) { border-radius: 12.5px; }
+  }
   ${icon} {
     inline-size: 40px;
     block-size: 40px;
@@ -93,8 +98,6 @@ export function registerChatResources(ctx, active) {
     white-space: nowrap;
   }
   ${preview}:has(> button:last-child:not(:disabled)) { cursor: pointer; }
-  ${preview}:hover:has(> button:last-child:not(:disabled)),
-  ${artifact}:not(:disabled):hover { background: var(--hcv-hover); }
   ${download} {
     grid-area: 1 / 3 / 3 / 4;
     min-block-size: 28px;
@@ -117,6 +120,25 @@ export function registerChatResources(ctx, active) {
     white-space: nowrap;
   }
   ${artifact}:focus-visible > span:nth-child(3) { opacity: 1; }
+  /* GnI8 in 904817.6fbcca27bc.js reveals the trailing action on hover or focus. */
+  @media (hover: hover) {
+    ${download}:not(:disabled) { opacity: 0; pointer-events: none; }
+    ${preview}:is(:hover, :focus-within) > button[aria-label]:not(:disabled) {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    ${preview}:hover:has(> button:last-child:not(:disabled)),
+    ${artifact}:not(:disabled):hover {
+      background-image: linear-gradient(var(--hcv-resource-hover), var(--hcv-resource-hover));
+      --hcv-resource-hover: color-mix(in oklab, var(--hcv-hover-menu) 30%, transparent);
+    }
+  }
+  @media (hover: none) {
+    ${artifact} > span:nth-child(3) { opacity: 1; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    :is(${preview}, ${artifact}, ${download}, ${artifact} > span:nth-child(3)) { transition: none; }
+  }
   ${preview}:has(> button:last-child:focus-visible),
   :is(${artifact}, ${download}, ${imageDownload}):focus-visible,
   ${generated} > button:first-of-type:focus-visible {
@@ -154,10 +176,6 @@ export function registerChatResources(ctx, active) {
   }
   ${codexIconRules(`:is(${download}, ${imageDownload}) > svg.tabler-icon-download`, 'download')}
 
-  @media (prefers-reduced-motion: no-preference) {
-    :is(${preview}, ${artifact}, ${download}) { transition: background-color 120ms ease-out, color 120ms ease-out; }
-    ${download}:active:not(:disabled) { scale: .96; }
-  }
 }
 `
   document.head.append(style)

@@ -1,6 +1,9 @@
 // Tabler Icons 3.44.0. MIT, Copyright (c) 2020-2026 Pawel Kuna.
 // The SVG paths below are from Tabler; see THIRD_PARTY_NOTICES.txt.
 const glyphs = {
+  circle: '<circle cx="12" cy="12" r="9" />',
+  circleCheck: '<circle cx="12" cy="12" r="9" /><path d="M9 12l2 2l4 -4" />',
+  circleX: '<circle cx="12" cy="12" r="9" /><path d="M10 10l4 4m0 -4l-4 4" />',
   warning: "<path d=\"M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0\"/><path d=\"M12 8v4\"/><path d=\"M12 16h.01\"/>",
   sidebarDisclosure: "<path d=\"M6 9l6 6l6 -6\"/>",
   sidebarWorking: "<path d=\"M12 3a9 9 0 1 0 9 9\"/>",
@@ -101,6 +104,19 @@ const glyphs = {
   terminal: "<path d=\"M8 9l3 3l-3 3\"/><path d=\"M13 15l3 0\"/><path d=\"M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12\"/>",
 }
 
+const glyphAliases = {
+  activityEdit: 'edit',
+  activityImage: 'image',
+  activityIntegration: 'tools',
+  activityRead: 'artifacts',
+  activitySearch: 'search',
+  activityTerminal: 'terminal',
+  chatPreviewComputer: 'laptop',
+  tableClose: 'close',
+  tableCopy: 'copy',
+  tableExpand: 'open',
+}
+
 export const codexReference = Object.freeze({
   spacing: 4,
   font: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
@@ -111,16 +127,25 @@ export const codexReference = Object.freeze({
   enterTime: '150ms',
   exitTime: '100ms',
   menuStartScale: '.95',
-  highlightStartScale: '.98',
+  // Desktop tooltip tokens: e77f816560c6.css. Scale and timing: the
+  // Tooltip component in 299366.cf79ea855a.js.
   tooltip: Object.freeze({ radius: '16px', padding: '5px 12px', duration: '250ms', exitScale: '.97' }),
+  // Compact tooltip and control geometry in 739301.37a39f26d6.js and 9ec44337a842.css.
+  compactTooltip: Object.freeze({ radius: '8px', padding: '6px 8px', shadow: '0 8px 18px #0f172a33' }),
+  quietControl: Object.freeze({ radius: '6px', height: '24px' }),
+  // Desktop summary KWzM in 790272.8f3bb9e423.js: 300 ms with .01 bounce.
   summaryTime: '300ms',
+  // Switch indicator and thumb from 0fff881d427a.css and its desktop tokens.
   switch: Object.freeze({ width: 32, height: 19, offset: 3, trackTime: '175ms', trackDelay: '50ms', thumbTime: '250ms' }),
+  // Codex sidebar disclosure n4D0 in 499225.6d2e47bea2.js, easing V8uZ.Wu.
   disclosure: Object.freeze({ heightTime: 450, enterTime: 300, enterDelay: 75, exitTime: 150, ease: 'cubic-bezier(.23, 1, .32, 1)' }),
-  sidebar: Object.freeze({ rowHeight: 30, rowRadius: 10, previewWidth: 288, previewRadius: 12, previewOffset: 2 }),
+  // Sidebar navigation tokens and the compact end of vQc5's rich preview width.
+  // 499225.6d2e47bea2.js, 182735.bb2cb0d2af.js, e77f816560c6.css.
+  sidebar: Object.freeze({ rowHeight: 30, rowRadius: 10, previewWidth: 336, previewRadius: 12, previewOffset: 2 }),
 })
 
 export function codexMask(name, ink = 'white') {
-  const paths = glyphs[name]
+  const paths = glyphs[glyphAliases[name] ?? name]
   if (!paths) throw new Error(`Unknown workspace icon: ${name}`)
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="${ink}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`

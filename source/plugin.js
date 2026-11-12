@@ -5,11 +5,19 @@ import { registerLocalEnvironment } from './local-environment.js'
 import { registerTurnExperience } from './turns.js'
 import { registerChatDisplay } from './chat-display.js'
 import { registerChatResources } from './chat-resources.js'
+import { registerChatActivity } from './chat-activity.js'
+import { registerChatTables } from './chat-tables.js'
 import { registerSubagents } from './subagents.js'
 import { registerDraftSetup } from './draft-setup.js'
 import { codexMask } from './codex-reference.js'
 import { registerInterface } from './interface.js'
+import { registerDesktopPages } from './desktop-pages.js'
+import { registerDesktopCorners } from './desktop-corners.js'
 import { registerSettingsStyle } from './settings.js'
+import { registerSettingsProviders } from './settings-providers.js'
+import { registerSettingsSpecial } from './settings-special.js'
+import { registerAppUpdatesStyle } from './app-updates.js'
+import { registerInstallOverlayStyle } from './install-overlay.js'
 import { registerRemainingSurfaces } from './remaining-surfaces.js'
 import { registerShellSurfaces } from './shell-surfaces.js'
 import { registerSessionTabs } from './session-tabs.js'
@@ -330,6 +338,9 @@ const styles = `
     padding-inline: 16px;
   }
 
+  ${chat} [data-slot="aui_intro"] .wordmark { mix-blend-mode: normal; }
+  ${chat} [data-slot="aui_intro"] .wordmark + p { font-size: 13px; line-height: 20px; }
+
   ${elapsedBar} {
     inline-size: 100%;
     display: flex;
@@ -588,8 +599,16 @@ export default {
     registerTurnExperience(ctx, active)
     registerChatDisplay(ctx, active)
     registerChatResources(ctx, active)
+    registerChatActivity(ctx, active)
+    registerChatTables(ctx, active)
     registerInterface(ctx, active)
+    registerDesktopPages(ctx, active)
+    registerDesktopCorners(ctx, active)
     registerSettingsStyle(ctx, active)
+    registerSettingsProviders(ctx, active)
+    registerSettingsSpecial(ctx, active)
+    registerAppUpdatesStyle(ctx, active)
+    registerInstallOverlayStyle(ctx, active)
     registerRemainingSurfaces(ctx, active)
     registerShellSurfaces(ctx, active)
     registerSessionTabs(ctx, active)

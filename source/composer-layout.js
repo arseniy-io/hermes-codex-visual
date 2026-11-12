@@ -20,6 +20,7 @@ export function registerComposerLayout(ctx, active) {
   const chip = `${rail} [data-hcv-composer-changes-chip]`
   const approval = `${active} [data-hcv-approval]`
   const approvalMenu = `${active} [data-hcv-approval-menu]`
+  const approvalOption = `${approvalMenu} [role="menuitemradio"]`
   const sheet = document.createElement('style')
   sheet.setAttribute('data-hcv-composer-layout', '')
   sheet.textContent = `
@@ -40,7 +41,7 @@ export function registerComposerLayout(ctx, active) {
         --composer-control-primary-size: 28px;
         --composer-surface-pad-x: 8px;
         --composer-surface-pad-y: 8px;
-        --hcv-composer-hover: color-mix(in srgb, var(--hcv-text) 8%, transparent);
+        --hcv-composer-hover: var(--hcv-dropdown-hover);
       }
       ${surface} ${backing}, ${fallback} ${backing},
       ${dock} > [data-slot="composer-root"] > .pointer-events-none.absolute.inset-0 {
@@ -51,6 +52,10 @@ export function registerComposerLayout(ctx, active) {
         border-radius: 22px;
         background-color: var(--hcv-composer);
         box-shadow: var(--hcv-composer-shadow);
+      }
+      ${dock} .coding-status-bar { border-block-end-color: transparent; }
+      @media (hover: hover) and (pointer: fine) {
+        ${dock} [data-slot="status-drawer-toggle"][aria-expanded="false"]:not(:hover, :focus-visible) { opacity: 0; }
       }
       ${surface} [data-slot="composer-fade"] { container-type: inline-size; }
       ${regularGrid} {
@@ -95,7 +100,7 @@ export function registerComposerLayout(ctx, active) {
       ${active}:has([data-hcv-approval]:not([data-pane-hidden] *)) [data-hcv-approval-source] { display: none; }
       ${approval} {
         display: flex; flex: none; align-items: center; gap: 4px;
-        block-size: 28px; padding-inline: 6px 8px;
+        block-size: 28px; padding-inline: 6px;
         border-radius: 999px; color: var(--hcv-muted); font: 13px/18px var(--hcv-ui-font);
         cursor: pointer;
       }
@@ -105,11 +110,18 @@ export function registerComposerLayout(ctx, active) {
       ${approval} [data-hcv-approval-icon] { inline-size: 16px; block-size: 16px; flex: none; }
       ${approvalMenu} {
         inline-size: min(260px, calc(100vw - 16px));
-        padding: 4px; border: 1px solid var(--hcv-hairline);
-        border-radius: var(--hcv-menu-radius); background: var(--hcv-menu); color: var(--hcv-text);
-        box-shadow: var(--hcv-menu-shadow);
       }
-      ${approvalMenu} [role="menuitemradio"][data-highlighted] { background: var(--hcv-hover-menu); }
+      /* Codex bqtn.G renders two lines of text and centers the trailing check. */
+      ${approvalOption} { align-items: center; }
+      ${approvalOption} > span:first-child { gap: 0; }
+      ${approvalOption} > span:first-child > span:first-child {
+        color: var(--hcv-dropdown-text);
+        font: 400 13px/18px var(--hcv-ui-font);
+      }
+      ${approvalOption} > span:first-child > span:nth-child(2) {
+        color: var(--hcv-dropdown-muted);
+        font: 400 12px/14px var(--hcv-ui-font);
+      }
       @container (width < 400px) {
         ${approval} { justify-content: center; inline-size: 28px; padding-inline: 0; }
         ${approval} [data-hcv-approval-label] { display: none; }

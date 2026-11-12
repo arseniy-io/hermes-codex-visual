@@ -1,0 +1,126 @@
+import assert from 'node:assert/strict'
+
+export async function verifyComposer({ page, expect, screenshot, mock, prompt }) {
+  const form = page.locator('form[data-slot="composer-root"][data-tour="composer"]:visible')
+  const input = form.getByRole('textbox', { name: 'Сообщение' })
+  const menu = form.getByRole('listbox')
+  const tray = page.getByRole('group', { name: 'Очередь сообщений' })
+  const rows = tray.locator('[data-slot="status-row"]')
+  const more = row => row.getByRole('button', { name: 'Действия с сообщением в очереди' })
+  const popup = page.getByRole('menu', { name: 'Действия с сообщением в очереди' })
+  const queueControl = form.getByRole('button', { name: 'Вставить сообщение в очередь', includeHidden: true })
+  const sent = text => mock.receivedPrompts.filter(value => value === text).length
+
+  await input.fill('/')
+  await expect(menu.locator('button').first()).toBeVisible({ timeout: 20000 })
+  await expect(menu).toHaveCSS('border-radius', '20px')
+  await expect(menu.getByText('Сеанс', { exact: true })).toBeAttached()
+  await expect(menu.locator('button[data-highlighted]')).toHaveCount(1)
+  const firstChoice = await menu.locator('button[data-highlighted]').textContent()
+  await input.press('ArrowDown')
+  await expect(menu.locator('button[data-highlighted]')).not.toHaveText(firstChoice)
+  await input.press('Escape')
+  await expect(menu).toHaveCount(0)
+
+  await input.fill('/stat')
+  await menu.getByText('/status', { exact: true }).click({ timeout: 15000 })
+  await expect(menu).toHaveCount(0)
+  await expect(input.locator('[data-ref-text="/status"]')).toHaveCount(1)
+
+  await input.fill(prompt)
+  await expect(queueControl).toHaveCount(1)
+  await expect(queueControl).toBeHidden()
+  await input.press('Enter')
+  await expect.poll(() => sent(prompt), { timeout: 40000 }).toBe(1)
+  await expect(form.getByRole('button', { name: 'Стоп', exact: true })).toBeVisible()
+
+  const firstLine = 'Первое сообщение в очереди.'
+  const secondLine = 'Вторая строка черновика.'
+  await input.fill(firstLine)
+  await input.press('End')
+  await input.press('Shift+Enter')
+  await page.keyboard.insertText(secondLine)
+  await expect.poll(() => input.evaluate(node => node.innerText)).toBe(firstLine + '\n' + secondLine)
+  await expect(tray).toHaveCount(0)
+
+  await input.press('Enter')
+  await expect(rows).toHaveCount(1)
+  await expect(tray).toHaveCSS('border-top-left-radius', '16px')
+  await expect(tray.locator('.status-section-header')).toBeHidden()
+  await expect(rows.first()).toContainText(firstLine)
+  await expect(input).toHaveText('')
+  await input.press('Enter')
+  await expect(rows).toHaveCount(1)
+  assert.deepEqual(mock.receivedPrompts, [prompt])
+
+  await more(rows.first()).press('ArrowDown')
+  const edit = popup.getByRole('menuitem', { name: 'Редактировать сообщение' })
+  await expect(edit).toBeFocused()
+  await expect(edit).toHaveCSS('outline-style', 'none')
+  await expect(edit).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+  await edit.press('Enter')
+  await expect(form.getByText('Редактирование хода в очереди в композере')).toBeVisible()
+  const edited = 'Изменённое сообщение в очереди.'
+  await input.fill(edited)
+  await input.press('Enter')
+  await expect(form.getByText('Редактирование хода в очереди в композере')).toHaveCount(0)
+  await expect(rows).toHaveCount(1)
+  await expect(rows.first()).toContainText(edited)
+
+  const clicked = 'Сообщение со стрелки отправки.'
+  await input.fill(clicked)
+  await form.getByRole('button', { name: 'Отправить', exact: true }).click()
+  for (const text of ['Третье сообщение.', 'Убрать из очереди.']) {
+    await input.fill(text)
+    await input.press('Enter')
+  }
+  await expect(rows).toHaveCount(4)
+  await expect(input).toHaveText('')
+  const surface = form.locator('[data-slot="composer-surface"]')
+  const box = await tray.boundingBox()
+  const composer = await surface.boundingBox()
+  assert(box && composer && Math.abs(box.x - composer.x - 13) <= 1)
+  assert(Math.abs(composer.width - box.width - 26) <= 2)
+  await expect(form.locator('[data-slot="status-drawer-toggle"]')).toBeHidden()
+  await expect(rows.first()).toHaveCSS('height', '29px')
+  await expect(rows.first().locator('button:has(> svg.tabler-icon-pencil)')).toBeHidden()
+  await expect(rows.first().locator('button:has(> svg.tabler-icon-corner-down-left)')).toBeHidden()
+  assert(Math.abs(box.y + box.height - composer.y - 20) <= 1, 'Queue must tuck 20px behind the composer')
+  await expect(surface).toHaveCSS('height', '98px')
+  const editor = await input.boundingBox()
+  const toolbar = await form.locator('[class~="[grid-area:menu]"]').boundingBox()
+  assert(editor && toolbar && editor.y + editor.height < toolbar.y, 'Editor and controls must use separate rows')
+  const control = rows.first().getByRole('button', { name: /Направить.*текущий ход/ })
+  await expect(control).toBeVisible()
+  assert.equal(await control.evaluate(node => getComputedStyle(node, '::after').content), '"Скорректировать"')
+  assert.deepEqual(mock.receivedPrompts, [prompt])
+  const clip = {
+    x: Math.floor(composer.x) - 12, y: Math.floor(box.y) - 12,
+    width: Math.ceil(composer.width) + 24, height: Math.ceil(composer.y + composer.height - box.y) + 24,
+  }
+  const grip = row => row.getByRole('button', { name: /Переместить сообщение в очереди/ })
+  await expect(grip(rows.first())).toHaveCSS('opacity', '0')
+  await rows.first().hover()
+  await expect(grip(rows.first())).toHaveCSS('opacity', '1')
+  await screenshot('queue.png', { clip })
+  await more(rows.first()).click()
+  await expect(popup.getByRole('menuitem', { name: 'Отправить следующим' })).toBeVisible()
+  await expect(popup).toHaveCSS('border-radius', '16px')
+  await screenshot('queue-actions.png', { clip })
+
+  await popup.getByRole('menuitem', { name: 'Выключить постановку в очередь' }).click()
+  await more(rows.first()).click()
+  await popup.getByRole('menuitem', { name: 'Включить постановку в очередь' }).click()
+  await grip(rows.first()).dragTo(rows.nth(2), { targetPosition: { x: 100, y: 22 } })
+  await expect(rows.locator('p')).toHaveText([clicked, 'Третье сообщение.', edited, 'Убрать из очереди.'])
+  await grip(rows.nth(1)).press('ArrowUp')
+  await expect(rows.locator('p')).toHaveText(['Третье сообщение.', clicked, edited, 'Убрать из очереди.'])
+  await rows.last().getByRole('button', { name: 'Удалить', exact: true }).click()
+  await expect(rows).toHaveCount(3)
+  assert.deepEqual(mock.receivedPrompts, [prompt])
+
+  mock.releaseHeldStream()
+  await expect.poll(() => mock.receivedPrompts.slice(), { timeout: 45000 }).toEqual([prompt, 'Третье сообщение.', clicked, edited])
+  await expect(tray).toHaveCount(0)
+  console.log('Verified queue overlap, stacked input, hover handle, drag and keyboard order, edit, delete and drain')
+}
