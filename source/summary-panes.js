@@ -1,3 +1,4 @@
+import { mountStyle } from './style-scope.js'
 import {
   atom, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
   DropdownMenuTrigger, host, useI18n, useValue,
@@ -105,32 +106,55 @@ export function registerSummaryPanes(ctx, active, views) {
     else queue()
   })
   observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-hermes-theme', 'lang'] })
-  const stripObserver = new MutationObserver(queue)
+  const stripObserver = new MutationObserver(() => { if (registrations.size) queue() })
   stripObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-selected'] })
 
-  const tab = active + ' [data-zone-tabstrip] [role="tab"][data-tree-tab^="' + panePrefix + '"][aria-selected]:has(> .pane-tab-content):not([data-vertical])'
+  const summaryTab = '[role="tab"][data-tree-tab^="' + panePrefix + '"]:not([data-vertical])'
+  const selectedTab = summaryTab + '[aria-selected="true"]'
+  const sideStrip = '[data-zone-tabstrip]:not([data-zone-tabstrip="grp-main"], [data-zone-tabstrip="grp-sessions"])'
+  const header = active + ' [data-panel-header]:has(> ' + sideStrip + ' ' + selectedTab + ')'
+  const singleRow = active + ' [data-panel-header]:has(> ' + sideStrip + ':not(.absolute) ' + selectedTab + ')'
+  const strip = active + ' ' + sideStrip + ':has(' + selectedTab + ')'
+  const track = '[data-tree-split].flex-row > div:has(> [data-tree-group] > [data-panel-header] > ' + sideStrip + ' ' + selectedTab + ')'
+  const seam = active + ' ' + track + ' > [data-sash-overlap="trailing"]'
+  const line = 'light-dark(rgb(26 28 31 / 12%), #2b2b2b)'
+  const tab = active + ' [data-zone-tabstrip] ' + summaryTab + '[aria-selected]:has(> .pane-tab-content)'
+  const selected = tab + ':is([aria-selected="true"], [data-selected])'
+  const closeControl = tab + ' > span > button'
   const style = document.createElement('style')
   style.dataset.hcvSummaryPanes = ''
   style.textContent = [
     '@media (forced-colors: none) {',
     active + ' [data-hcv-summary-pane] { height: 100%; min-height: 0; min-width: 0; overflow: hidden; background: var(--hcv-chat); color: var(--hcv-text); font: 13px/20px var(--hcv-ui-font); }',
-    // App shell tab in Codex 961657.80cc563d2f.js, desktop tokens in 9ec44337a842.css.
-    tab + ' { align-self: center; flex: 0 1 204px; min-inline-size: 72px; block-size: 32px; border-radius: 8px; border-inline-start-color: transparent; background-color: transparent; color: light-dark(rgb(26 28 31 / 50%), rgb(255 255 255 / 50%)); }',
+    // Right panel and close control in Codex 983280.4074749967.js. Let the
+    // host keep its extra controls row when the tab strip wraps below it.
+    header + ' { background: var(--hcv-chat); }',
+    singleRow + ' { min-block-size: 48px; }',
+    header + '::after { content: ""; position: absolute; inset-inline: 0; inset-block-end: 0; block-size: .5px; background: ' + line + '; pointer-events: none; }',
+    strip + ' { background: transparent; }',
+    strip + ':not(.absolute) { block-size: auto; }',
+    strip + ' > [role="tablist"] { padding-inline-start: 7px; }',
+    seam + ' > span:first-child { background: ' + line + '; opacity: 1; }',
+    tab + ' { align-self: center; flex: 0 1 220px; min-inline-size: 72px; max-inline-size: 220px; block-size: 30px; min-block-size: 30px; max-block-size: 30px; margin-inline: 0; padding-inline-start: 8px; border-radius: 8px; border-inline-start-color: transparent; background-color: transparent; color: var(--hcv-muted); }',
+    tab + '[data-closeable] { --pane-tab-close-width: 32px; padding-inline-end: var(--pane-tab-close-width); }',
     tab + ' .pane-tab-content .truncate { color: inherit; font: 430 13px/18.5714px var(--hcv-ui-font); letter-spacing: normal; text-transform: none; }',
-    tab + ' .pane-tab-content > span:first-child { margin-inline: 0; }',
+    tab + ' .pane-tab-content > :first-child { padding-inline: 4px; margin-inline: 0; }',
     tab + ':not([aria-selected="true"], [data-selected]):hover { background-color: light-dark(rgb(26 28 31 / 5%), rgb(255 255 255 / 8%)); color: var(--hcv-text); box-shadow: none; }',
     tab + '[data-selected] { background-color: var(--hcv-selected); color: var(--hcv-text); }',
-    tab + '[aria-selected="true"] { background-color: light-dark(var(--hcv-chat), var(--hcv-selected)); color: var(--hcv-text); box-shadow: inset 0 0 0 .5px var(--hcv-hairline); }',
-    ...Object.keys(views).map(kind => tab + paneTab(kind) + ' .pane-tab-content::before { content: ""; display: inline-block; inline-size: 16px; block-size: 16px; flex: none; margin-inline-start: 6px; background: currentColor; mask: ' + codexIconStyle(glyphs[kind]).mask + '; }'),
+    tab + '[aria-selected="true"] { background-color: light-dark(var(--hcv-chat), #2a2a2a); color: light-dark(var(--hcv-text), #dfdfdf); box-shadow: inset 0 0 0 .5px light-dark(rgb(26 28 31 / 21%), #4c4c4c); }',
+    selected + ' > span:has(> button), ' + tab + ':focus-visible > span:has(> button) { opacity: 1; pointer-events: auto; }',
+    closeControl + ' .codicon-close { display: none; }',
+    closeControl + '::before { content: ""; inline-size: 14px; block-size: 14px; background: currentColor; mask: ' + codexIconStyle('close').mask + '; }',
+    ...Object.keys(views).map(kind => tab + paneTab(kind) + ' .pane-tab-content::before { content: ""; display: inline-block; inline-size: 16px; block-size: 16px; flex: none; background: currentColor; mask: ' + codexIconStyle(glyphs[kind]).mask + '; }'),
     active + ' [data-hcv-summary-picker] [data-hcv-icon] { display: inline-block; inline-size: 16px; block-size: 16px; flex: none; }',
-    active + ' [data-hcv-summary-add-tab] { -webkit-app-region: no-drag; align-self: center; display: grid; place-items: center; flex: none; inline-size: ' + codex.quietControl.height + '; block-size: ' + codex.quietControl.height + '; margin-inline-start: 4px; border-radius: ' + codex.quietControl.radius + '; color: var(--hcv-muted); }',
+    active + ' [data-hcv-summary-add-tab] { -webkit-app-region: no-drag; align-self: center; display: grid; place-items: center; flex: none; inline-size: 28px; block-size: 28px; margin-inline-start: 7px; border-radius: ' + codex.quietControl.radius + '; color: var(--hcv-muted); }',
     active + ' [data-hcv-summary-add-tab]::before { content: ""; display: block; inline-size: 16px; block-size: 16px; background: currentColor; mask: ' + codexIconStyle('plus').mask + '; }',
     active + ' [data-hcv-summary-add-tab]:hover { background: var(--hcv-hover); color: var(--hcv-text); }',
     tab + ':focus-visible, ' + active + ' [data-hcv-summary-add-tab]:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }',
     active + ' [data-hcv-summary-picker] { min-inline-size: 170px; }',
     '}',
   ].join('\n')
-  document.head.append(style)
+  mountStyle(ctx, style, { surface: '[data-tree-tab^="' + panePrefix + '"]' })
   ctx.onDispose(() => {
     observer.disconnect()
     stripObserver.disconnect()

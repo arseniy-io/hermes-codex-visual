@@ -1,3 +1,4 @@
+import { mountStyle } from './style-scope.js'
 import { useI18n } from '@hermes/plugin-sdk'
 import { createElement as h, useLayoutEffect, useRef } from 'react'
 import { codexMask } from './codex-reference.js'
@@ -420,7 +421,7 @@ export function registerQueueAppearance(ctx, active, queueing) {
   const sheet = document.createElement('style')
   sheet.dataset.hcvQueueStyle = ''
   sheet.textContent = queueStyles(active)
-  document.head.append(sheet)
+  mountStyle(ctx, sheet, { surface: '[data-hcv-queue], [data-hcv-queue-menu]' })
 
   let remove
   const sync = () => {

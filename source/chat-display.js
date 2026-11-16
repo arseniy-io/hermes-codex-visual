@@ -1,3 +1,4 @@
+import { chatStyles, mountStyle } from './style-scope.js'
 import { codexIconRules, codexMask } from './codex-reference.js'
 import { registerMessageActions } from './message-actions.js'
 import { committedFiber } from './sidebar-recents.js'
@@ -34,6 +35,10 @@ function displayStyles(active, chat) {
   const ellipsis = `${bubble} > [data-hcv-message-ellipsis]`
   const frame = `${viewport} ${editSelector} [data-hcv-edit-controls]`
   const docked = `${active} ${chat}:has([data-slot="composer-dock"]:not([data-popped-out]))`
+  // The same native control also points to pending approvals. Keep that
+  // distinct state and its label available.
+  const scrollJump = `${active} ${chat} [data-slot="composer-bounds"] > button.thread-jump-button:not([class~="border-primary/40"])`
+  const scrollJumpIcon = `${scrollJump} > .codicon-arrow-down`
   // The inline error belongs to an assistant turn. The global alert stack
   // and other notices have their own markup and styles.
   const replyError = `${active} ${chat} [data-slot="aui_assistant-message-content"] > [role="alert"]:has(> div > .aui-error-action)`
@@ -135,8 +140,48 @@ function displayStyles(active, chat) {
     ${errorControls}:hover:not(:disabled) { background: var(--hcv-hover-menu); color: var(--hcv-text); }
   }
 
+  /* Codex 26.1111.2228.0: 344734.3322725bda.js uses native thin gutters.
+     The overflow-y-auto rules in 66582da7ee6b.css use the border tokens. */
   ${viewport} {
     mask-image: linear-gradient(to bottom, transparent 0, black ${fadeDistance}, black 100%);
+    scrollbar-width: thin;
+    scrollbar-gutter: stable both-edges;
+      scrollbar-color: light-dark(rgb(26 28 31 / 7.8%), rgb(255 255 255 / 8.4%)) transparent;
+  }
+  ${viewport}:is(:hover, :active) {
+      scrollbar-color: light-dark(rgb(26 28 31 / 11.7%), rgb(255 255 255 / 15.6%)) transparent;
+  }
+  /* wqAy.R and vFsk.w in Codex 344734.3322725bda.js. Keep Hermes's
+     measured dock height so the gap also clears its status stack. */
+  ${scrollJump} {
+    bottom: calc(var(--composer-measured-height) + 1.5rem) !important;
+    inline-size: 2rem;
+    block-size: 2rem;
+    justify-content: center;
+    gap: 0;
+    padding: 0;
+    border: 1px solid light-dark(rgb(26 28 31 / 8%), rgb(255 255 255 / 8%));
+    border-radius: 50%;
+    background: var(--hcv-chat) padding-box;
+    color: light-dark(#1a1c1f, #dfdfdf);
+    box-shadow: 0px 2px 4px -1px #00000014;
+    backdrop-filter: none;
+    cursor: default;
+    opacity: 0;
+    transform: translateX(-50%);
+    animation: none;
+    transition: opacity 120ms cubic-bezier(0, 0, .2, 1);
+  }
+  ${scrollJump}[aria-hidden="false"] { opacity: 1; }
+  ${scrollJump}:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: 2px; }
+  ${scrollJump} > span { display: none; }
+  ${scrollJumpIcon} { flex: none; inline-size: 20px; block-size: 20px; }
+  ${codexIconRules(scrollJumpIcon, 'scrollToBottom')}
+  @media (prefers-reduced-motion: reduce) {
+    ${scrollJump} { transition: none; }
+  }
+  @media (prefers-contrast: more) {
+    ${viewport}, ${viewport}:is(:hover, :active) { scrollbar-color: CanvasText Canvas; }
   }
   /* Codex scrolls the user turn with the transcript. Hermes's clip observer
      can still see the old overlap for a frame on theme changes. */
@@ -355,7 +400,7 @@ export function registerChatDisplay(ctx, active) {
   const stylesheet = document.createElement('style')
   stylesheet.setAttribute('data-hcv-chat-display', '')
   stylesheet.textContent = displayStyles(active, chat)
-  document.head.append(stylesheet)
+  mountStyle(ctx, stylesheet, chatStyles)
   ctx.i18n.register(labels)
 
   function label(state) {

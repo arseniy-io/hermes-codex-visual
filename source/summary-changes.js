@@ -1,3 +1,4 @@
+import { mountStyle } from './style-scope.js'
 import { useI18n } from '@hermes/plugin-sdk'
 import { createElement as h, useEffect, useId, useState } from 'react'
 import { codexIconStyle } from './codex-reference.js'
@@ -148,6 +149,5 @@ export function registerSummaryChanges(ctx, active) {
       ${pane} .hcv-changes-file > .hcv-changes-icon:first-child { transition: rotate 150ms ease; }
     }
   `
-  document.head.append(style)
-  ctx.onDispose(() => style.remove())
+  mountStyle(ctx, style, { surface: '[data-hcv-changes-pane]' })
 }

@@ -1,17 +1,20 @@
+import { mountStyle } from './style-scope.js'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, useI18n } from '@hermes/plugin-sdk'
-import { createElement as h, useId, useRef, useState } from 'react'
+import { createElement as h, useRef, useState } from 'react'
 import { codexIconStyle } from './codex-reference.js'
+import { SummarySection } from './summary-section.js'
 
 const labels = {
   ru: {
-    title: 'Источники', showAll: 'Показать все', add: 'Добавить источник',
+    title: 'Источники', outputs: 'Результаты', pullRequests: 'Запросы на включение изменений',
+    showAll: 'Показать все', add: 'Добавить источник',
     addHint: 'Прикрепить файлы или подключить приложения', attach: 'Прикрепить файлы или папки', plugins: 'Использовать плагины',
     connectors: 'Коннекторы', connector: 'Коннектор Hermes', image: 'Изображение', file: 'Файл', folder: 'Папка', link: 'Ссылка',
     attached: 'Прикреплено к разговору', provided: 'Предоставлено в разговоре', fromChat: 'Из разговора',
     empty: 'Нет активных источников', loading: 'Загрузка…', unavailable: 'Источники недоступны',
   },
   en: {
-    title: 'Sources', showAll: 'View all', add: 'Add source',
+    title: 'Sources', outputs: 'Outputs', pullRequests: 'Pull requests', showAll: 'View all', add: 'Add source',
     addHint: 'Attach files or connect apps', attach: 'Attach files or folders', plugins: 'Use plugins',
     connectors: 'Connectors', connector: 'Hermes connector', image: 'Image', file: 'File', folder: 'Folder', link: 'Link',
     attached: 'Attached to the conversation', provided: 'Provided in the conversation', fromChat: 'From the conversation',
@@ -78,11 +81,9 @@ function openComposerMenu(getChat) {
   })
 }
 
-export function CompactSources({ rows = [], connectors, loading, onExpand, onConnectors, onOpenSource, getChat }) {
+export function CompactSources({ rows = [], connectors, loading, onExpand, onConnectors, onOpenSource, getChat, disclosure }) {
   const { locale } = useI18n()
   const copy = labels[locale] || labels.en
-  const contentId = useId()
-  const [expanded, setExpanded] = useState(true)
   const [menuOpen, setMenuOpen] = useState(false)
   const movingFocus = useRef(false)
   const items = [...rows, ...connectorRows(connectors)]
@@ -92,14 +93,7 @@ export function CompactSources({ rows = [], connectors, loading, onExpand, onCon
     action()
   }
 
-  return h('section', { 'data-hcv-sources-compact': '', 'data-collapsed': !expanded || undefined, 'aria-label': copy.title },
-    h('header', null,
-      h('button', {
-        className: 'hcv-sources-heading', type: 'button', 'aria-controls': contentId, 'aria-expanded': expanded,
-        onClick: () => setExpanded(value => !value),
-      }, h('span', null, copy.title), !expanded && items.length > 0 && h('span', { className: 'hcv-sources-count' }, items.length),
-      h('span', { className: 'hcv-sources-chevron' }, icon('down'))),
-      h(DropdownMenu, { open: menuOpen, onOpenChange: setMenuOpen, modal: false },
+  const add = h(DropdownMenu, { open: menuOpen, onOpenChange: setMenuOpen, modal: false },
         h(DropdownMenuTrigger, { asChild: true }, h('button', {
           type: 'button', className: 'hcv-sources-add', 'aria-label': copy.add, title: copy.addHint,
         }, icon('plus'))),
@@ -111,14 +105,23 @@ export function CompactSources({ rows = [], connectors, loading, onExpand, onCon
           },
         },
         h(DropdownMenuItem, { disabled: !onConnectors, onSelect: () => menuAction(() => onConnectors()) }, icon('plugins'), copy.plugins),
-        h(DropdownMenuItem, { disabled: !getChat, onSelect: () => menuAction(() => openComposerMenu(getChat)) }, icon('attach'), copy.attach)))),
-    h('div', { id: contentId, className: 'hcv-sources-disclosure', inert: !expanded, 'aria-hidden': !expanded },
-      h('div', { className: 'hcv-sources-compact-content' }, items.length ? [
-        h('ul', { key: 'list', 'aria-label': copy.title }, ...sourceList(items.slice(0, 3), { copy, onOpenSource, onConnectors })),
-        h('button', { key: 'expand', type: 'button', className: 'hcv-source-row hcv-sources-all', onClick: onExpand },
-          h('span', { className: 'hcv-source-leading' }, viewAllIcon()), h('span', null, copy.showAll)),
-      ] : loading ? h('p', { role: 'status', className: 'hcv-sources-state' }, copy.loading)
-        : h('button', { type: 'button', className: 'hcv-source-row hcv-sources-empty', onClick: showMenu }, copy.addHint))))
+        h(DropdownMenuItem, { disabled: !getChat, onSelect: () => menuAction(() => openComposerMenu(getChat)) }, icon('attach'), copy.attach)))
+
+  return h(SummarySection, { ...disclosure, kind: 'sources', title: copy.title, action: add, 'data-hcv-sources-compact': '' },
+    items.length ? [
+      h('ul', { key: 'list', 'aria-label': copy.title }, sourceList(items.slice(0, 3), { copy, onOpenSource, onConnectors })),
+      h('button', { key: 'expand', type: 'button', className: 'hcv-source-row hcv-sources-all', onClick: onExpand },
+        h('span', { className: 'hcv-source-leading' }, viewAllIcon()), h('span', null, copy.showAll)),
+    ] : loading ? h('p', { role: 'status', className: 'hcv-sources-state' }, copy.loading)
+      : h('button', { type: 'button', className: 'hcv-source-row hcv-sources-empty', onClick: showMenu }, copy.addHint))
+}
+
+export function CompactSummaryItems({ kind, rows, onOpenSource, disclosure }) {
+  const { locale } = useI18n()
+  const copy = labels[locale] || labels.en
+  if (!rows.length) return null
+  return h(SummarySection, { ...disclosure, kind, title: copy[kind], 'data-hcv-summary-items': '' },
+    h('ul', { 'aria-label': copy[kind] }, sourceList(rows, { copy, onOpenSource })))
 }
 
 export function SourcesPane({ rows = [], connectors, loading, onConnectors, onOpenSource }) {
@@ -132,9 +135,9 @@ export function SourcesPane({ rows = [], connectors, loading, onConnectors, onOp
 }
 
 export function registerSummarySources(ctx, active) {
-  const compact = `${active} [data-hcv-sources-compact]`
+  const compact = `${active} :is([data-hcv-sources-compact], [data-hcv-summary-items])`
   const pane = `${active} [data-hcv-sources-pane]`
-  const view = `${active} :is([data-hcv-sources-compact], [data-hcv-sources-pane])`
+  const view = `${active} :is([data-hcv-sources-compact], [data-hcv-sources-pane], [data-hcv-summary-items])`
   const menu = `${active} [data-hcv-sources-add-menu]`
   const style = document.createElement('style')
   style.dataset.hcvSummarySources = ''
@@ -157,26 +160,12 @@ export function registerSummarySources(ctx, active) {
     ${view} .hcv-source-row { inline-size: 100%; min-inline-size: 0; display: flex; align-items: center; }
     ${view} .hcv-sources-state { padding-block: 4px; color: var(--hcv-muted); }
 
-    ${compact} { border-block-start: .5px solid var(--hcv-hairline); padding-block-start: 6px; }
-    ${compact} > header { display: flex; align-items: center; gap: 8px; min-block-size: 28px; padding-block-end: 2px; color: var(--hcv-muted); }
-    ${compact} .hcv-sources-heading {
-      display: flex; align-items: center; gap: 4px; flex: 1; min-inline-size: 0;
-      padding: 2px 4px 2px 3.5px; margin-inline-start: -3.5px; border-radius: 12px;
-    }
-    ${compact} .hcv-sources-chevron { display: grid; place-items: center; opacity: 0; }
-    ${compact} .hcv-sources-chevron > span { inline-size: 12px; block-size: 12px; }
-    ${compact} .hcv-sources-heading:is(:hover, :focus-visible) .hcv-sources-chevron { opacity: 1; }
-    ${compact}[data-collapsed] .hcv-sources-chevron { opacity: 1; rotate: -90deg; }
-    ${compact} .hcv-sources-count { color: var(--hcv-source-tertiary); }
     ${compact} .hcv-sources-add {
       display: grid; place-items: center; inline-size: 24px; block-size: 24px; padding: 0; margin-inline-end: -6px;
       border-radius: 7px; color: color-mix(in srgb, var(--hcv-text) 40%, transparent);
     }
     ${compact} .hcv-sources-add:is(:hover, [data-state="open"]) { color: var(--hcv-text); background: color-mix(in srgb, var(--hcv-text) 8%, transparent); }
-    ${compact} .hcv-sources-disclosure { display: grid; grid-template-rows: 1fr; opacity: 1; margin-block-start: 2px; }
-    ${compact}[data-collapsed] .hcv-sources-disclosure { grid-template-rows: 0fr; opacity: 0; margin-block-start: 0; }
-    ${compact} .hcv-sources-compact-content { min-block-size: 0; overflow: clip; margin-inline: -8px; padding-inline: 8px; }
-    ${compact} .hcv-sources-compact-content > ul { display: flex; flex-direction: column; gap: 2px; }
+    ${compact} [data-hcv-summary-contents] > ul { display: flex; flex-direction: column; }
     ${compact} .hcv-source-row {
       position: relative; isolation: isolate; gap: 12px; min-block-size: 28px;
       padding: 4px 0; border-radius: 6px; color: var(--hcv-muted);
@@ -207,16 +196,6 @@ export function registerSummarySources(ctx, active) {
       border-radius: 8px; color: var(--hcv-muted);
     }
     ${pane} .hcv-sources-connectors:hover { color: var(--hcv-text); background: var(--hcv-hover); }
-    @media (prefers-reduced-motion: no-preference) {
-      /* Nwje's disclosure uses V8uZ.X7: 300ms and cubic-bezier(.19, 1, .22, 1). */
-      ${compact} .hcv-sources-disclosure {
-        transition-property: grid-template-rows, opacity, margin-block-start;
-        transition-duration: 300ms;
-        transition-timing-function: cubic-bezier(.19, 1, .22, 1);
-      }
-      ${compact} .hcv-sources-chevron { transition: rotate 150ms cubic-bezier(.4, 0, .2, 1); }
-    }
   `
-  document.head.append(style)
-  ctx.onDispose(() => style.remove())
+  mountStyle(ctx, style, { surface: '[data-hcv-sources-compact], [data-hcv-sources-pane], [data-hcv-sources-add-menu], [data-hcv-summary-items]', retainAcrossChatTabs: true })
 }

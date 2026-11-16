@@ -1,9 +1,11 @@
+import { mountStyle } from './style-scope.js'
 import { atom, host, useValue } from '@hermes/plugin-sdk'
 import { createElement as h, useEffect } from 'react'
 import { agentAvatars } from './agent-avatars.js'
 import { codexMask } from './codex-reference.js'
 import { committedFiber } from './sidebar-recents.js'
 import { AgentPane, agentPaneStyles } from './summary-agents.js'
+import { SummarySection } from './summary-section.js'
 
 const surface = '[data-chat-surface]:not([data-hud-shell] *)'
 const primary = surface + '[data-composer-target="main"][data-session-anchor="workspace"]'
@@ -77,13 +79,24 @@ function settledStatus(value) {
   return ['interrupted', 'cancelled', 'canceled'].includes(status) ? 'interrupted' : 'failed'
 }
 
+function dispatchIds(result) {
+  const ids = result?.subagent_ids
+  const goals = result?.goals
+  if (result?.status !== 'dispatched' || !Array.isArray(ids) || !Array.isArray(goals)) return new Map()
+  const refused = new Set(Array.isArray(result.refused) ? result.refused.map(entry => entry?.task_index) : [])
+  const indexes = Array.from(goals.keys()).filter(index => !refused.has(index))
+  return indexes.length === ids.length ? new Map(indexes.map((index, i) => [index, tidy(ids[i])])) : new Map()
+}
+
 function readCard(card, cardIndex) {
   // Hermes's DelegateTool hydrates from the tool result and overlays the live
   // subagent state. Use the tool and child ids across renderer remounts.
   const call = committedFiber(card)?.return?.memoizedProps
   const callId = tidy(call?.toolCallId)
   const args = resultObject(call?.args)
-  const result = resultObject(call?.result)?.results
+  const result = resultObject(call?.result)
+  const savedIds = dispatchIds(result)
+  const results = Array.isArray(result?.results) ? result.results.map(resultObject) : []
   const turnId = getPrompt(card.closest(pair))
   return [...card.children].flatMap((entry, index) => {
     const scaffold = entry.querySelector(':scope > [data-conversation-scaffold]')
@@ -92,21 +105,25 @@ function readCard(card, cardIndex) {
     if (!button || !glyph) return []
     const goal = tidy(args?.tasks?.[index]?.goal || (index === 0 && args?.goal)) || tidy(button.textContent)
     const native = committedFiber(entry)?.return?.memoizedProps?.row
-    const stored = Array.isArray(result) ? resultObject(result[index]) : null
+    const stored = results.find(row => row?.task_index === index) ??
+      (results[index]?.task_index == null ? results[index] : null)
+    const refused = Array.isArray(result?.refused) && result.refused.find(row => row?.task_index === index)
+    const outcome = stored || refused
     // A native live row can be overlaid on an older call with the same goal.
     // Keep the completed call's own result until an event is matched to it.
-    const status = stored ? settledStatus(stored.status) : native?.status || (glyph.querySelector('[role="status"]') ? 'running'
+    const status = outcome ? settledStatus(outcome.status) : native?.status || (glyph.querySelector('[role="status"]') ? 'running'
       : glyph.querySelector('svg.text-destructive') ? 'failed'
         : glyph.querySelector('svg[aria-label]') ? 'completed' : 'dispatched')
     const nativeSession = tidy(native?.sessionId)
     const childSession = tidy(stored?.child_session_id || stored?.session_id) || (!stored ? nativeSession : '')
+    const subagentId = tidy(stored?.subagent_id) || savedIds.get(index)
     const seed = JSON.stringify(callId ? [callId, index] : [turnId, cardIndex, index, goal])
     return [{
-      id: seed, seed, nativeId: tidy(native?.id), nativeSession, goal, status, childSession,
+      id: subagentId || seed, seed, nativeId: tidy(native?.id), nativeSession, goal, status, childSession, subagentId,
       model: tidy(stored ? stored.model : native?.model),
       durationSeconds: duration(stored ? stored.duration_seconds : native?.durationSeconds),
       effort: tidy(stored?.reasoning_effort),
-      summary: prose(stored?.summary) || prose(stored?.error),
+      summary: prose(outcome?.summary) || prose(outcome?.error),
       activity: noActivity,
       started: status === 'running' || status === 'completed',
       button, canOpen: !button.disabled && (!stored || Boolean(childSession && nativeSession === childSession)),
@@ -205,7 +222,7 @@ function renderActivity(state, agents, lang, dark) {
     icons.setAttribute('data-hcv-agent-icons', '')
     icons.setAttribute('aria-hidden', 'true')
     const shown = list.length <= 3 ? list : list.slice(0, 2)
-    for (const agent of shown) {
+    for (const agent of list.slice(0, 4)) {
       const image = document.createElement('img')
       image.src = avatarUrl(agent.seed, dark)
       image.alt = ''
@@ -326,7 +343,7 @@ export function SubagentsPane({ roster }) {
   return h(AgentPane, { ...value, key: value.scope ?? 'draft', avatarUrl, nativeActions, openNativeAgent })
 }
 
-export function SummarySubagents({ roster, onExpand }) {
+export function SummarySubagents({ roster, onExpand, disclosure }) {
   const value = useScopedRoster(roster)
   if (!value.agents.length) return null
   const { agents, lang, dark } = value
@@ -345,25 +362,9 @@ export function SummarySubagents({ roster, onExpand }) {
     h('span', { key: 'avatars', 'data-hcv-agent-icons': '', 'aria-hidden': true }, preview.map(image)),
     h('span', { key: 'status', role: 'status', 'data-hcv-agent-counts': '' }, counts.join(' · ')),
   ]
-  return h('section', { 'data-hcv-summary-agents': '', 'aria-label': copy.title },
-    h('div', { 'data-hcv-agents-heading': '' }, copy.title),
-    onExpand
-      ? h('button', { type: 'button', className: 'hcv-context-row', title: copy.open,
-        'aria-label': copy.open, 'data-hcv-open-subagents': '', onClick: onExpand }, previewContent)
-      :
-    h('details', { key: value.scope },
-      h('summary', { className: 'hcv-context-row' }, previewContent),
-      h('ul', null, agents.map((agent) => {
-        const name = agent.goal || copy.fallback
-        const info = h('span', { 'data-hcv-agent-info': '' },
-          h('span', { title: name }, name),
-          h('small', null, copy.status[agent.status]))
-        return h('li', { key: agent.id },
-          agent.canOpen
-            ? h('button', { type: 'button', onClick: () => openNativeAgent(agent, value.scope) }, image(agent), info)
-            : h('div', null, image(agent), info))
-      })),
-    ))
+  return h(SummarySection, { ...disclosure, kind: 'agents', title: copy.title, 'data-hcv-summary-agents': '' },
+    h('button', { type: 'button', className: 'hcv-context-row', title: copy.open,
+      'aria-label': copy.open, 'data-hcv-open-subagents': '', onClick: onExpand }, previewContent))
 }
 
 function css(active) {
@@ -379,15 +380,16 @@ function css(active) {
     rows + ':is(button) { display: grid; inline-size: fit-content; max-inline-size: 100%; gap: 4px; min-inline-size: 0; border-radius: 6px; text-align: start; cursor: pointer; }',
     rows + ':is(div) { display: grid; gap: 4px; }',
     rows + '[aria-expanded="false"] + ' + delegate + ' { display: none; }',
-    rows + ' [data-hcv-agent-activity] { display: flex; align-items: center; gap: 4px; min-inline-size: 0; color: var(--hcv-activity-text); font-size: var(--hcv-activity-font); line-height: 1.5; }',
-    rows + ' [data-hcv-agent-activity] > span:last-child { min-inline-size: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }',
+    rows + ' [data-hcv-agent-activity] { display: flex; align-items: flex-start; gap: 6px; min-inline-size: 0; color: var(--hcv-activity-text); font-size: var(--hcv-activity-font); font-weight: 430; line-height: 20px; }',
+    rows + ' [data-hcv-agent-activity] > span:last-child { min-inline-size: 0; overflow-wrap: break-word; }',
     rows + ':is(button) [data-hcv-agent-activity]:last-child::after { content: ""; flex: none; inline-size: 12px; block-size: 12px; background: var(--hcv-activity-glyph); mask: ' + codexMask('right') + ' center / contain no-repeat; opacity: 0; }',
     rows + ':is(:hover, :focus-visible, [aria-expanded="true"]) [data-hcv-agent-activity]:last-child::after { opacity: 1; }',
     rows + '[aria-expanded="true"] [data-hcv-agent-activity]:last-child::after { rotate: 90deg; }',
     '@media (prefers-reduced-motion: no-preference) { ' + rows + ' [data-hcv-agent-activity]:last-child::after { transition: rotate 300ms; } }',
     rows + ':hover [data-hcv-agent-activity], ' + rows + ':focus-visible [data-hcv-agent-activity] { color: var(--hcv-text); }',
     active + ' [data-hcv-agent-icons] { display: inline-flex; flex: none; align-items: center; align-self: flex-start; gap: 4px; min-block-size: var(--conversation-line-height, 21px); }',
-    active + ' [data-hcv-agent-icons] img, ' + card + ' li img { inline-size: .875rem; block-size: .875rem; flex: none; }',
+    active + ' [data-hcv-agent-icons] img { inline-size: .875rem; block-size: .875rem; flex: none; }',
+    rows + ' [data-hcv-agent-icons] { gap: 6px; min-block-size: 20px; }',
     rows + ' [data-hcv-agent-icons] img { inline-size: 16px; block-size: 16px; }',
     native + ' { gap: 4px; margin-inline-start: 8px; padding-inline-start: 16px; border-inline-start: 1px solid var(--hcv-activity-border); }',
     task + ' { padding: 0; border: 0; border-radius: 0; }',
@@ -397,23 +399,14 @@ function css(active) {
     glyph + ' { position: relative; inline-size: 16px; block-size: 16px; }',
     glyph + ':not(:has([role="status"], svg.text-destructive)) { background: var(--hcv-delegate-avatar) center / contain no-repeat; }',
     glyph + ':not(:has([role="status"], svg.text-destructive)) > * { position: absolute; inline-size: 1px; block-size: 1px; clip-path: inset(50%); overflow: hidden; }',
-    card + ' { border-block-start: 1px solid color-mix(in srgb, var(--hcv-muted) 14%, transparent); margin-block-start: 6px; padding-block-start: 7px; color: var(--hcv-muted); }',
-    card + ' [data-hcv-agents-heading] { min-block-size: 28px; display: flex; align-items: center; font-size: 12px; }',
-    card + ' summary { position: relative; color: var(--hcv-muted); list-style: none; cursor: pointer; gap: 6px; }',
-    card + ' summary::-webkit-details-marker { display: none; }',
+    card + ' button[data-hcv-open-subagents] { position: relative; isolation: isolate; gap: 6px; color: var(--hcv-muted); padding: 0; }',
+    card + ' button[data-hcv-open-subagents]:is(:hover, :focus-visible) { background: none; color: var(--hcv-text); }',
+    card + ' button[data-hcv-open-subagents]:is(:hover, :focus-visible)::before { content: ""; position: absolute; z-index: -1; inset: 0 -8px; border-radius: 8px; background: var(--hcv-summary-row-hover); }',
     card + ' [data-hcv-agent-icons] { align-self: center; }',
-    card + ' [data-hcv-agent-counts] { min-inline-size: 0; }',
-    card + ' summary::after { content: ""; margin-inline-start: auto; flex: none; inline-size: 12px; block-size: 12px; background: currentColor; mask: ' + codexMask('down') + ' center / contain no-repeat; opacity: 0; }',
-    card + ' [data-hcv-open-subagents]::after { content: ""; margin-inline-start: auto; flex: none; inline-size: 16px; block-size: 16px; background: currentColor; mask: ' + codexMask('right') + ' center / contain no-repeat; }',
-    card + ' summary:is(:hover, :focus-visible)::after, ' + card + ' details[open] > summary::after { opacity: 1; }',
-    card + ' details[open] > summary::after { rotate: 180deg; }',
-    card + ' ul { max-block-size: min(30vh, 220px); overflow-y: auto; overscroll-behavior: contain; margin: 4px 0 0; }',
-    card + ' li > :is(div, button) { display: flex; gap: 8px; align-items: center; inline-size: 100%; padding: 4px; border-radius: 6px; text-align: start; }',
-    card + ' :is(button, summary):hover { background: var(--hcv-hover); color: var(--hcv-text); }',
-    card + ' [data-hcv-agent-info] { display: grid; min-inline-size: 0; gap: 1px; }',
-    card + ' [data-hcv-agent-info] > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }',
-    card + ' small { font-size: 11px; }',
-    rows + ':focus-visible, ' + card + ' :is(button, summary):focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }',
+    card + ' [data-hcv-agent-counts] { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }',
+    card + ' [data-hcv-open-subagents]::after { content: ""; margin-inline-start: auto; flex: none; inline-size: 14px; block-size: 14px; background: currentColor; mask: ' + codexMask('right') + ' center / contain no-repeat; opacity: 0; }',
+    card + ' [data-hcv-open-subagents]:is(:hover, :focus-visible)::after { opacity: 1; }',
+    rows + ':focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }',
     '}',
   ].join('\n') + agentPaneStyles(active)
 }
@@ -428,7 +421,7 @@ export function registerSubagents(ctx, active) {
   const sheet = document.createElement('style')
   sheet.setAttribute('data-hcv-subagents-style', '')
   sheet.textContent = css(active)
-  document.head.append(sheet)
+  mountStyle(ctx, sheet, { surface: '[data-hcv-agent-rows], [data-hcv-agent-icons], [data-hcv-summary-agents], [data-hcv-subagents-pane], [data-hcv-delegate-avatar]' })
 
   const cards = new Map()
   const expanded = new Set()
@@ -457,8 +450,10 @@ export function registerSubagents(ctx, active) {
         const id = tidy(item?.subagent_id)
         if (!id || !['running', 'queued'].includes(item.status)) continue
         const tool = tidy(item.last_tool)
-        agents.set(id, { id, seed: id, goal: tidy(item.goal), status: item.status,
+        const childSession = tidy(item.child_session_id)
+        agents.set(id, { id, subagentId: id, seed: id, goal: tidy(item.goal), status: item.status,
           started: item.status === 'running', startedAt: timestamp(item.started_at), model: tidy(item.model),
+          childSession, lifecycleChild: Boolean(childSession),
           activity: tool ? [tool] : noActivity })
       }
       snapshot = { scope, agents }
@@ -479,8 +474,9 @@ export function registerSubagents(ctx, active) {
       if (scope !== getScope() && !(event.connectionId && event.profile)) return
       const payload = event.payload
       const goal = tidy(payload.goal)
-      const id = tidy(payload.subagent_id) || JSON.stringify([payload.delegation_id, payload.parent_id, payload.task_index, goal])
-      if (!tidy(payload.subagent_id) && !goal) return
+      const subagentId = tidy(payload.subagent_id)
+      if (!subagentId && !goal) return
+      const id = subagentId || JSON.stringify([payload.delegation_id, payload.parent_id, payload.task_index, goal])
       const list = runtimeAgents.get(scope) || new Map()
       const previous = list.get(id)
       if (previous && (final(previous.status) || (event.seq != null && previous.seq >= event.seq))) return
@@ -492,7 +488,7 @@ export function registerSubagents(ctx, active) {
       const time = timestamp(event.timestamp) ?? (event.replayed ? undefined : Date.now())
       const childSession = tidy(payload.child_session_id) || previous?.childSession
       list.set(id, {
-        id, goal: goal || previous?.goal || '', seed: id, turn, status, cardId: previous?.cardId,
+        id, subagentId, goal: goal || previous?.goal || '', seed: id, turn, status, cardId: previous?.cardId,
         seq: event.seq ?? previous?.seq, started: previous?.started || status === 'running' || status === 'completed',
         startedAt: previous?.startedAt ?? (status === 'running' ? time : undefined),
         finishedAt: final(status) ? time : undefined,
@@ -545,15 +541,17 @@ export function registerSubagents(ctx, active) {
       const promptId = inPrimary && getPrompt(card.closest(pair))
       if (inPrimary && live) {
         for (const row of entries) {
-          const available = (agent) => agent && !claimed.has(agent.id) && (agent.cardId === row.id ||
+          const available = (agent) => agent && !claimed.has(agent.id) && (agent.cardId === row.seed ||
             (!agent.cardId && (agent.turn ? agent.turn === promptId : !final(row.status))))
-          const sameId = live.get(row.nativeId)
-          const matched = available(sameId) ? sameId : [...live.values()].find((agent) => available(agent) &&
-            (agent.cardId === row.id || (promptId && agent.turn === promptId && agent.goal === row.goal)))
+          const sameId = live.get(row.subagentId || row.nativeId)
+          const matched = sameId && !claimed.has(sameId.id) && (!sameId.cardId || sameId.cardId === row.seed)
+            ? sameId : !row.subagentId && [...live.values()].find((agent) => available(agent) &&
+              (agent.cardId === row.seed || (promptId && agent.turn === promptId && agent.goal === row.goal)))
           if (!matched) continue
-          matched.cardId = row.id
+          matched.cardId = row.seed
           claimed.add(matched.id)
           row.id = matched.id
+          row.subagentId ||= matched.subagentId
           row.started ||= matched.started
           if (final(matched.status) || !final(row.status)) row.status = matched.status
           row.startedAt = matched.startedAt
@@ -619,7 +617,8 @@ export function registerSubagents(ctx, active) {
     if (signature !== rosterSignature || agents.some((agent, i) => {
       const old = prior[i]
       return !old || agent.button !== old.button || agent.canOpen !== old.canOpen ||
-        agent.model !== old.model || agent.childSession !== old.childSession || agent.lifecycleChild !== old.lifecycleChild ||
+        agent.model !== old.model || agent.childSession !== old.childSession || agent.subagentId !== old.subagentId ||
+        agent.lifecycleChild !== old.lifecycleChild ||
         agent.effort !== old.effort || agent.summary !== old.summary ||
         agent.startedAt !== old.startedAt || agent.finishedAt !== old.finishedAt ||
         agent.updatedAt !== old.updatedAt ||

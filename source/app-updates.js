@@ -1,3 +1,4 @@
+import { mountStyle } from './style-scope.js'
 import { codexIconRules } from './codex-reference.js'
 
 export function registerAppUpdatesStyle(ctx, active) {
@@ -121,6 +122,5 @@ export function registerAppUpdatesStyle(ctx, active) {
 }
 `
 
-  document.head.append(sheet)
-  ctx.onDispose(() => sheet.remove())
+  mountStyle(ctx, sheet, { screens: ['settings'], tabs: ['about'], surface: '[data-slot="dialog-content"].max-w-sm' })
 }

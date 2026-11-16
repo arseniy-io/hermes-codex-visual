@@ -44,6 +44,7 @@ const glyphs = {
   bell: "<path d=\"M10 5a2 2 0 1 1 4 0a7 7 0 0 1 4 6v3a4 4 0 0 0 2 3h-16a4 4 0 0 0 2 -3v-3a7 7 0 0 1 4 -6\"/><path d=\"M9 17v1a3 3 0 0 0 6 0v-1\"/>",
   right: "<path d=\"M9 6l6 6l-6 6\"/>",
   down: "<path d=\"M6 9l6 6l6 -6\"/>",
+  scrollToBottom: '<path d="M12 5l0 14"/><path d="M18 13l-6 6"/><path d="M6 13l6 6"/>',
   back: "<path d=\"M5 12l14 0\"/><path d=\"M5 12l6 6\"/><path d=\"M5 12l6 -6\"/>",
   forward: "<path d=\"M5 12l14 0\"/><path d=\"M13 18l6 -6\"/><path d=\"M13 6l6 6\"/>",
   check: "<path d=\"M5 12l5 5l10 -10\"/>",
@@ -66,6 +67,7 @@ const glyphs = {
   swap: "<path d=\"M7 10h14l-4 -4\"/><path d=\"M17 14h-14l4 4\"/>",
   hud: "<path d=\"M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1l0 -10\"/><path d=\"M7 20h10\"/><path d=\"M9 16v4\"/><path d=\"M15 16v4\"/><path d=\"M9 12v-4\"/><path d=\"M12 12v-1\"/><path d=\"M15 12v-2\"/><path d=\"M12 12v-1\"/>",
   changes: "<path d=\"M14 3v4a1 1 0 0 0 1 1h4\"/><path d=\"M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2\"/><path d=\"M12 10l0 4\"/><path d=\"M10 12l4 0\"/><path d=\"M10 17l4 0\"/>",
+  turnDiffUndo: '<path d="M9 14l-4 -4l4 -4"/><path d="M5 10h11a4 4 0 1 1 0 8h-1"/>',
   source: "<path d=\"M5.931 6.936l1.275 4.249m5.607 5.609l4.251 1.275\"/><path d=\"M11.683 12.317l5.759 -5.759\"/><path d=\"M4 5.5a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0 -3 0\"/><path d=\"M17 5.5a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0 -3 0\"/><path d=\"M17 18.5a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0 -3 0\"/><path d=\"M4 15.5a4.5 4.5 0 1 0 9 0a4.5 4.5 0 1 0 -9 0\"/>",
   link: "<path d=\"M9 15l6 -6\"/><path d=\"M11 6l.463 -.536a5 5 0 0 1 7.071 7.072l-.534 .464\"/><path d=\"M13 18l-.397 .534a5.068 5.068 0 0 1 -7.127 0a4.972 4.972 0 0 1 0 -7.071l.524 -.463\"/>",
   open: "<path d=\"M12 6h-6a2 2 0 0 0 -2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-6\"/><path d=\"M11 13l9 -9\"/><path d=\"M15 4h5v5\"/>",
@@ -97,14 +99,27 @@ const glyphs = {
   target: "<path d=\"M11 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0\"/><path d=\"M7 12a5 5 0 1 0 10 0a5 5 0 1 0 -10 0\"/><path d=\"M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0\"/>",
   trash: "<path d=\"M4 7l16 0\"/><path d=\"M10 11l0 6\"/><path d=\"M14 11l0 6\"/><path d=\"M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12\"/><path d=\"M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3\"/>",
   play: "<path d=\"M7 4v16l13 -8l-13 -8\"/>",
+  resourcePlay: '<path fill="white" stroke="none" d="M7 5v14l12 -7z"/>',
+  resourcePause: '<rect fill="white" stroke="none" x="6" y="5" width="4" height="14" rx="1"/><rect fill="white" stroke="none" x="14" y="5" width="4" height="14" rx="1"/>',
+  videoVolume: '<path d="M15 8a5 5 0 0 1 0 8"/><path d="M17.7 5a9 9 0 0 1 0 14"/><path d="M5 9h3l4 -4v14l-4 -4h-3a1 1 0 0 1 -1 -1v-4a1 1 0 0 1 1 -1"/>',
+  videoMuted: '<path d="M5 9h3l4 -4v14l-4 -4h-3a1 1 0 0 1 -1 -1v-4a1 1 0 0 1 1 -1"/><path d="M16 10l4 4m0 -4l-4 4"/>',
+  videoFullscreen: '<path d="M16 4h4v4m0 -4l-5 5M8 20h-4v-4m0 4l5 -5"/>',
+  videoExitFullscreen: '<path d="M4 20l5 -5m-5 0h5v5M20 4l-5 5m0 -5v5h5"/>',
   person: "<path d=\"M8 7a4 4 0 1 0 8 0a4 4 0 0 0 -8 0\"/><path d=\"M6 21v-2a4 4 0 0 1 4 -4h4a4 4 0 0 1 4 4v2\"/>",
   team: "<path d=\"M5 7a4 4 0 1 0 8 0a4 4 0 1 0 -8 0\"/><path d=\"M3 21v-2a4 4 0 0 1 4 -4h4a4 4 0 0 1 4 4v2\"/><path d=\"M16 3.13a4 4 0 0 1 0 7.75\"/><path d=\"M21 21v-2a4 4 0 0 0 -3 -3.85\"/>",
   audio: "<path d=\"M21 12h-2c-.894 0 -1.662 -.857 -1.761 -2c-.296 -3.45 -.749 -6 -2.749 -6s-2.5 3.582 -2.5 8s-.5 8 -2.5 8s-2.452 -2.547 -2.749 -6c-.1 -1.147 -.867 -2 -1.763 -2h-2\"/>",
   tools: "<path d=\"M3 21h4l13 -13a1.5 1.5 0 0 0 -4 -4l-13 13v4\"/><path d=\"M14.5 5.5l4 4\"/><path d=\"M12 8l-5 -5l-4 4l5 5\"/><path d=\"M7 8l-1.5 1.5\"/><path d=\"M16 12l5 5l-4 4l-5 -5\"/><path d=\"M16 17l-1.5 1.5\"/>",
+  activityBrowser: '<path d="M4 8h16"/><path d="M4 6a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2l0 -12"/><path d="M8 4v4"/>',
+  chatSkill: '<path d="M12 4l-8 4l8 4l8 -4l-8 -4"/><path d="M4 12l8 4l8 -4"/><path d="M4 16l8 4l8 -4"/>',
   terminal: "<path d=\"M8 9l3 3l-3 3\"/><path d=\"M13 15l3 0\"/><path d=\"M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12\"/>",
 }
 
 const glyphAliases = {
+  resourceDocument: 'artifacts',
+  resourceMore: 'more',
+  videoPlay: 'play',
+  videoPause: 'resourcePause',
+  videoMore: 'more',
   activityEdit: 'edit',
   activityImage: 'image',
   activityIntegration: 'tools',
@@ -115,6 +130,10 @@ const glyphAliases = {
   tableClose: 'close',
   tableCopy: 'copy',
   tableExpand: 'open',
+  turnDiff: 'changes',
+  turnDiffOpen: 'open',
+  turnDiffDown: 'down',
+  turnDisclosure: 'right',
 }
 
 export const codexReference = Object.freeze({
@@ -144,11 +163,24 @@ export const codexReference = Object.freeze({
   sidebar: Object.freeze({ rowHeight: 30, rowRadius: 10, previewWidth: 336, previewRadius: 12, previewOffset: 2 }),
 })
 
+export const localAssets = typeof HCV_LOCAL_ASSETS === 'undefined' ? null : HCV_LOCAL_ASSETS
+
+export const svgMask = svg => `url("data:image/svg+xml,${encodeURIComponent(svg)}")`
+const defaultMasks = new Map()
+
 export function codexMask(name, ink = 'white') {
+  if (ink !== 'white') return makeMask(name, ink)
+  if (!defaultMasks.has(name)) defaultMasks.set(name, makeMask(name, ink))
+  return defaultMasks.get(name)
+}
+
+function makeMask(name, ink) {
+  const original = localAssets?.icons[name]
+  if (original) return svgMask(ink === 'white' ? original : original.replaceAll('"white"', `"${ink}"`))
   const paths = glyphs[glyphAliases[name] ?? name]
   if (!paths) throw new Error(`Unknown workspace icon: ${name}`)
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="${ink}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`
-  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`
+  return svgMask(svg)
 }
 
 export function codexIconStyle(name) {

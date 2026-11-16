@@ -1,3 +1,4 @@
+import { mountCSS } from './style-scope.js'
 import { codexIconRules } from './codex-reference.js'
 
 export function registerRemainingSurfaces(ctx, active) {
@@ -28,9 +29,13 @@ export function registerRemainingSurfaces(ctx, active) {
   const botPane = `${active} [data-hcv-sidebar-shell]:has(> [data-panel-header] [data-tree-tab="hermes-bots:pane"][aria-selected="true"]) > .relative.flex-1 > .absolute.inset-0:not([data-pane-hidden]) > .h-full.flex-col`
   const botLoading = `${botPane} > div:has(> [role="status"] > .glyph-spinner)`
   const terminalRail = `${active}:has([data-hcv-sidebar-shell] [data-tree-tab="terminal"][aria-selected="true"]) [data-pane-host="terminal"] [data-suppress-pane-reveal] > [role="tablist"]`
-  const sheet = document.createElement('style')
-  sheet.dataset.hcvRemainingSurfaces = ''
-  sheet.textContent = `
+  mountCSS(ctx, 'data-hcv-remaining-surfaces', `
+@media (forced-colors: none) {
+  ${codexIconRules(`${active} button[aria-haspopup="menu"] > .codicon-add`, 'plus')}
+
+}
+`)
+  mountCSS(ctx, 'data-hcv-connectors-styles', `
 @media (forced-colors: none) {
   ${directory} {
     container-type: inline-size;
@@ -108,6 +113,23 @@ export function registerRemainingSurfaces(ctx, active) {
   }
   ${connectorTools} [data-slot="tools-dirty-footer"] { border-color: var(--hcv-hairline); }
 
+  ${codexIconRules(`${directory} svg.tabler-icon-rosette-discount-check`, 'verified')}
+  @container (max-width: 680px) {
+    ${directory} section > .grid:has(> [data-slot="connector-row-card"]) { grid-template-columns: minmax(0, 1fr); }
+  }
+  @media (hover: hover) and (pointer: fine) {
+    ${connector}:hover { background: var(--hcv-hover); border-color: var(--hcv-stroke); }
+    ${connectorTools} [data-slot="tool-row"]:hover { background: var(--hcv-hover); }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    ${connector}, ${connectorTools} [data-slot="tool-row"] {
+      transition: background-color var(--hcv-enter-time) var(--hcv-ease), border-color var(--hcv-enter-time) var(--hcv-ease);
+    }
+  }
+}
+`, { screens: ['capabilities'], surface: '[data-slot="connectors-directory"], [data-slot="tools-list"], [data-slot="tools-summary"]' })
+  mountCSS(ctx, 'data-hcv-overlay-rows', `
+@media (forced-colors: none) {
   /* Shared panel shell used by Hermes profiles, agents, webhooks, starmap,
      session import, and contributed panels. None of their actions are replaced. */
   ${overlays} header:has(> div > h2) > div > h2 {
@@ -189,6 +211,37 @@ export function registerRemainingSurfaces(ctx, active) {
   ${segmentedButton}[aria-pressed="true"] { background-color: var(--hcv-menu); }
   ${webhookAlert} { border-radius: 12px; }
   ${webhookAlert}:first-child { margin-block-start: 24px; }
+  ${codexIconRules(`${overlays} .codicon-add`, 'plus')}
+  ${codexIconRules(`${overlays} .codicon-kebab-vertical`, 'more')}
+  ${codexIconRules(`${overlays} .codicon-hubot`, 'bots')}
+  ${codexIconRules(`${overlays} .codicon-account`, 'person')}
+  ${codexIconRules(`${overlays} .codicon-link`, 'link')}
+  ${codexIconRules(`${overlays} .codicon-comment-discussion`, 'hud')}
+  ${codexIconRules(`${overlays} .codicon-edit`, 'edit')}
+  ${codexIconRules(`${overlays} .codicon-trash`, 'trash')}
+  ${codexIconRules(`${overlays} .codicon-refresh`, 'refresh')}
+  @media (hover: hover) and (pointer: fine) {
+    ${panelRows}:hover { background: var(--hcv-hover); }
+    ${selectedProfile}:hover { background: var(--hcv-selected); }
+    ${segmentedButton}[aria-pressed="false"]:hover:not(:disabled) { background: var(--hcv-hover-menu); }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    ${panelRows} {
+      transition: background-color var(--hcv-enter-time) var(--hcv-ease), border-color var(--hcv-enter-time) var(--hcv-ease);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    ${profileSearch}, ${profileRows} button, ${segmentedButton} { transition: none; }
+  }
+}
+@media (forced-colors: active) {
+  ${selectedProfile}, ${segmentedButton}[aria-pressed="true"] { outline: 1px solid Highlight; outline-offset: -1px; }
+  ${profiles} :is(button, input):focus-visible,
+  ${segmentedButton}:focus-visible { outline: 2px solid Highlight; outline-offset: -2px; }
+}
+`, { surface: '[data-overlay-surface], [data-slot="dialog-content"]' })
+  mountCSS(ctx, 'data-hcv-bot-rows', `
+@media (forced-colors: none) {
   ${botRows} { border-radius: 8px; font-family: var(--hcv-ui-font); }
   ${botRows}:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }
   ${botPane} { min-block-size: 0; background: var(--hcv-sidebar); }
@@ -215,7 +268,23 @@ export function registerRemainingSurfaces(ctx, active) {
   }
   ${botLoading}::after { content: 'Loading bots…'; }
   ${botLoading}:lang(ru)::after { content: 'Загрузка ботов…'; }
+  @media (hover: hover) and (pointer: fine) {
+    ${botRows}:hover { background: var(--hcv-hover); }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    ${botRows} {
+      transition: background-color var(--hcv-enter-time) var(--hcv-ease), border-color var(--hcv-enter-time) var(--hcv-ease);
+    }
+  }
+}
+`, { surface: '[data-tree-tab="hermes-bots:pane"][aria-selected="true"], [data-slot="bots-section"], button[data-roster-key]' })
+  mountCSS(ctx, 'data-hcv-terminal-rail', `
+@media (forced-colors: none) {
   ${terminalRail} { padding-block-start: 6px; }
+}
+`, { surface: '[data-tree-tab="terminal"][aria-selected="true"]' })
+  mountCSS(ctx, 'data-hcv-dialog-fields', `
+@media (forced-colors: none) {
   ${dialog} :is([data-slot="input"], [data-slot="textarea"], [data-slot="select-trigger"]) {
     border-color: var(--hcv-hairline);
     background: var(--hcv-form-surface);
@@ -223,45 +292,7 @@ export function registerRemainingSurfaces(ctx, active) {
   ${dialog} :is([data-slot="input"], [data-slot="select-trigger"]):not([type="file"]) { min-block-size: 32px; }
   ${dialog} button:is([data-variant="outline"], [data-variant="secondary"]) { border-color: var(--hcv-hairline); }
 
-  ${codexIconRules(`${directory} svg.tabler-icon-rosette-discount-check`, 'verified')}
-  ${codexIconRules(`${overlays} .codicon-add`, 'plus')}
-  ${codexIconRules(`${overlays} .codicon-kebab-vertical`, 'more')}
-  ${codexIconRules(`${overlays} .codicon-hubot`, 'bots')}
-  ${codexIconRules(`${overlays} .codicon-account`, 'person')}
-  ${codexIconRules(`${overlays} .codicon-link`, 'link')}
-  ${codexIconRules(`${overlays} .codicon-comment-discussion`, 'hud')}
-  ${codexIconRules(`${overlays} .codicon-edit`, 'edit')}
-  ${codexIconRules(`${overlays} .codicon-trash`, 'trash')}
-  ${codexIconRules(`${overlays} .codicon-refresh`, 'refresh')}
   ${codexIconRules(`${dialog} :is(.codicon-close, button[data-slot="dialog-close-button"] > svg.tabler-icon-x)`, 'close')}
-  ${codexIconRules(`${active} button[aria-haspopup="menu"] > .codicon-add`, 'plus')}
-
-  @container (max-width: 680px) {
-    ${directory} section > .grid:has(> [data-slot="connector-row-card"]) { grid-template-columns: minmax(0, 1fr); }
-  }
-  @media (hover: hover) and (pointer: fine) {
-    ${connector}:hover { background: var(--hcv-hover); border-color: var(--hcv-stroke); }
-    ${connectorTools} [data-slot="tool-row"]:hover { background: var(--hcv-hover); }
-    ${panelRows}:hover { background: var(--hcv-hover); }
-    ${selectedProfile}:hover { background: var(--hcv-selected); }
-    ${segmentedButton}[aria-pressed="false"]:hover:not(:disabled) { background: var(--hcv-hover-menu); }
-    ${botRows}:hover { background: var(--hcv-hover); }
-  }
-  @media (prefers-reduced-motion: no-preference) {
-    ${connector}, ${connectorTools} [data-slot="tool-row"], ${panelRows}, ${botRows} {
-      transition: background-color var(--hcv-enter-time) var(--hcv-ease), border-color var(--hcv-enter-time) var(--hcv-ease);
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    ${profileSearch}, ${profileRows} button, ${segmentedButton} { transition: none; }
-  }
 }
-@media (forced-colors: active) {
-  ${selectedProfile}, ${segmentedButton}[aria-pressed="true"] { outline: 1px solid Highlight; outline-offset: -1px; }
-  ${profiles} :is(button, input):focus-visible,
-  ${segmentedButton}:focus-visible { outline: 2px solid Highlight; outline-offset: -2px; }
-}
-`
-  document.head.append(sheet)
-  ctx.onDispose(() => sheet.remove())
+`, { surface: '[data-slot="dialog-content"]' })
 }

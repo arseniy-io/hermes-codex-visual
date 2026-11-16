@@ -1,3 +1,4 @@
+import { mountStyle } from './style-scope.js'
 import { codexIconRules } from './codex-reference.js'
 
 const groups = {
@@ -417,6 +418,5 @@ export function registerSettingsStyle(ctx, active) {
   }
 }
 `
-  document.head.append(sheet)
-  ctx.onDispose(() => sheet.remove())
+  mountStyle(ctx, sheet, { screens: ['settings', 'command-center'] })
 }

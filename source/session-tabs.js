@@ -1,3 +1,4 @@
+import { mountStyle } from './style-scope.js'
 import { createElement as h, useRef, useState } from 'react'
 import {
   atom, Button, Dialog, DialogContent, DialogDescription, DialogFooter,
@@ -5,11 +6,13 @@ import {
 } from '@hermes/plugin-sdk'
 import { codexIconRules } from './codex-reference.js'
 import { committedFiber } from './sidebar-recents.js'
+import { fadingTitleStyles, trackTitleOverflow } from './title-overflow.js'
 
 const tilePrefix = 'session-tile:'
 const workspaceTab = '[role="tab"][data-tree-tab="workspace"]'
 const chatTab = `${workspaceTab}, [role="tab"][data-tree-tab^="${tilePrefix}"]`
 const labelSelector = '.pane-tab-content .truncate'
+const mainChatTab = `[data-zone-tabstrip="grp-main"] :is(${chatTab}):has(> .pane-tab-content):not([data-vertical])`
 const draftLabels = new Set(['New session', 'Untitled session', 'Новая сессия', 'Сеанс без названия'])
 const copy = {
   ru: {
@@ -123,11 +126,23 @@ function RenameSlot({ model, close, save }) {
   return target && h(RenameForm, { key: target.key, target, close, save })
 }
 
-function renameStyles(active) {
+function sessionTabStyles(active) {
   const dialog = `${active} [data-hcv-rename-chat]`
   const close = `${dialog} [data-slot="dialog-close-button"]`
+  const tab = `${active} ${mainChatTab}`
   return `
 @media (forced-colors: none) {
+  /* PaneTab's usual 12rem maximum, reduced by a quarter for chat tabs. */
+  ${tab} { max-inline-size: 9rem; }
+  ${tab} .pane-tab-content span[aria-hidden="true"][class~="size-1"][class~="rounded-full"] { display: none; }
+  ${tab} .pane-tab-content [role="status"]:is([class~="bg-(--ui-accent)"], [class~="border-(--ui-accent)"]) {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  ${fadingTitleStyles(`${tab} ${labelSelector}`, '1rem')}
   ${active} .hcv-rename-overlay { background: rgb(0 0 0 / 25%); backdrop-filter: none; }
   ${dialog} {
     inline-size: min(420px, calc(100vw - 32px));
@@ -188,6 +203,7 @@ export function registerSessionTabs(ctx, active) {
   const model = atom(null)
   const translated = new Map()
   const named = new Map()
+  const measureTitles = trackTitleOverflow()
   const sessions = new BroadcastChannel('hermes:sessions')
   let requestKey = 0
   let frame = 0
@@ -205,12 +221,14 @@ export function registerSessionTabs(ctx, active) {
     for (const [text, entry] of translated) {
       if (!enabled() || !text.isConnected || text.data !== entry.shown) restore(text, entry)
     }
-    if (!enabled()) return
+    if (!enabled()) return measureTitles()
     const openIds = new Set()
+    const mainLabels = []
     for (const tab of document.querySelectorAll(chatTab)) {
       const id = tabId(tab)
       openIds.add(id)
       const label = tab.querySelector(labelSelector)
+      if (label && tab.matches(mainChatTab)) mainLabels.push(label)
       const text = label?.childNodes.length === 1 ? label.firstChild : null
       if (!(text instanceof Text)) continue
       const row = tabSession(tab)?.session
@@ -236,13 +254,14 @@ export function registerSessionTabs(ctx, active) {
       if (label.title === original) label.title = shown
       text.data = shown
     }
+    measureTitles(mainLabels)
     for (const id of named.keys()) if (!openIds.has(id)) named.delete(id)
   }
   const schedule = () => { frame ||= requestAnimationFrame(labels) }
   const sheet = document.createElement('style')
   sheet.dataset.hcvSessionTabs = ''
-  sheet.textContent = renameStyles(active)
-  document.head.append(sheet)
+  sheet.textContent = sessionTabStyles(active)
+  mountStyle(ctx, sheet)
 
   const observer = new MutationObserver((changes) => {
     if (!enabled()) return

@@ -1,5 +1,6 @@
+import { mountStyle } from './style-scope.js'
 import { host } from '@hermes/plugin-sdk'
-import { codexMask } from './codex-reference.js'
+import { codexIconRules, codexMask, codexReference as codex } from './codex-reference.js'
 import { committedFiber } from './sidebar-recents.js'
 
 const actionBar = '[data-slot="aui_user-bubble-actions"]'
@@ -8,10 +9,20 @@ const restoreButton = 'button:has(> .codicon-discard)'
 const rowSelector = '[data-hcv-message-actions]'
 const menuSelector = '[data-hcv-message-menu]'
 const nativeTimestamp = '[data-slot="timeline-timestamp"]'
+const replyRoot = '[data-slot="aui_assistant-message-root"]'
+const replyActions = '[data-slot="aui_msg-actions"]'
+const replyLane = ':is(.aui-message-actions-desktop, .aui-message-actions-touch)'
+const replyCopy = 'button[data-size="icon"]:not(button[data-size="icon"] ~ button[data-size="icon"])'
+const replyTip = '[data-hcv-reply-copy-tip]'
+const copyIcon = ':is(.tabler-icon-copy, .lucide-copy)'
 
 const labels = {
-  ru: { copyMessage: 'Скопировать сообщение', messageCopied: 'Скопировано', copyMessageError: 'Не удалось скопировать сообщение' },
-  en: { copyMessage: 'Copy message', messageCopied: 'Copied', copyMessageError: 'Could not copy the message' },
+  ru: { copyMessage: 'Скопировать сообщение', copyResponse: 'Скопировать ответ', messageCopied: 'Скопировано', copyMessageError: 'Не удалось скопировать сообщение' },
+  en: { copyMessage: 'Copy message', copyResponse: 'Copy response', messageCopied: 'Copied', copyMessageError: 'Could not copy the message' },
+}
+
+function replyActionLanes(bar) {
+  return `:is(${bar}, ${bar} > ${replyLane})`
 }
 
 function userMessage(bubble, id) {
@@ -43,6 +54,12 @@ function styles(active, transcript) {
   const enhanced = `${active} ${transcript} ${actionBar}:has(${rowSelector})`
   const row = `${enhanced} ${rowSelector}`
   const menu = `${active} ${menuSelector}`
+  const reply = `${active} ${transcript} ${replyRoot}`
+  const footer = `${reply} div:has(> ${replyActions})`
+  const replyBar = `${reply} ${replyActions}`
+  const lane = replyActionLanes(replyBar)
+  const replyButton = `${lane} > ${replyCopy}`
+  const tip = `${active} ${replyTip}`
   return `
 @media (forced-colors: none) {
   /* Codex vHM0 and .bubble-vBnidZ (fce177e1b845.css). */
@@ -102,6 +119,81 @@ function styles(active, transcript) {
   ${row} [data-hcv-copy-message] { --hcv-message-icon: ${codexMask('messageCopy')}; }
   ${row} [data-hcv-copy-message][data-copied] { --hcv-message-icon: ${codexMask('messageCopied')}; }
   ${row} [data-hcv-edit-message] { --hcv-message-icon: ${codexMask('messageEdit')}; }
+
+  /* Codex 26.1111.2228.0: no() in 461952.bb4069593d.js, actionRow-nqqZbm
+     and the icon, radius and color tokens in 3b01e25a342d.css / 66582da7ee6b.css. */
+  ${footer} { justify-content: flex-start; }
+  ${footer} > [data-slot="aui_msg-reactions"]:not([data-reacted]),
+  ${lane} > button:not(${replyCopy}) { display: none; }
+  ${replyBar} {
+    align-items: center;
+    justify-content: flex-start;
+    min-block-size: 26px;
+    margin-block-start: 6px;
+    gap: 2px;
+    padding-block: 0;
+    opacity: 0;
+    pointer-events: none;
+  }
+  ${reply}:is(:hover, :focus-within) ${replyActions} { opacity: 1; pointer-events: auto; }
+  ${replyBar} > ${replyLane} { justify-content: flex-start; gap: 2px; }
+  ${lane} > time {
+    margin-inline: 0 6px;
+    padding: 0;
+    color: #8f8f8f;
+    font: 400 12px/16px var(--hcv-ui-font);
+    pointer-events: none;
+  }
+  ${replyButton} {
+    display: grid;
+    place-items: center;
+    box-sizing: border-box;
+    inline-size: 26px;
+    block-size: 26px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    corner-shape: superellipse(1.5);
+    opacity: 1;
+    color: #8f8f8f;
+    background: transparent;
+    transition: none;
+  }
+  ${replyButton}:hover:not(:disabled) {
+    color: #8f8f8f;
+    background: light-dark(rgb(26 28 31 / 5%), rgb(255 255 255 / 8%));
+  }
+  ${replyButton}:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }
+  ${replyButton} > svg { inline-size: 14px; block-size: 14px; }
+  ${codexIconRules(`${replyButton} > ${copyIcon}`, 'messageCopy')}
+  ${codexIconRules(`${replyButton} > :is(.tabler-icon-check, .lucide-check)`, 'messageCopied')}
+  /* Tooltip-FE0nMY in 2e662a5288e2.css and the Electron tooltip tokens. */
+  ${tip} {
+    position: fixed;
+    z-index: 9999;
+    inline-size: max-content;
+    max-inline-size: min(320px, calc(100vw - 30px));
+    padding: ${codex.tooltip.padding};
+    border: 1px solid color-mix(in oklab, currentColor 5%, transparent);
+    border-radius: ${codex.tooltip.radius};
+    corner-shape: superellipse(1.5);
+    background: light-dark(#1a1c1f, #2d2d2d);
+    color: #dfdfdf;
+    box-shadow: 0 8px 18px #0f172a33;
+    font: 430 13px/18px var(--hcv-ui-font);
+    letter-spacing: -.15px;
+    text-align: center;
+    overflow-wrap: break-word;
+    transform: translate(-50%, -100%);
+    pointer-events: none;
+    user-select: none;
+  }
+  ${tip}[hidden] { display: none; }
+  @supports (corner-shape: superellipse(1.5)) {
+    ${replyButton} { border-radius: 10px; }
+    ${tip} { border-radius: 20px; }
+  }
+
   ${menu} {
     position: fixed;
     inset: auto;
@@ -131,9 +223,128 @@ function styles(active, transcript) {
     ${row} { opacity: 1; pointer-events: auto; }
     ${row} time { opacity: 0; }
     ${enhanced}:focus-within ${rowSelector} time { opacity: 1; }
+    ${replyBar} { opacity: 1; pointer-events: auto; }
   }
 }
 `
+}
+
+function registerReplyCopyTip(ctx, active, transcript) {
+  const tip = document.createElement('div')
+  tip.dataset.hcvReplyCopyTip = ''
+  tip.setAttribute('aria-hidden', 'true') // The native button carries its own accessible name.
+  tip.hidden = true
+  document.body.append(tip)
+
+  const root = document.documentElement
+  const contrast = matchMedia('(forced-colors: active)')
+  const selector = `${replyActionLanes(`${transcript} ${replyRoot} ${replyActions}`)} > ${replyCopy}`
+  const capture = { capture: true }
+  let pointerButton
+  let button
+  let timer
+  let triggerType
+  let skipDelayUntil = 0
+  const trigger = target => root.matches(active) && !contrast.matches && target instanceof Element
+    ? target.closest('button[data-size="icon"]')?.closest(selector)
+    : null
+
+  function paint() {
+    if (!button?.isConnected || !button.checkVisibility({ opacityProperty: true, visibilityProperty: true })) return hide()
+    const anchor = button.getBoundingClientRect()
+    const label = button.querySelector(copyIcon) ? ctx.i18n.t('copyResponse') : button.getAttribute('aria-label')
+    if (!label || anchor.top < 35 || anchor.bottom > innerHeight) return hide()
+    if (tip.textContent !== label) tip.textContent = label
+    tip.style.top = `${anchor.top - 5}px`
+    tip.hidden = false
+    const half = tip.offsetWidth / 2
+    tip.style.left = `${Math.min(innerWidth - half - 15, Math.max(half + 15, anchor.left + anchor.width / 2))}px`
+  }
+
+  const copyStatus = new MutationObserver(paint)
+  function hide() {
+    clearTimeout(timer)
+    copyStatus.disconnect()
+    button = null
+    if (!tip.hidden) skipDelayUntil = performance.now() + 300
+    tip.hidden = true
+  }
+
+  function show(target, type, delay) {
+    hide()
+    button = target
+    triggerType = type
+    const open = () => {
+      paint()
+      if (button) copyStatus.observe(button, { attributes: true, attributeFilter: ['aria-label'] })
+    }
+    // Focus changes the toolbar's opacity in CSS. Wait until focus-in and the
+    // browser's automatic scroll have settled before checking the anchor.
+    if (type === 'focus') timer = setTimeout(open, 0)
+    else if (delay && performance.now() >= skipDelayUntil) timer = setTimeout(open, delay)
+    else open()
+  }
+
+  // Use the native button and its copy action. Suppress the Radix portal
+  // before it performs placement; the date is already shown in the row.
+  function skipNativeTip(event) {
+    if (event.pointerType !== 'touch' && !event.buttons && event.cancelable) event.preventDefault()
+  }
+  function clearPointer() {
+    pointerButton?.removeEventListener('pointermove', skipNativeTip)
+    pointerButton = null
+  }
+  ctx.addEventListener(document, 'pointerover', event => {
+    if (event.pointerType === 'touch' || event.buttons) return
+    const target = trigger(event.target)
+    if (!target || target === pointerButton) return
+    clearPointer()
+    pointerButton = target
+    target.addEventListener('pointermove', skipNativeTip, { passive: false })
+    show(target, 'pointer', 150)
+  }, capture)
+  ctx.addEventListener(document, 'pointerout', event => {
+    if (!pointerButton?.contains(event.target) || pointerButton.contains(event.relatedTarget)) return
+    if (triggerType === 'pointer') hide()
+    clearPointer()
+  }, capture)
+  ctx.addEventListener(document, 'focusin', event => {
+    const target = trigger(event.target)
+    if (!target?.matches(':focus-visible')) return
+    // Radix opens on focusin before reading its configured (bottom) side.
+    // The focus itself and keyboard activation still belong to the button.
+    event.stopPropagation()
+    show(target, 'focus', 0)
+  }, capture)
+  ctx.addEventListener(document, 'focusout', event => {
+    if (triggerType === 'focus' && event.target === button) hide()
+  }, capture)
+  ctx.addEventListener(document, 'keydown', event => {
+    if (event.key !== 'Escape' || tip.hidden) return
+    event.preventDefault()
+    event.stopPropagation()
+    hide()
+  }, capture)
+  ctx.addEventListener(document, 'pointerdown', event => {
+    if (button && !button.contains(event.target)) hide()
+  }, capture)
+  ctx.addEventListener(document, 'scroll', () => {
+    if (button && (triggerType === 'pointer' || !tip.hidden)) hide()
+  }, capture)
+  ctx.addEventListener(window, 'blur', hide)
+  ctx.addEventListener(window, 'resize', hide)
+  function reset() {
+    hide()
+    clearPointer()
+    skipDelayUntil = 0
+  }
+  ctx.addEventListener(contrast, 'change', reset)
+  ctx.i18n.onLocaleChange(() => { if (!tip.hidden) paint() })
+  ctx.onDispose(() => { reset(); tip.remove() })
+  return enabled => {
+    if (!enabled || (pointerButton && !pointerButton.isConnected)) reset()
+    else if (button && !button.checkVisibility()) hide()
+  }
 }
 
 export function registerMessageActions(ctx, active, transcript, promptSelector) {
@@ -141,7 +352,8 @@ export function registerMessageActions(ctx, active, transcript, promptSelector) 
   const sheet = document.createElement('style')
   sheet.dataset.hcvMessageActionStyle = ''
   sheet.textContent = styles(active, transcript)
-  document.head.append(sheet)
+  mountStyle(ctx, sheet, { surface: actionBar + ', ' + menuSelector })
+  const reconcileReplyTip = registerReplyCopyTip(ctx, active, transcript)
 
   const rows = new Map()
   const menu = document.createElement('div')
@@ -278,6 +490,7 @@ export function registerMessageActions(ctx, active, transcript, promptSelector) 
   })
 
   return function reconcile(enabled) {
+    reconcileReplyTip(enabled)
     const current = new Set(enabled ? document.querySelectorAll(`${transcript} ${promptSelector} ${actionBar}`) : [])
     for (const [bar, state] of rows) {
       if (!current.has(bar) || !bar.contains(state.row) || !bar.contains(state.bubble) ||

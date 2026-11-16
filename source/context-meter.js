@@ -1,3 +1,4 @@
+import { chatStyles, mountStyle } from './style-scope.js'
 import { Tip, host, useValue } from '@hermes/plugin-sdk'
 import { createElement as h, useCallback, useEffect, useState } from 'react'
 
@@ -158,7 +159,7 @@ export function registerContextMeter(ctx, active) {
       ${active} [data-hcv-context-arc] { transition: none; }
     }
   `
-  document.head.append(sheet)
+  mountStyle(ctx, sheet, chatStyles)
 
   let remove
   const update = () => {

@@ -1,3 +1,4 @@
+import { mountStyle } from './style-scope.js'
 import { codexReference as codex } from './codex-reference.js'
 
 export function registerDesktopCorners(ctx, active) {
@@ -38,6 +39,8 @@ export function registerDesktopCorners(ctx, active) {
       ${tour} .driver-popover-footer-btn { border-radius: ${codex.quietControl.radius}; }
     }
   `
-  document.head.append(sheet)
-  ctx.onDispose(() => sheet.remove())
+  mountStyle(ctx, sheet, {
+    screens: ['messaging', 'cron', 'capabilities', 'kanban'],
+    surface: '.arc-border, .driver-popover, div[draggable][style*="--kanban-tone:"]',
+  })
 }

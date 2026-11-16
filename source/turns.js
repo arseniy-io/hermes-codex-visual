@@ -1,4 +1,5 @@
 import { host } from '@hermes/plugin-sdk'
+import { committedFiber } from './sidebar-recents.js'
 
 const response = '[data-slot="aui_response-group"]'
 const assistant = '[data-slot="aui_assistant-message-root"]'
@@ -38,10 +39,46 @@ function durationSeconds(value) {
 
 function formatDuration(seconds) {
   if (seconds === null) return ''
-  const units = isRussian() ? ['ч', 'мин', 'с'] : ['h', 'min', 's']
-  return [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60]
-    .flatMap((value, index) => value || (index === 2 && seconds === 0) ? [`${value} ${units[index]}`] : [])
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor(seconds / 60) % 60
+  const units = hours ? [['hour', hours], ['minute', minutes]] : [['minute', minutes], ['second', seconds % 60]]
+  const language = document.documentElement.lang || 'en'
+  return units.filter(([unit, value]) => value > 0 || (seconds === 0 && unit === 'second'))
+    .map(([unit, value]) => new Intl.NumberFormat(language, { style: 'unit', unitDisplay: 'narrow', unit }).format(value))
     .join(' ')
+}
+
+function renderedMessage(element) {
+  if (!element) return null
+  const root = committedFiber(element)
+  // Assistant UI scopes each bubble to its own message. Read only that scope.
+  for (let fiber = root; fiber && (fiber === root || !(fiber.stateNode instanceof Element)); fiber = fiber.return) {
+    for (let context = fiber.dependencies?.firstContext; context; context = context.next) {
+      const client = context.memoizedValue
+      if (!client?.message?.source) continue
+      try {
+        const message = client.message().__internal_getRuntime?.()?.getState()
+        if (message?.role === element.dataset.role && (!element.dataset.messageId || message.id === element.dataset.messageId)) {
+          return message
+        }
+      } catch {
+        // Old or detached message scopes need no inferred duration.
+      }
+    }
+  }
+  return null
+}
+
+function savedDuration(prompt, message) {
+  const metadata = message?.metadata?.custom
+  if (!metadata || message.status?.type !== 'complete') return null
+  // Hydration may group early tool activity into the final reply. Its last
+  // persisted text part has the completion time, while the bubble start does not.
+  const text = message.content.findLast(part => part.type === 'text' && part.text.trim())
+  const end = metadata.timelineCompletedAt ?? (text?.sourceRowId != null ? text.timestamp : null)
+  if (!Number.isFinite(end)) return null
+  const start = renderedMessage(prompt)?.metadata?.custom?.timelineTimestamp
+  return Number.isFinite(start) && start > 0 && end > start ? Math.floor(end - start) : null
 }
 
 function findSteps(group, roots, final) {
@@ -66,7 +103,7 @@ function clearSteps(group, state) {
   group.removeAttribute('data-hcv-turn-summary')
 }
 
-function showSummary(group, state, steps, elapsed) {
+function showSummary(group, state, steps, elapsed, interrupted) {
   const hasSteps = steps.length > 0
   if (!state.bar || (state.bar.tagName === 'BUTTON') !== hasSteps) {
     clearSteps(group, state)
@@ -83,10 +120,12 @@ function showSummary(group, state, steps, elapsed) {
     state.bar = bar
   }
   if (group.firstElementChild !== state.bar) group.prepend(state.bar)
-  updateText(state.bar, elapsed
-    ? isRussian() ? `Выполнено за ${elapsed}` : `Worked for ${elapsed}`
-    : isRussian() ? 'Шаги работы' : 'Activity')
-  group.toggleAttribute('data-hcv-turn-summary', Boolean(elapsed))
+  const ru = isRussian()
+  let label = ru ? 'Выполнено' : 'Worked'
+  if (interrupted) label = ru ? 'Остановлено' : 'Stopped'
+  else if (elapsed) label = ru ? `Выполнено за ${elapsed}` : `Worked for ${elapsed}`
+  updateText(state.bar, label)
+  group.setAttribute('data-hcv-turn-summary', '')
 
   const next = new Set(steps)
   for (const node of state.steps) if (!next.has(node)) node.removeAttribute('data-hcv-turn-step')
@@ -108,11 +147,15 @@ function showLive(root, state, now) {
     row.append(time)
     state.live = { row, time }
   }
-  const { row, time } = state.live
+  const { row } = state.live
   const body = root.querySelector(answer)
   if (body && body.nextElementSibling !== row) body.after(row)
+  updateLiveTime(state, now)
+}
+
+function updateLiveTime(state, now) {
   const seconds = Math.max(0, Math.floor((now - state.startedAt) / 1000))
-  updateText(time, seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`)
+  updateText(state.live.time, seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`)
 }
 
 function syncThinkingLabels(labels, enabled) {
@@ -148,19 +191,90 @@ function fileNoun(count) {
   return { one: 'файл', few: 'файла', many: 'файлов' }[new Intl.PluralRules('ru').select(count)] || 'файлов'
 }
 
-function sumLines(rows, className) {
-  return rows.reduce((sum, row) => {
-    const digits = row.querySelector(`[class~="${className}"]`)?.textContent.replace(/[^0-9]/g, '')
-    return sum + (Number(digits) || 0)
-  }, 0)
+function numbers(parent) {
+  const totals = make('span', 'files-totals')
+  const added = make('span', 'files-added')
+  const removed = make('span', 'files-removed')
+  totals.append(added, removed)
+  parent.append(totals)
+  return { totals, added, removed }
+}
+
+function showNumbers({ added, removed }, plus, minus, format) {
+  updateText(added, `+${format.format(plus)}`)
+  updateText(removed, `${isRussian() ? '–' : '-'}${format.format(minus)}`)
+}
+
+function nativeCardCwd(card) {
+  // The session view belongs to this card's pane, including when a tile
+  // and the main chat are displaying different worktrees.
+  for (let fiber = committedFiber(card)?.return; fiber; fiber = fiber.return) {
+    if (!Array.isArray(fiber.memoizedProps?.parts)) continue
+    for (let context = fiber.dependencies?.firstContext; context; context = context.next) {
+      const view = context.memoizedValue
+      if ((view?.kind === 'primary' || view?.kind === 'tile') && typeof view.$cwd?.get === 'function') {
+        return view.$cwd.get()
+      }
+    }
+    break
+  }
+  return card.closest(primary) ? host.state.cwd.get() : ''
+}
+
+function fileDisplayPath(row, basename, cwd) {
+  // Hermes passes the real path as the row's tooltip key. The DOM only
+  // exposes the basename until that tooltip opens.
+  for (let fiber = committedFiber(row)?.return; fiber; fiber = fiber.return) {
+    const props = fiber.memoizedProps
+    if (typeof fiber.key === 'string' && typeof props?.label === 'string' && props.children?.type === 'button') {
+      const path = fiber.key.replaceAll('\\', '/')
+      const root = (cwd || '').replaceAll('\\', '/').replace(/\/+$/, '')
+      if (!root && !cwd) return path
+      const prefix = root + '/'
+      const windows = /^(?:[a-z]:\/|\/\/)/i.test(prefix)
+      const within = windows ? path.toLowerCase().startsWith(prefix.toLowerCase()) : path.startsWith(prefix)
+      return within ? path.slice(prefix.length) : path
+    }
+    if (fiber.stateNode instanceof Element) break
+  }
+  return basename
+}
+
+function paintFileRow(row, path, added, removed, format) {
+  const index = path.lastIndexOf('/') + 1
+  updateText(row.accessiblePath, path)
+  updateText(row.directory, path.slice(0, index))
+  updateText(row.basename, path.slice(index))
+  showNumbers(row.numbers, added, removed, format)
+}
+
+function makeFileRow(button) {
+  const accessiblePath = make('span', 'file-accessible-path')
+  const label = make('span', 'file-path')
+  const directory = make('span', 'file-directory')
+  const basename = make('span', 'file-basename')
+  label.setAttribute('aria-hidden', 'true')
+  label.append(directory, basename)
+  button.append(accessiblePath, label)
+  const counts = numbers(button)
+  return { accessiblePath, label, directory, basename, numbers: counts }
+}
+
+function clearFileRow(row) {
+  row.accessiblePath.remove()
+  row.label.remove()
+  row.numbers.totals.remove()
 }
 
 function clearFiles(state) {
   const files = state.files
   if (!files) return
   files.heading.remove()
+  files.open.remove()
   files.more.remove()
   files.checkpoint.remove()
+  files.review.removeEventListener('click', files.selectSingle, true)
+  for (const row of files.rows.values()) clearFileRow(row)
   files.nativeTitle.removeAttribute('data-hcv-file-native-title')
   if (files.review.getAttribute('aria-label') === files.review.getAttribute('data-hcv-file-review')) {
     if (files.originalReviewLabel === null) files.review.removeAttribute('aria-label')
@@ -168,6 +282,7 @@ function clearFiles(state) {
   }
   files.review.removeAttribute('data-hcv-file-review')
   files.card.removeAttribute('data-hcv-file-card')
+  files.card.removeAttribute('data-hcv-file-single')
   files.card.removeAttribute('data-hcv-files-open')
   files.card.removeAttribute('data-hcv-files-foldable')
   state.files = null
@@ -183,13 +298,25 @@ function showFiles(state, card) {
     clearFiles(state)
     const heading = make('div', 'files-heading')
     const name = make('span', 'files-title')
-    const totals = make('span', 'files-totals')
-    const added = make('span', 'files-added')
-    const removed = make('span', 'files-removed')
-    totals.append(added, removed)
-    heading.append(name, totals)
+    const subtitle = make('span', 'files-subtitle')
+    heading.append(name, subtitle)
+    const counts = numbers(subtitle)
+    const hover = make('span', 'files-hover')
+    subtitle.append(hover)
+    const open = make('button', 'files-open')
+    open.type = 'button'
+    open.addEventListener('click', () => (state.files?.single || review).click())
+    const selectSingle = event => {
+      const row = state.files?.single
+      if (!row) return
+      // Both Codex controls open the file's diff for a one-file turn.
+      event.stopPropagation()
+      row.click()
+    }
+    review.addEventListener('click', selectSingle, true)
     const more = make('button', 'files-more')
     more.type = 'button'
+    more.append(make('span', 'files-more-label'))
     more.setAttribute('aria-expanded', 'false')
     more.addEventListener('click', () => {
       more.setAttribute('aria-expanded', String(card.toggleAttribute('data-hcv-files-open')))
@@ -198,36 +325,68 @@ function showFiles(state, card) {
     const checkpoint = make('button', 'files-checkpoint')
     checkpoint.type = 'button'
     checkpoint.addEventListener('click', () => nativeCheckpoint(card)?.click())
-    state.files = { card, nativeTitle, review, originalReviewLabel: review.getAttribute('aria-label'), heading, name, added, removed, more, checkpoint, remaining: 0 }
+    state.files = { card, nativeTitle, review, originalReviewLabel: review.getAttribute('aria-label'),
+      heading, name, counts, hover, open, selectSingle, more, checkpoint, remaining: 0, single: null, rows: new Map() }
   }
-  const { heading, name, added, removed, more, checkpoint } = state.files
+  const files = state.files
+  const { heading, name, hover, open, more, checkpoint } = files
   if (heading.parentElement !== header) nativeTitle.after(heading)
-  const rows = [...list.querySelectorAll(':scope > button')]
-  if (!rows.length) return clearFiles(state)
+  if (open.parentElement !== header) header.prepend(open)
+  const rows = new Set(list.querySelectorAll(':scope > button'))
+  if (!rows.size) return clearFiles(state)
+  const count = rows.size
+  const ru = isRussian()
+  const format = new Intl.NumberFormat(document.documentElement.lang || 'en')
+  const cwd = count > 1 ? nativeCardCwd(card) : ''
+  let plus = 0
+  let minus = 0
+  for (const [row, display] of files.rows) {
+    if (count > 1 && rows.has(row)) continue
+    clearFileRow(display)
+    files.rows.delete(row)
+  }
+  for (const row of rows) {
+    const added = Number(row.querySelector('[class~="text-(--ui-green)"]')?.textContent.slice(1)) || 0
+    const removed = Number(row.querySelector('[class~="text-(--ui-red)"]')?.textContent.slice(1)) || 0
+    plus += added
+    minus += removed
+    if (count === 1) continue
+    const basename = row.querySelector(':scope > span.truncate')?.textContent || ''
+    const path = fileDisplayPath(row, basename, cwd)
+    if (!files.rows.has(row)) files.rows.set(row, makeFileRow(row))
+    paintFileRow(files.rows.get(row), path, added, removed, format)
+  }
+  files.single = count === 1 ? rows.values().next().value : null
+  card.toggleAttribute('data-hcv-file-single', Boolean(files.single))
   card.setAttribute('data-hcv-file-card', '')
   nativeTitle.setAttribute('data-hcv-file-native-title', '')
-  const reviewLabel = isRussian() ? 'Просмотреть изменения' : 'View changes'
+  open.setAttribute('aria-label', ru ? 'Посмотреть измененные файлы' : 'View changed files')
+  updateText(hover, ru ? 'Просмотр изменений' : 'View changes')
+  const reviewLabel = ru ? 'Просмотреть изменения' : 'View changes'
   review.setAttribute('data-hcv-file-review', reviewLabel)
   review.setAttribute('aria-label', reviewLabel)
   const restore = nativeCheckpoint(card)
   if (restore) {
-    updateText(checkpoint, isRussian() ? 'Чекпоинт' : 'Checkpoint')
+    updateText(checkpoint, ru ? 'Отменить' : 'Undo')
     checkpoint.title = restore.getAttribute('aria-label')
     if (checkpoint.parentElement !== header) review.before(checkpoint)
   } else {
     checkpoint.remove()
   }
-  const count = rows.length
-  updateText(name, isRussian() ? `Изменено ${count} ${fileNoun(count)}` : `${count} ${fileNoun(count)} changed`)
-  const plus = sumLines(rows, 'text-(--ui-green)')
-  const minus = sumLines(rows, 'text-(--ui-red)')
-  updateText(added, plus ? `+${plus}` : '')
-  updateText(removed, minus ? `−${minus}` : '')
+  if (files.single) {
+    const basename = files.single.querySelector(':scope > span.truncate')?.textContent || ''
+    updateText(name, ru ? `Изменён ${basename}` : `Edited ${basename}`)
+  } else {
+    updateText(name, ru ? `Изменено ${format.format(count)} ${fileNoun(count)}` : `Edited ${format.format(count)} files`)
+  }
+  showNumbers(files.counts, plus, minus, format)
   if (card.toggleAttribute('data-hcv-files-foldable', count > 3)) {
     if (more.parentElement !== card) card.append(more)
-    state.files.remaining = count - 3
-    updateMoreLabel(state.files)
+    files.remaining = count - 3
+    updateMoreLabel(files)
   } else {
+    card.removeAttribute('data-hcv-files-open')
+    more.setAttribute('aria-expanded', 'false')
     more.remove()
   }
 }
@@ -241,12 +400,12 @@ function nativeCheckpoint(card) {
 
 function updateMoreLabel({ card, more, remaining }) {
   const expanded = card.hasAttribute('data-hcv-files-open')
-  updateText(more, expanded
-    ? isRussian() ? 'Свернуть список' : 'Show fewer files'
-    : isRussian() ? `Показать ещё ${remaining} ${fileNoun(remaining)}` : `Show ${remaining} more ${fileNoun(remaining)}`)
+  updateText(more.firstElementChild, expanded
+    ? isRussian() ? 'Свернуть файлы' : 'Collapse files'
+    : isRussian() ? `Показать еще ${remaining} ${fileNoun(remaining)}` : `Show ${remaining} more ${fileNoun(remaining)}`)
 }
 
-function synchronize(group, state, now, tail, completedSeconds, startedAt) {
+function synchronize(group, state, now, tail, ownPrompt, completedSeconds, startedAt) {
   const roots = [...group.querySelectorAll(`:scope > ${assistant}`)]
   const last = roots.at(-1)
   if (!last) {
@@ -269,10 +428,13 @@ function synchronize(group, state, now, tail, completedSeconds, startedAt) {
     clearLive(state)
   }
 
-  const elapsed = formatDuration(durationSeconds(final?.querySelector(duration)?.textContent) ?? completedSeconds)
   if (!working && !blocked && final) {
+    const message = renderedMessage(final)
+    const interrupted = Boolean(message?.metadata?.custom?.interrupted)
+    const elapsed = interrupted ? '' : formatDuration(durationSeconds(final.querySelector(duration)?.textContent) ??
+      completedSeconds ?? savedDuration(ownPrompt, message))
     const steps = findSteps(group, roots, final)
-    if (elapsed || steps.length) showSummary(group, state, steps, elapsed)
+    if (elapsed || steps.length) showSummary(group, state, steps, elapsed, interrupted)
     else clearSteps(group, state)
   } else {
     clearSteps(group, state)
@@ -287,7 +449,15 @@ export function registerTurnExperience(ctx, active) {
   const durations = new Map()
   const lastBySession = new Map()
   const contrast = window.matchMedia('(forced-colors: none)')
+  const dirty = new Set()
+  const live = new Set()
+  const tails = new Set()
+  const allGroups = `[data-chat-surface] ${response}`
+  const user = '[data-slot="aui_user-message-root"]'
+  const turnStructure = `${response}, ${user}`
+  let full = true
   let frame = 0
+  let clockFrame = 0
   let timer = 0
 
   const sessionKey = (id) => JSON.stringify([host.state.connectionId.get(), host.state.profile.get(), id])
@@ -332,67 +502,111 @@ export function registerTurnExperience(ctx, active) {
     clearSteps(group, state)
     clearLive(state)
     clearFiles(state)
+    live.delete(state)
     states.delete(group)
   }
 
   function render() {
     frame = 0
     const enabled = contrast.matches && document.documentElement.matches(active)
-    for (const [group, state] of states) if (!enabled || !group.isConnected) remove(group, state)
+    if (full || !enabled) {
+      const groups = enabled ? [...document.querySelectorAll(allGroups)] : []
+      const present = new Set(groups)
+      for (const [group, state] of states) if (!present.has(group)) remove(group, state)
+      dirty.clear()
+      tails.clear()
+      const tailByTranscript = new Map(groups.map((group) => [group.closest(transcript), group]))
+      for (const [container, group] of tailByTranscript) {
+        const prompt = [...(container?.querySelectorAll(user) || [])].at(-1)
+        if (!prompt || !(group.compareDocumentPosition(prompt) & Node.DOCUMENT_POSITION_FOLLOWING)) tails.add(group)
+      }
+      for (const group of groups) dirty.add(group)
+    }
+    full = false
     if (enabled) {
       const now = Date.now()
-      const groups = [...document.querySelectorAll(`[data-chat-surface] ${response}`)]
-      const tailByTranscript = new Map(groups.map((group) => [group.closest(transcript), group]))
-      const latestPrompt = new Map([...tailByTranscript.keys()].map((container) => [
-        container, [...(container?.querySelectorAll('[data-slot="aui_user-message-root"]') || [])].at(-1),
-      ]))
-      for (const group of groups) {
+      const runtime = host.state.activeSessionId.get()
+      const key = runtime && sessionKey(runtime)
+      const last = runtime && lastBySession.get(storedKey(runtime))
+      const liveStart = key && started.get(key)
+      for (const group of dirty) {
+        if (!group.isConnected || !group.matches(allGroups)) continue
         let state = states.get(group)
         if (!state) {
           state = { steps: new Set(), bar: null, live: null, files: null, startedAt: null }
           states.set(group, state)
         }
-        const container = group.closest(transcript)
-        const prompt = latestPrompt.get(container)
-        const tail = tailByTranscript.get(container) === group &&
-          (!prompt || !(group.compareDocumentPosition(prompt) & Node.DOCUMENT_POSITION_FOLLOWING))
-        const ownPrompt = group.closest('[data-slot="aui_turn-pair"]')?.querySelector('[data-slot="aui_user-message-root"][data-message-id]')
-        const runtime = group.closest(primary) && host.state.activeSessionId.get()
-        const key = runtime && sessionKey(runtime)
-        const timeKey = key && ownPrompt && JSON.stringify([key, ownPrompt.dataset.messageId])
-        const last = tail && runtime && lastBySession.get(storedKey(runtime))
-        const recorded = (timeKey && durations.get(timeKey)) || (last && last.text === promptText(ownPrompt) && last.seconds)
-        const liveStart = key && started.get(key)
-        synchronize(group, state, now, tail, recorded || null, liveStart?.at)
+        const tail = tails.has(group)
+        const main = key && group.closest(primary)
+        const ownPrompt = group.closest('[data-slot="aui_turn-pair"]')?.querySelector(`:scope > ${user}[data-message-id]`)
+        const timeKey = main && ownPrompt && JSON.stringify([key, ownPrompt.dataset.messageId])
+        const recorded = (timeKey && durations.get(timeKey)) ||
+          (main && tail && last && last.text === promptText(ownPrompt) && last.seconds)
+        synchronize(group, state, now, tail, ownPrompt, recorded || null, main ? liveStart?.at : undefined)
+        if (state.live) live.add(state)
+        else live.delete(state)
       }
     }
+    dirty.clear()
     syncThinkingLabels(thinkingLabels, enabled)
-    if ([...states.values()].some((state) => state.live)) {
-      if (!timer) timer = window.setInterval(queue, 1000)
+    if (live.size) {
+      if (!timer) timer = window.setInterval(() => {
+        if (!clockFrame) clockFrame = requestAnimationFrame(() => {
+          clockFrame = 0
+          const now = Date.now()
+          if (!contrast.matches || !document.documentElement.matches(active)) return
+          for (const state of live) if (state.live.row.isConnected) updateLiveTime(state, now)
+        })
+      }, 1000)
     } else if (timer) {
       window.clearInterval(timer)
       timer = 0
     }
   }
 
-  function queue() {
+  function schedule() {
     if (!frame) frame = requestAnimationFrame(render)
   }
 
+  function queue() {
+    full = true
+    schedule()
+  }
+
   const observer = new MutationObserver((records) => {
-    if (records.some(({ target, type, addedNodes, removedNodes }) => {
-      if (target === document.documentElement) return true
-      if (!document.documentElement.matches(active)) return false
+    const root = document.documentElement
+    if (records.some(({ target }) => target === root)) return queue()
+    if (!root.matches(active)) return
+    for (const { target, type, addedNodes, removedNodes } of records) {
       const element = target instanceof Element ? target : target.parentElement
-      if (!element || element.closest('[data-hcv-generated]')) return false
-      if (type === 'characterData') return Boolean(element.closest(`${changes}, ${duration}`))
-      if (type === 'attributes') return Boolean(target.closest(response))
-      const nodes = [...addedNodes, ...removedNodes]
-      if (nodes.some((node) => node.nodeType === Node.TEXT_NODE) && element.closest(`${changes}, ${duration}`)) return true
-      return nodes.some((node) => node instanceof Element && !node.hasAttribute('data-hcv-generated') && (
-        target.closest(response) || node.matches(`${response}, [data-slot="aui_user-message-root"]`) || node.querySelector(response)
-      ))
-    })) queue()
+      if (!element || element.closest('[data-hcv-generated]')) continue
+      const group = element.closest(response)
+      if (type === 'characterData') {
+        if (group && element.closest(`${changes}, ${duration}`)) dirty.add(group)
+      } else if (type === 'attributes') {
+        if (group) dirty.add(group)
+      } else {
+        for (const nodes of [addedNodes, removedNodes]) {
+          for (const node of nodes) {
+            if (node instanceof Element && !node.hasAttribute('data-hcv-generated')) {
+              // Changes to the list of turns can change which answer owns the clock.
+              if (node.matches(turnStructure) || node.querySelector(turnStructure)) return queue()
+              if (group) dirty.add(group)
+            } else if (group && node.nodeType === Node.TEXT_NODE && element.closest(`${changes}, ${duration}`)) {
+              dirty.add(group)
+            }
+          }
+        }
+      }
+      // A response can contain another response (for example in a subagent view).
+      // Its descendants also affect the selectors used by the enclosing answer.
+      if (group && dirty.has(group)) {
+        for (let parent = group.parentElement?.closest(response); parent; parent = parent.parentElement?.closest(response)) {
+          dirty.add(parent)
+        }
+      }
+    }
+    if (dirty.size) schedule()
   })
   observer.observe(document.documentElement, {
     childList: true,
@@ -402,11 +616,15 @@ export function registerTurnExperience(ctx, active) {
     attributeFilter: ['data-state', 'data-message-streaming', 'data-hermes-theme', 'data-hermes-codex-visual', 'lang'],
   })
   contrast.addEventListener('change', queue)
+  const unsubscribe = [host.state.activeSessionId, host.state.focusedSessionId, host.state.focusedStoredSessionId,
+    host.state.connectionId, host.state.profile].map(atom => atom.listen(queue))
   queue()
   ctx.onDispose(() => {
     observer.disconnect()
     contrast.removeEventListener('change', queue)
+    for (const stop of unsubscribe) stop()
     if (frame) cancelAnimationFrame(frame)
+    if (clockFrame) cancelAnimationFrame(clockFrame)
     if (timer) window.clearInterval(timer)
     for (const [group, state] of states) remove(group, state)
     syncThinkingLabels(thinkingLabels, false)

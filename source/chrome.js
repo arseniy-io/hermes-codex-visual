@@ -1,4 +1,5 @@
-import { createElement as h, Fragment, useEffect, useRef, useState } from 'react'
+import { mountStyle } from './style-scope.js'
+import { createElement as h, Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
   host, TITLEBAR_AREAS, useTheme,
@@ -8,6 +9,7 @@ import { attachProjects, projectSidebarStyles } from './sidebar-projects.js'
 import { attachChatPreview, chatPreviewStyles, registerChatPreviewMarker } from './sidebar-chat-preview.js'
 import { createRecentRows, NativeRecentRows, projectGroupingAction } from './sidebar-recents.js'
 import { attachSidebarCron, sidebarCronStyles } from './sidebar-cron.js'
+import { movedElementMatches } from './dom-changes.js'
 
 function icon(name) {
   return h('span', { 'aria-hidden': true, 'data-hcv-icon': name, style: codexIconStyle(name) })
@@ -30,7 +32,7 @@ const sidebarCopy = {
     recentEmpty: 'No chats', recentLoading: 'Loading…', recentProfile: 'Open a Hermes profile',
     recentUnavailable: 'Recent chats unavailable. Reopen this list.', recentRefreshError: 'Could not refresh recent chats',
     recentOpenError: 'Could not open the chat. Reopen this list.', untitledChat: 'Untitled chat',
-    projectDetails: 'Project details', editProject: 'Edit project', working: 'Working', unread: 'Unread chats',
+    projectDetails: 'Project details', renameProject: 'Rename project', working: 'Working', unread: 'Unread chats',
     projectChats: count => `${count} ${count === 1 ? 'chat' : 'chats'}`,
     noTerminals: 'No open terminals', terminalShortcut: 'Use the New terminal shortcut to start a shell.',
     terminalUnbound: 'Set a shortcut for New terminal in Keyboard shortcuts.',
@@ -42,7 +44,7 @@ const sidebarCopy = {
     recentEmpty: 'Нет чатов', recentLoading: 'Загрузка…', recentProfile: 'Откройте нужный профиль Hermes',
     recentUnavailable: 'Список недоступен. Откройте его повторно.', recentRefreshError: 'Не удалось обновить недавние чаты',
     recentOpenError: 'Чат не открылся. Обновите список.', untitledChat: 'Чат без названия',
-    projectDetails: 'О проекте', editProject: 'Редактировать проект', working: 'В работе', unread: 'Есть непрочитанные чаты',
+    projectDetails: 'О проекте', renameProject: 'Переименовать проект', working: 'В работе', unread: 'Есть непрочитанные чаты',
     projectChats: count => `${count} ${({ one: 'чат', few: 'чата' })[russianPlurals.select(count)] || 'чатов'}`,
     noTerminals: 'Нет открытых терминалов', terminalShortcut: 'Запустите оболочку сочетанием «Новый терминал».',
     terminalUnbound: 'Задайте сочетание «Новый терминал» в настройках клавиатуры.',
@@ -84,6 +86,14 @@ function WindowMenus({ menus }) {
   const [current, setCurrent] = useState(null)
   const openMenu = useRef(null)
   const triggers = useRef(new Map())
+  const menuOpen = current !== null
+
+  useLayoutEffect(() => {
+    if (!menuOpen) return
+    const root = document.documentElement
+    root.setAttribute('data-hcv-window-menu-open', '')
+    return () => root.removeAttribute('data-hcv-window-menu-open')
+  }, [menuOpen])
 
   function show(id) {
     openMenu.current = id
@@ -163,9 +173,19 @@ function WindowChrome({ themeName, recentRows }) {
   const selected = useTheme().themeName === themeName
   const [historyState, setHistoryState] = useState({ back: false, forward: false })
 
+  useLayoutEffect(() => {
+    if (!selected) return
+    const root = document.documentElement
+    root.setAttribute('data-hcv-window-chrome', '')
+    return () => root.removeAttribute('data-hcv-window-chrome')
+  }, [selected])
+
   useEffect(() => {
     if (!selected || !window.navigation) return
-    const update = () => setHistoryState({ back: window.navigation.canGoBack, forward: window.navigation.canGoForward })
+    const update = () => {
+      const { canGoBack: back, canGoForward: forward } = window.navigation
+      setHistoryState(previous => previous.back === back && previous.forward === forward ? previous : { back, forward })
+    }
     update()
     window.navigation.addEventListener('currententrychange', update)
     return () => window.navigation.removeEventListener('currententrychange', update)
@@ -318,7 +338,10 @@ function recentsControl(groupId, rows, t) {
       fallback.textContent = ''
       for (const session of (result.recents?.sessions ?? []).filter(session => session.id && !session.pinned).slice(0, 12)) {
         const title = session.title?.trim() || t('untitledChat')
-        const row = element('button', { type: 'button', title }, title)
+        const row = element('button', { type: 'button', title })
+        const label = element('span', { class: 'hover-marquee' })
+        label.append(element('span', { class: 'hover-marquee-inner' }, title))
+        row.append(label)
         const seconds = Number(session.last_active || session.started_at)
         const date = new Date(seconds * 1000)
         row.dataset.hcvPreviewSession = session.id
@@ -670,10 +693,44 @@ function attachSidebar(content, group, recentRows, t, { search }) {
   }
 }
 
+function sidebarFills() {
+  const fills = new Map()
+  function skipHiddenTooltip(event) {
+    // Hermes hides these Radix tooltips when the full navigation label is
+    // visible, but Radix still mounts and positions the portal on mousemove.
+    // Its composed handler honours defaultPrevented. Leave clicks, drags,
+    // keyboard focus and the collapsed rail on their native paths.
+    if (event.pointerType === 'mouse' && !event.buttons && event.cancelable &&
+        !event.currentTarget.closest('[data-slot="sidebar"][data-state="collapsed"], [data-collapsible="icon"]')) {
+      event.preventDefault()
+    }
+  }
+  return (content) => {
+    const labels = content?.querySelectorAll('[data-sidebar="menu-button"] > [data-tour^="sidebar-nav-"]') ?? []
+    const buttons = new Set(Array.from(labels, label => label.parentElement))
+    for (const [button, fill] of fills) {
+      if (buttons.has(button) && fill.parentElement === button) continue
+      fill.remove()
+      button.removeEventListener('pointermove', skipHiddenTooltip)
+      button.removeAttribute('data-hcv-sidebar-nav')
+      fills.delete(button)
+    }
+    for (const button of buttons) {
+      if (fills.has(button)) continue
+      const fill = element('span', { 'data-hcv-sidebar-fill': '', 'aria-hidden': 'true' })
+      button.prepend(fill)
+      button.addEventListener('pointermove', skipHiddenTooltip, { passive: false })
+      button.setAttribute('data-hcv-sidebar-nav', '')
+      fills.set(button, fill)
+    }
+  }
+}
+
 function registerSidebar(ctx, active, recentRows) {
   const wide = window.matchMedia('(forced-colors: none) and (min-width: 800px) and (min-height: 480px)')
   const contrast = window.matchMedia('(forced-colors: none)')
   const flatList = flatRecents(recentRows, ctx.i18n.t)
+  const syncFills = sidebarFills()
   let projects
   let chatPreview
   let cron
@@ -681,7 +738,10 @@ function registerSidebar(ctx, active, recentRows) {
   let mounted
   let header
   let anchors = []
+  let measuredWidth = 0
+  let measure = true
   let queued
+  let activityFrame = 0
   const setToolbarOffset = (value) => {
     const property = '--hcv-sidebar-right-offset'
     const style = document.documentElement.style
@@ -693,6 +753,10 @@ function registerSidebar(ctx, active, recentRows) {
   }
   const sync = () => {
     queued = undefined
+    if (activityFrame) {
+      cancelAnimationFrame(activityFrame)
+      activityFrame = 0
+    }
     const enabled = contrast.matches && document.documentElement.matches(active)
     // Use Hermes' pane marker. A tab can change visibility without changing
     // its size, and a native overlay can temporarily make the pane inert.
@@ -702,14 +766,17 @@ function registerSidebar(ctx, active, recentRows) {
         )
       : null
     if (projectContent !== sidebar) {
+      projectLabels.disconnect()
       projects?.dispose()
       chatPreview?.dispose()
       cron?.dispose()
       projectContent = sidebar
+      if (sidebar) projectLabels.observe(sidebar, { characterData: true, subtree: true })
       projects = sidebar ? attachProjects(sidebar, ctx.i18n.t, ctx.storage) : undefined
       chatPreview = sidebar ? attachChatPreview(sidebar) : undefined
       cron = sidebar ? attachSidebarCron(sidebar, ctx.storage) : undefined
     }
+    syncFills(sidebar)
     projects?.sync()
     chatPreview?.sync()
     cron?.sync()
@@ -719,20 +786,24 @@ function registerSidebar(ctx, active, recentRows) {
         document.querySelector('[data-tree-tab="sessions"]')?.closest('[data-tree-group]') ??
         document.querySelector('[data-tree-group="grp-sessions"][data-window-top]:not([data-pane-host])'))
       : null
-    const compatible = group?.clientWidth >= 190 && (content || group.querySelector(':scope > [data-panel-header]'))
     const workspace = group && document.querySelector('[data-tree-group="grp-main"][data-window-top]')
     const targets = [...new Set([content, group, workspace].filter(Boolean))]
     if (targets.length !== anchors.length || targets.some((node, index) => node !== anchors[index])) {
       resize.disconnect()
       for (const node of targets) resize.observe(node)
       anchors = targets
+      measure = true
     }
-    const railBox = group?.getBoundingClientRect()
-    const workspaceBox = workspace?.getBoundingClientRect()
-    // The fixed toolbar belongs to the chat edge when the sessions zone is
-    // physically on its right. The measured offset follows resize and swap.
-    const rightRail = railBox?.width > 0 && workspaceBox?.width > 0 && railBox.left >= workspaceBox.right - 2
-    setToolbarOffset(rightRail ? Math.max(0, window.innerWidth - workspaceBox.right) : 0)
+    if (measure) {
+      measure = false
+      const railBox = group?.getBoundingClientRect()
+      const workspaceBox = workspace?.getBoundingClientRect()
+      measuredWidth = group?.clientWidth ?? 0
+      // The fixed toolbar follows the chat edge after a resize or pane swap.
+      const rightRail = railBox?.width > 0 && workspaceBox?.width > 0 && railBox.left >= workspaceBox.right - 2
+      setToolbarOffset(rightRail ? Math.max(0, window.innerWidth - workspaceBox.right) : 0)
+    }
+    const compatible = group && measuredWidth >= 190 && (content || group.querySelector(':scope > [data-panel-header]'))
     if (mounted && (mounted.content !== content || mounted.group !== group || !compatible)) {
       mounted.remove()
       mounted = undefined
@@ -749,34 +820,78 @@ function registerSidebar(ctx, active, recentRows) {
     flatList.sync(flat)
   }
   const schedule = () => { if (queued === undefined) queued = requestAnimationFrame(sync) }
-  const stopBusy = host.state.busyBySession.listen(schedule)
+  // The SDK publishes the busy map on streaming deltas too. Only the project
+  // indicators and the flat-list snapshot need that signal.
+  const stopBusy = host.state.busyBySession.listen(() => {
+    if (queued !== undefined || activityFrame || !projectContent?.isConnected) return
+    activityFrame = requestAnimationFrame(() => {
+      activityFrame = 0
+      if (queued !== undefined || !contrast.matches || !document.documentElement.matches(active)) return
+      projects?.syncActivity()
+      const flat = projectContent?.querySelector(flatSelector)
+      if (flat) flatList.sync(flat)
+    })
+  })
   ctx.i18n.onLocaleChange(() => {
     mounted?.localize()
     flatList.localize()
     schedule()
   })
-  const resize = new ResizeObserver(schedule)
-  const observer = new MutationObserver(schedule)
-  observer.observe(document.documentElement, {
+  const measureAndSync = () => {
+    measure = true
+    schedule()
+  }
+  const resize = new ResizeObserver(measureAndSync)
+  const projectLabels = new MutationObserver(records => {
+    if (records.some(({ target }) => target.parentElement?.closest('[data-hcv-native-project-action], .hover-marquee-inner'))) schedule()
+  })
+  const root = document.documentElement
+  const mounts = `${sideSelector}, [data-tree-group], [data-tree-tab="sessions"], [data-persistent-terminal]`
+  const visibility = new Set(['data-window-top', 'inert', 'hidden', 'data-pane-hidden'])
+  const observer = new MutationObserver(records => {
+    const enabled = root.matches(active)
+    let needsSync = false
+    for (const record of records) {
+      const { target, type, attributeName } = record
+      if (target === root) return measureAndSync()
+      if (!enabled || !(target instanceof Element)) continue
+      if (type === 'attributes') {
+        if (visibility.has(attributeName) && anchors.some(node => target.contains(node))) return measureAndSync()
+      } else if (target.matches('[data-tree-split]') ||
+          (!target.closest('[data-chat-surface], [data-catalog-results]') && movedElementMatches(record, mounts))) {
+        return measureAndSync()
+      }
+      if (needsSync) continue
+      needsSync = Boolean(target.closest(sideSelector) || header?.group.contains(target) ||
+        (type === 'childList' && !target.closest('[data-tree-group]') &&
+          movedElementMatches(record, '[data-slot="dropdown-menu-content"]') &&
+          projectContent?.querySelector('button[aria-haspopup="menu"][aria-expanded="true"]')))
+    }
+    if (needsSync) schedule()
+  })
+  observer.observe(root, {
     attributes: true,
-    attributeFilter: ['data-hermes-theme', 'data-hermes-codex-visual', 'aria-expanded', 'aria-selected', 'data-sessions-mode', 'data-sessions-project', 'data-working', 'data-side', 'inert', 'hidden', 'data-pane-hidden'],
+    attributeFilter: ['data-hermes-theme', 'data-hermes-codex-visual', 'aria-expanded', 'aria-selected', 'data-sessions-mode', 'data-sessions-project', 'data-working', 'data-window-top', 'inert', 'hidden', 'data-pane-hidden'],
     childList: true,
     subtree: true,
   })
-  wide.addEventListener('change', schedule)
-  contrast.addEventListener('change', schedule)
-  window.addEventListener('resize', schedule)
+  wide.addEventListener('change', measureAndSync)
+  contrast.addEventListener('change', measureAndSync)
+  window.addEventListener('resize', measureAndSync)
   ctx.onDispose(() => {
     stopBusy()
     observer.disconnect()
+    projectLabels.disconnect()
     resize.disconnect()
-    wide.removeEventListener('change', schedule)
-    contrast.removeEventListener('change', schedule)
-    window.removeEventListener('resize', schedule)
+    wide.removeEventListener('change', measureAndSync)
+    contrast.removeEventListener('change', measureAndSync)
+    window.removeEventListener('resize', measureAndSync)
     setToolbarOffset(0)
     if (queued !== undefined) cancelAnimationFrame(queued)
+    if (activityFrame) cancelAnimationFrame(activityFrame)
     mounted?.remove()
     flatList.sync(undefined)
+    syncFills(null)
     header?.remove()
     projects?.dispose()
     chatPreview?.dispose()
@@ -789,8 +904,9 @@ export function registerWorkspaceChrome(ctx, themeName) {
   ctx.i18n.register(sidebarCopy)
   registerChatPreviewMarker(ctx)
   const active = `html[data-hermes-codex-visual][data-hermes-theme="${themeName}"]`
-  const shell = `${active}:has([data-hcv-window-menu])`
+  const shell = `${active}[data-hcv-window-chrome]`
   const side = `${shell} [data-hcv-sidebar-shell]`
+  const sidebarTrack = `${active} [data-tree-split].flex-row > div[style*="min-width: 237px"]:has(> [data-tree-group="grp-sessions"]:not([data-pane-host]))`
   const sidebarStrip = `${active} :is([data-hcv-sidebar-shell] > [data-panel-header] [data-zone-tabstrip], [data-zone-tabstrip="grp-sessions"])`
   const sidebarTab = `${sidebarStrip} > [role="tablist"] > [role="tab"]:has(> .pane-tab-content)`
   const sidebarTerminal = `${active}:has([data-hcv-sidebar-shell] > [data-panel-header] ${selectedTerminal}) [data-persistent-terminal]`
@@ -817,6 +933,9 @@ export function registerWorkspaceChrome(ctx, themeName) {
   ${active} {
     --hcv-sidebar-heading: light-dark(color-mix(in oklab, var(--hcv-text) 50%, transparent), rgb(255 255 255 / 50%));
   }
+  /* Match the reference at the owner's current zoom. The native sash
+     reads this minimum and still writes the user's width. */
+  ${sidebarTrack} { min-width: 222px !important; }
   ${projectSidebarStyles(active)}
   ${chatPreviewStyles(active)}
   ${sidebarCronStyles(active)}
@@ -956,7 +1075,7 @@ export function registerWorkspaceChrome(ctx, themeName) {
     color: var(--hcv-window-text);
   }
   /* Deliver outside presses to the menu while the window's drag zones are covered. */
-  ${shell}:has([data-hcv-window-menu] [aria-expanded="true"]) :is([class~="[-webkit-app-region:drag]"], [data-window-drag-handle]) {
+  ${shell}[data-hcv-window-menu-open] :is([class~="[-webkit-app-region:drag]"], [data-window-drag-handle]) {
     -webkit-app-region: no-drag;
   }
   ${windowPopup}[data-state] {
@@ -1215,8 +1334,7 @@ export function registerWorkspaceChrome(ctx, themeName) {
   ${active} :is([data-hcv-history], [data-hcv-window-menu]) { display: none; }
 }
 `
-  document.head.append(stylesheet)
-  ctx.onDispose(() => stylesheet.remove())
+  mountStyle(ctx, stylesheet)
   ctx.register({ id: 'window-menu', area: TITLEBAR_AREAS.left, render: () => h(WindowChrome, { themeName, recentRows }) })
   registerSidebar(ctx, active, recentRows)
 }

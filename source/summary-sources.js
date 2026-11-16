@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { previewResourceCard } from './chat-resources.js'
 
-export { CompactSources, SourcesPane, registerSummarySources } from './summary-sources-view.js'
+export { CompactSummaryItems, CompactSources, SourcesPane, registerSummarySources } from './summary-sources-view.js'
 
 const transcript = '[data-slot="aui_thread-content"]'
 const filePreview = `[data-slot="aui_assistant-message-content"] ${previewResourceCard} > button:last-child`
@@ -13,6 +13,10 @@ const candidates = [
   '.aui-md a[href]',
 ].join(', ')
 const directiveKinds = new Map([['file', 'artifacts'], ['folder', 'folder'], ['image', 'image']])
+const sourceNodes = 'a[href], img, [data-slot="aui_directive-chip"], [data-slot="aui_artifact-card"], svg.tabler-icon-device-desktop-analytics'
+const sourceContainer = 'a[href], [data-slot="aui_directive-chip"], [data-slot="aui_artifact-card"], div:has(> span:first-child > svg.tabler-icon-device-desktop-analytics)'
+const userMessage = '[data-slot="aui_user-message-root"]'
+const userAttachment = userMessage + ' + div:not([data-slot]):has(> [data-slot="aui_directive-text"])'
 
 function httpLink(value) {
   try {
@@ -23,8 +27,14 @@ function httpLink(value) {
   }
 }
 
+function isPullRequest(link) {
+  return link?.hostname === 'github.com' && /^\/[^/]+\/[^/]+\/pull\/\d+\/?$/.test(link.pathname) ||
+    link?.hostname === 'gitlab.com' && /\/-\/merge_requests\/\d+\/?$/.test(link.pathname)
+}
+
 function sourceFrom(node) {
-  const attached = Boolean(node.closest('[data-slot="aui_user-message-root"]'))
+  // Hermes renders attachment rows next to the sticky user bubble.
+  const attached = Boolean(node.closest(userMessage + ', ' + userAttachment))
   if (node instanceof HTMLImageElement) {
     const action = node.closest('button')
     const src = node.currentSrc || node.getAttribute('src')
@@ -35,22 +45,28 @@ function sourceFrom(node) {
     const alt = node.alt.trim() || action.title?.trim() || ''
     const path = /^(?:[a-z]:[/\\]|[/\\])/i.test(alt) ? alt : null
     const name = path ? path.split(/[/\\]/).at(-1) : alt
-    return { kind: 'image', key: src, name, meta: path, thumbnail, attached, action }
+    const section = !attached && node.closest('[data-slot="aui_generated-image"]') ? 'outputs' : undefined
+    return { kind: 'image', key: src, name, meta: path, thumbnail, attached, action, section }
   }
 
   if (node.matches(filePreview)) {
     const label = node.previousElementSibling?.previousElementSibling
     const name = label?.textContent.trim()
-    return name ? { kind: 'artifacts', key: label.title, name, meta: label.title, attached, action: node } : null
+    return name ? { kind: 'artifacts', key: label.title, name, meta: label.title, attached, action: node,
+      section: attached ? undefined : 'outputs' } : null
   }
   const reference = node.dataset.directiveId
   const kind = directiveKinds.get(node.dataset.ref) ||
     (node.dataset.slot === 'aui_artifact-card' ? 'artifacts' : 'link')
   const link = kind === 'link' && httpLink(node.getAttribute('href') || reference)
   if (kind === 'link' && !link) return null
-  const name = node.querySelector('.truncate')?.textContent.trim() || node.textContent.trim() || link?.hostname || null
+  const label = node.querySelector('.truncate')?.textContent.trim() || node.textContent.trim() || link?.hostname || null
+  const name = kind === 'folder' && label && label === reference
+    ? label.split(/[/\\]/).filter(Boolean).at(-1) || label : label
   const action = node.matches('button, a[href]') ? node : null
-  return { kind, key: reference || link?.href || name, name, meta: link?.href || reference, attached, action }
+  const section = isPullRequest(link) ? 'pullRequests'
+    : !attached && node.dataset.slot === 'aui_artifact-card' ? 'outputs' : undefined
+  return { kind, key: reference || link?.href || name, name, meta: link?.href || reference, attached, action, section }
 }
 
 export function useChatSources(getChat, scopeKey, enabled) {
@@ -60,7 +76,14 @@ export function useChatSources(getChat, scopeKey, enabled) {
     let frame = 0
     let chat = null
     let body = null
-    const content = new MutationObserver(queue)
+    const content = new MutationObserver(records => {
+      if (records.some(({ type, target, addedNodes, removedNodes }) =>
+        (type === 'attributes' && target.matches('a, img')) ||
+        target.closest(sourceContainer) ||
+        [addedNodes, removedNodes].some(nodes => Array.prototype.some.call(nodes, node =>
+          node instanceof Element && (node.matches(sourceNodes) || node.querySelector(sourceNodes)),
+        )))) queue()
+    })
     // The primary chat is replaced by navigation. Only the mounted transcript
     // is scanned; there is no separate history, file or network request.
     const mounts = new MutationObserver((records) => {
@@ -78,7 +101,7 @@ export function useChatSources(getChat, scopeKey, enabled) {
         body?.removeEventListener('load', queue, true)
         body = next
         if (body) {
-          content.observe(body, { childList: true, subtree: true, attributes: true, attributeFilter: ['href', 'src', 'alt'] })
+          content.observe(body, { childList: true, subtree: true, attributes: true, attributeFilter: ['href', 'src', 'alt', 'title'] })
           body.addEventListener('load', queue, true)
         }
       }
@@ -92,7 +115,8 @@ export function useChatSources(getChat, scopeKey, enabled) {
       setSnapshot((old) => old?.scopeKey === scopeKey && old.rows.length === rows.length &&
         rows.every((row, i) => row.action === old.rows[i].action && row.key === old.rows[i].key &&
           row.name === old.rows[i].name && row.thumbnail === old.rows[i].thumbnail &&
-          row.kind === old.rows[i].kind && row.meta === old.rows[i].meta && row.attached === old.rows[i].attached)
+          row.kind === old.rows[i].kind && row.meta === old.rows[i].meta && row.attached === old.rows[i].attached &&
+          row.section === old.rows[i].section)
         ? old : { scopeKey, rows })
     }
     function queue() {

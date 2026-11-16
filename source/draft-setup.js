@@ -1,3 +1,4 @@
+import { chatStyles, mountStyle } from './style-scope.js'
 import { host } from '@hermes/plugin-sdk'
 import { codexIconStyle, codexMask } from './codex-reference.js'
 import { nativeDraftWorkspaceAction, nativeWorktreePath } from './sidebar-recents.js'
@@ -150,6 +151,7 @@ function newDraftBar(form, current, localEnvironment) {
   const gearMenu = panel('git')
   let connection
   let dataScope
+  let worktreeCwd
   let worktree = { label: '', branch: '' }
   let bridge
   let disposed = false
@@ -505,11 +507,16 @@ function newDraftBar(form, current, localEnvironment) {
     const key = scope()
     const id = ++refreshId
     const cwd = host.state.cwd.get()
+    const folderLabel = cwd.split(/[/\\]/).filter(Boolean).at(-1) || ''
+    if (cwd !== worktreeCwd || key !== dataScope) {
+      worktreeCwd = cwd
+      const knownProject = key === dataScope && catalog?.find(row => normalized(row.path) === normalized(cwd))
+      worktree = { label: knownProject?.label || folderLabel, branch: '' }
+    }
     if (key !== dataScope) {
       dataScope = key
       catalog = undefined
       catalogRequest = null
-      worktree = { label: '', branch: '' }
       const active = host.state.connectionId.get()
       connection = active && active !== 'local' ? { kind: 'remote', label: '…' } : null
       for (const menu of [projectMenu, localMenu, gearMenu]) menu.hidePopover()
@@ -524,7 +531,7 @@ function newDraftBar(form, current, localEnvironment) {
     if (!activeHere(key) || id !== refreshId) return
     connection = devices.find(row => row.id === active) || connection
     worktree = {
-      label: info?.project?.name || cwd.split(/[/\\]/).filter(Boolean).at(-1) || '',
+      label: info?.project?.name || folderLabel,
       branch: info?.branch || '',
       projectId: info?.project?.id,
     }
@@ -625,7 +632,7 @@ export function registerDraftSetup(ctx, active, localEnvironment) {
   const contrast = matchMedia('(forced-colors: none)')
   const sheet = node('style', { 'data-hcv-draft-setup-style': '' })
   sheet.textContent = styles(active)
-  document.head.append(sheet)
+  mountStyle(ctx, sheet, chatStyles)
   let form
   let bar
   let frame = 0

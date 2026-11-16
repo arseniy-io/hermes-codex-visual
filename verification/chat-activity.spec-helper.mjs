@@ -12,7 +12,7 @@ export async function verifyChatActivity({ page, app, expect, projectChat, scree
   await expect(chat.getByText('Проверка истории завершена.', { exact: true })).toBeVisible()
   const transcript = chat.locator('[data-slot="aui_thread-content"]')
   const width = (await transcript.boundingBox()).width
-  const steps = chat.getByRole('button', { name: /^(Шаги работы|Work steps)$/ })
+  const steps = chat.locator('button[data-hcv-turn-line]').last()
   await steps.click()
   const group = chat.locator('[data-tool-group] > [data-tool-summary]').filter({ hasText: /fixture-note/ })
   const groupButton = group.locator('button[aria-expanded]')
@@ -63,9 +63,16 @@ export async function verifyChatActivity({ page, app, expect, projectChat, scree
   await expect.poll(() => picture.evaluate(img => img.naturalWidth)).toBe(160)
   await expect(thumbnail).toHaveCSS('width', '80px')
   await expect(thumbnail).toHaveCSS('height', '80px')
-  await expect(thumbnail.getByRole('button', { name: /Скачать изображение|Download image/ })).toHaveCSS('width', '24px')
+  const downloadImage = /Скачать изображение|Download image/
+  if (auditBaseline) {
+    await expect(thumbnail.getByRole('button', { name: downloadImage })).toHaveCSS('width', '24px')
+  } else {
+    await expect(thumbnail.getByRole('button', { name: downloadImage })).toHaveCount(0)
+    await expect(picture).toHaveCSS('width', '78px')
+  }
   await picture.click()
   await expect(page.getByRole('dialog').locator('img')).toBeVisible()
+  await expect(page.getByRole('dialog').getByRole('button', { name: downloadImage })).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog')).toHaveCount(0)
   assert.equal((await transcript.boundingBox()).width, width)

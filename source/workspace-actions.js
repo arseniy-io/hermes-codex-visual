@@ -1,3 +1,4 @@
+import { mountStyle } from './style-scope.js'
 import {
   atom, Button, Dialog, DialogContent, DialogDescription, DialogFooter,
   DialogHeader, DialogTitle, host, Input, TITLEBAR_AREAS, useValue,
@@ -253,7 +254,7 @@ export function registerWorkspaceActions(ctx, active, localEnvironment) {
     active + ' .hcv-workspace-move-form [role="status"] { overflow-wrap: anywhere; color: var(--hcv-muted); }',
     '}',
   ].join('\n')
-  document.head.append(style)
+  mountStyle(ctx, style, { surface: '[data-hcv-workspace-move]' })
   ctx.register({ id: 'move-workspace', area: TITLEBAR_AREAS.center,
     render: () => h(MoveSlot, { model, close, localEnvironment }) })
   const observer = new MutationObserver(() => {

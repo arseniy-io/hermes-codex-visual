@@ -1,8 +1,12 @@
+import { mountStyle } from './style-scope.js'
 import { host } from '@hermes/plugin-sdk'
 import { codexMask, codexReference as codex } from './codex-reference.js'
 import { committedFiber } from './sidebar-recents.js'
 
-const nativeTable = '[data-chat-surface]:not([data-hud-shell] *) [data-slot="aui_assistant-message-content"] .aui-md-table > table'
+const nativeTable = [
+  '[data-chat-surface]:not([data-hud-shell] *) [data-slot="aui_assistant-message-content"] .aui-md-table > table',
+  '[data-hcv-subagent-result] [data-hcv-subagent-table] > table',
+].join(', ')
 const tableMark = 'data-hcv-markdown-table'
 const wrapMark = 'data-hcv-table-scroll'
 const toolbarMark = 'data-hcv-table-toolbar'
@@ -52,7 +56,10 @@ function markColumns(table) {
     }
   }
   const sizes = longest.map(length => length <= 40 ? 'sm' : length <= 100 ? 'md' : length <= 160 ? 'lg' : 'xl')
-  for (const row of rows) for (const cell of row.cells) cell.setAttribute(columnMark, sizes[cell.cellIndex])
+  for (const row of rows) for (const cell of row.cells) {
+    const size = sizes[cell.cellIndex]
+    if (cell.getAttribute(columnMark) !== size) cell.setAttribute(columnMark, size)
+  }
 }
 
 function markdownSource(table) {
@@ -67,8 +74,9 @@ function markdownSource(table) {
   if (!Number.isInteger(start) || !Number.isInteger(end)) return null
   for (; fiber; fiber = fiber.return) {
     const props = fiber.memoizedProps
-    if (typeof props?.content !== 'string' || !Number.isInteger(props.index) || end > props.content.length) continue
-    const source = props.content.slice(start, end)
+    const markdown = Number.isInteger(props?.index) ? props.content : props?.mode === 'static' ? props.children : null
+    if (typeof markdown !== 'string' || end > markdown.length) continue
+    const source = markdown.slice(start, end)
     if (source.includes('|') || /^<table[\s>]/i.test(source)) return source
   }
   return null
@@ -382,7 +390,7 @@ export function registerChatTables(ctx, active) {
   let tipButton
   const style = make('style', 'data-hcv-chat-tables-style')
   style.textContent = tableCss(active)
-  document.head.append(style)
+  mountStyle(ctx, style, { surface: '.aui-md-table, [data-hcv-subagent-table], [data-hcv-table-dialog]', retainAcrossChatTabs: true })
   const tip = make('div', 'data-hcv-table-tip')
   tip.hidden = true
   tip.setAttribute('aria-hidden', 'true')
@@ -480,10 +488,17 @@ export function registerChatTables(ctx, active) {
     modal.showModal()
   }
 
-  function updateOverflow(state) {
+  function measureOverflow(state) {
     const { wrapper, table } = state
     const width = wrapper.clientWidth
     const wide = width > 0 && wrapper.scrollWidth > width + 1
+    if (!wide) return { state, wide }
+    const left = Math.max(0, wrapper.getBoundingClientRect().left - table.getBoundingClientRect().left)
+    return { state, wide, width, left, tableWidth: table.offsetWidth }
+  }
+
+  function applyOverflow({ state, wide, width, left, tableWidth }) {
+    const { wrapper } = state
     if (wide !== wrapper.hasAttribute('data-hcv-table-overflow')) {
       wrapper.toggleAttribute('data-hcv-table-overflow', wide)
       for (const [name, value] of Object.entries(wide ? {
@@ -494,20 +509,37 @@ export function registerChatTables(ctx, active) {
       }
     }
     if (!wide) return
-    const left = Math.max(0, wrapper.getBoundingClientRect().left - table.getBoundingClientRect().left)
     const right = left + width
     const fade = Math.min(96, width / 3)
-    wrapper.style.setProperty('--hcv-table-left', left + 'px')
-    wrapper.style.setProperty('--hcv-table-right', right + 'px')
-    wrapper.style.setProperty('--hcv-table-fade-left', (left > 2 ? fade : 0) + 'px')
-    wrapper.style.setProperty('--hcv-table-fade-right', (right < table.offsetWidth - 2 ? fade : 0) + 'px')
+    for (const [name, size] of [
+      ['left', left], ['right', right], ['fade-left', left > 2 ? fade : 0],
+      ['fade-right', right < tableWidth - 2 ? fade : 0],
+    ]) {
+      const property = '--hcv-table-' + name
+      const value = size + 'px'
+      if (wrapper.style.getPropertyValue(property) !== value) wrapper.style.setProperty(property, value)
+    }
+  }
+
+  function updateOverflow(statesToMeasure) {
+    const measured = []
+    for (const state of statesToMeasure) {
+      // Reading a descendant's width can lay out a whole offscreen turn that
+      // Hermes skipped with content-visibility: auto.
+      if (state.wrapper.checkVisibility({ contentVisibilityAuto: true })) {
+        measured.push(measureOverflow(state))
+      }
+    }
+    measured.forEach(applyOverflow)
   }
 
   const resize = new ResizeObserver(entries => {
+    const affected = new Set()
     for (const { target } of entries) {
       const state = states.get(target.matches('table') ? target : target.querySelector(':scope > table'))
-      if (state) updateOverflow(state)
+      if (state) affected.add(state)
     }
+    updateOverflow(affected)
   })
 
   function attach(table) {
@@ -575,7 +607,7 @@ export function registerChatTables(ctx, active) {
       }
     }, options)
     expand.addEventListener('click', () => openPreview(state), options)
-    wrapper.addEventListener('scroll', () => { updateOverflow(state); hideTip() }, options)
+    wrapper.addEventListener('scroll', () => { applyOverflow(measureOverflow(state)); hideTip() }, options)
     wrapper.addEventListener('keydown', event => {
       if (!wrapper.hasAttribute('data-hcv-table-overflow') || event.defaultPrevented || event.ctrlKey ||
           event.metaKey || event.shiftKey || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') ||
@@ -620,15 +652,21 @@ export function registerChatTables(ctx, active) {
       if (!enabled || !state.table.isConnected || state.table.parentElement !== state.wrapper) detach(state)
     }
     if (enabled) {
+      const measured = []
+      let refresh = false
       for (const table of pending) {
         if (!table.isConnected || !table.matches(nativeTable)) continue
         const state = states.get(table) || attach(table)
         markColumns(table)
         state.copy.setAttribute('aria-label', state.copy.hasAttribute('data-copied') ? strings().copied : strings().copy)
         state.expand.setAttribute('aria-label', strings().expand)
-        updateOverflow(state)
-        if (preview?.state === state) refreshPreview()
+        measured.push(state)
+        refresh ||= preview?.state === state
       }
+      // Mount and mark every table before reading widths. Interleaving these
+      // operations forces a new layout for each table in a restored chat.
+      updateOverflow(measured)
+      if (refresh) refreshPreview()
     }
     pending.clear()
   }
@@ -650,11 +688,19 @@ export function registerChatTables(ctx, active) {
         if (node.matches(nativeTable)) pending.add(node)
         else for (const child of node.querySelectorAll(nativeTable)) pending.add(child)
       }
-      removed ||= removedNodes.length > 0
+      for (const node of removedNodes) {
+        if (node instanceof Element && (node.matches(`[${tableMark}], [${wrapMark}]`) ||
+            node.querySelector(`[${tableMark}], [${wrapMark}]`))) removed = true
+      }
     }
     if (pending.size || (removed && states.size)) queue()
   })
   observer.observe(document.body, { childList: true, characterData: true, subtree: true })
+  ctx.addEventListener(document, 'contentvisibilityautostatechange', event => {
+    if (event.skipped || !root.matches(active)) return
+    for (const table of event.target.querySelectorAll(`[${tableMark}]`)) pending.add(table)
+    if (pending.size) queue()
+  }, true)
   function collect() {
     if (root.matches(active)) for (const table of document.querySelectorAll(nativeTable)) pending.add(table)
     queue()

@@ -1,3 +1,4 @@
+import { mountStyle } from './style-scope.js'
 import { createElement as h, useRef, useState } from 'react'
 import {
   atom, Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -258,7 +259,7 @@ export function registerLocalEnvironment(ctx, active) {
   const sheet = document.createElement('style')
   sheet.dataset.hcvLocalEnvironmentStyles = ''
   sheet.textContent = styles(active)
-  document.head.append(sheet)
+  mountStyle(ctx, sheet, { surface: '[data-hcv-local-environment]' })
   let cancelRun, disposed = false
   let request = 0
 

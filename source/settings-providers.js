@@ -1,3 +1,4 @@
+import { mountStyle } from './style-scope.js'
 import { codexIconRules } from './codex-reference.js'
 
 export function registerSettingsProviders(ctx, active) {
@@ -110,6 +111,5 @@ export function registerSettingsProviders(ctx, active) {
   ${hero}:focus-visible { outline: 2px solid Highlight; outline-offset: -2px; }
 }
 `
-  document.head.append(sheet)
-  ctx.onDispose(() => sheet.remove())
+  mountStyle(ctx, sheet, { screens: ['settings'], tabs: ['providers'] })
 }

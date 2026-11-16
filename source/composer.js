@@ -1,3 +1,4 @@
+import { chatStyles, mountStyle } from './style-scope.js'
 import { host } from '@hermes/plugin-sdk'
 import { registerQueueAppearance, queueingPreference } from './queue.js'
 import { registerComposerLayout } from './composer-layout.js'
@@ -238,8 +239,7 @@ export function registerComposer(ctx, active) {
       ${rowTip} span:has(> [data-slot="tooltip-arrow"]) { display: none; }
     }
   `
-  document.head.append(sheet)
-  ctx.onDispose(() => sheet.remove())
+  mountStyle(ctx, sheet, chatStyles)
   registerSlashGroups(ctx, root, enabled)
   registerComposerLayout(ctx, active)
   const queueing = () => queueingPreference(ctx)

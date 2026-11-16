@@ -1,3 +1,4 @@
+import { mountStyle } from './style-scope.js'
 import { host } from '@hermes/plugin-sdk'
 import { codexMask } from './codex-reference.js'
 import { draftSelection, draftText, insertDictation, updateDictationAnchor } from './dictation-caret.js'
@@ -196,7 +197,7 @@ export function registerDictation(ctx, active) {
   const sheet = document.createElement('style')
   sheet.setAttribute('data-hcv-dictation-style', '')
   sheet.textContent = styles(active)
-  document.head.append(sheet)
+  mountStyle(ctx, sheet, { surface: '[data-hcv-dictation]' })
   const root = document.documentElement
   const contrast = matchMedia('(forced-colors: none)')
   const selections = new WeakMap()

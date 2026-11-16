@@ -1,3 +1,4 @@
+import { mountStyle } from './style-scope.js'
 import { codexIconRules, codexReference as codex } from './codex-reference.js'
 
 export function registerShellSurfaces(ctx, active) {
@@ -6,6 +7,8 @@ export function registerShellSurfaces(ctx, active) {
   const panel = `${active} aside[class~="before:pointer-events-none"][class~="pt-(--titlebar-height)"]`
   const overlay = `${active} :is([data-narrow-overlay="files"], [data-narrow-overlay="review"])`
   const panelEntrance = `:is(${panel}:not([data-narrow-overlay] *), ${overlay})`
+  const collapsedFiles = '[data-tree-tab="files"][data-vertical]:only-child'
+  const filesTrack = `${active} [data-tree-split] > div:has(> [data-tree-group] > div > [role="tablist"] > ${collapsedFiles})`
   const header = `${panel} [class~="group/project-header"]`
   const label = `${panel} span:has(> .dither[aria-hidden="true"])`
   const empty = `${panel} > div:has(> button > .codicon-folder-opened)`
@@ -36,6 +39,9 @@ export function registerShellSurfaces(ctx, active) {
   sheet.dataset.hcvShellSurfaces = ''
   sheet.textContent = `
 @media (forced-colors: none) {
+  /* A solo Files rail should take no width when collapsed. The titlebar
+     button still restores the native zone. Leave shared tab strips intact. */
+  ${filesTrack} { display: none; }
   ${panel} {
     background-color: var(--hcv-sidebar);
     border-color: var(--hcv-hairline);
@@ -225,6 +231,5 @@ export function registerShellSurfaces(ctx, active) {
   }
 }
 `
-  document.head.append(sheet)
-  ctx.onDispose(() => sheet.remove())
+  mountStyle(ctx, sheet)
 }

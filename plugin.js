@@ -47,11 +47,117 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+// source/dom-changes.js
+function movedElementMatches(record, selector) {
+  for (const nodes of [record.addedNodes, record.removedNodes]) {
+    for (const node3 of nodes) {
+      if (node3 instanceof Element && (node3.matches(selector) || node3.querySelector(selector))) return true;
+    }
+  }
+  return false;
+}
+
+// source/style-scope.js
+var scopes = /* @__PURE__ */ new WeakMap();
+var hiddenPane = "[data-pane-hidden], [hidden]";
+var chatTab = '[data-zone-tabstrip="grp-main"] [role="tab"][data-tree-tab^="session-tile:"]';
+var visibleChatTab = `${chatTab}:not(:is(${hiddenPane}) *)`;
+var chatStyles = {
+  surface: '[data-chat-surface], [data-slot="composer-surface"]',
+  retainAcrossChatTabs: true
+};
+function registerStyleScope(ctx, theme2) {
+  const root = document.documentElement;
+  const entries = [];
+  let watched = "";
+  let queued = false;
+  let disposed = false;
+  function update() {
+    queued = false;
+    if (disposed) return;
+    const enabled = root.dataset.hermesTheme === theme2;
+    const [route, query] = location.hash.slice(2).split("?", 2);
+    const screen = route.split("/")[0];
+    const tab = screen === "settings" ? new URLSearchParams(query).get("tab") : null;
+    const surfaces = /* @__PURE__ */ new Map();
+    const pending = /* @__PURE__ */ new Set();
+    let hasChatTabs;
+    for (const { sheet, anchor, screens, tabs, surface: surface3, visibleSurface, retainAcrossChatTabs } of entries) {
+      let visible = enabled && !screens && !surface3;
+      if (enabled && screens?.includes(screen) && (!tabs || tabs.includes(tab))) visible = true;
+      if (enabled && surface3 && !visible) {
+        pending.add(surface3);
+        if (retainAcrossChatTabs) {
+          pending.add(chatTab);
+          if (sheet.isConnected) visible = hasChatTabs ??= Boolean(document.querySelector(visibleChatTab));
+        }
+        if (!visible) {
+          if (!surfaces.has(surface3)) surfaces.set(surface3, Boolean(document.querySelector(visibleSurface)));
+          visible = surfaces.get(surface3);
+        }
+      }
+      if (visible && !sheet.isConnected) anchor.after(sheet);
+      if (!visible && sheet.isConnected) sheet.remove();
+    }
+    const next = [...pending].join(", ");
+    if (watched !== next) {
+      watched = next;
+      bodyChanges.disconnect();
+      if (watched) bodyChanges.observe(document.body, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        attributeFilter: ["hidden", "data-pane-hidden", "aria-selected"]
+      });
+    }
+  }
+  function schedule() {
+    if (queued || disposed) return;
+    queued = true;
+    queueMicrotask(update);
+  }
+  const bodyChanges = new MutationObserver((records) => {
+    if (watched && records.some((record) => record.type === "childList" ? movedElementMatches(record, watched) : record.attributeName === "aria-selected" && record.target.hasAttribute("data-tree-tab") || record.target.matches(watched) || record.target.querySelector(watched))) schedule();
+  });
+  const themeChanges = new MutationObserver(schedule);
+  themeChanges.observe(root, { attributes: true, attributeFilter: ["data-hermes-theme"] });
+  ctx.addEventListener(window, "hashchange", schedule);
+  ctx.addEventListener(window, "popstate", schedule);
+  if (window.navigation) ctx.addEventListener(window.navigation, "currententrychange", schedule);
+  scopes.set(ctx, (sheet, conditions) => {
+    const anchor = document.createComment("Hermes Codex Visual style");
+    document.head.append(anchor);
+    const surface3 = conditions?.surface;
+    const visibleSurface = surface3 && `:is(${surface3}):not(${hiddenPane}, :is(${hiddenPane}) *)`;
+    entries.push({ sheet, anchor, ...conditions, visibleSurface });
+    schedule();
+  });
+  ctx.onDispose(() => {
+    disposed = true;
+    scopes.delete(ctx);
+    themeChanges.disconnect();
+    bodyChanges.disconnect();
+    for (const { sheet, anchor } of entries) {
+      sheet.remove();
+      anchor.remove();
+    }
+  });
+}
+function mountStyle(ctx, sheet, conditions) {
+  scopes.get(ctx)(sheet, conditions);
+}
+function mountCSS(ctx, marker3, text, conditions) {
+  const sheet = document.createElement("style");
+  sheet.setAttribute(marker3, "");
+  sheet.textContent = text;
+  mountStyle(ctx, sheet, conditions);
+}
+
 // source/plugin.js
 import { THEMES_AREA } from "@hermes/plugin-sdk";
 
 // source/chrome.js
-import { createElement as h3, Fragment, useEffect, useRef, useState } from "react";
+import { createElement as h3, Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -108,6 +214,7 @@ var glyphs = {
   bell: '<path d="M10 5a2 2 0 1 1 4 0a7 7 0 0 1 4 6v3a4 4 0 0 0 2 3h-16a4 4 0 0 0 2 -3v-3a7 7 0 0 1 4 -6"/><path d="M9 17v1a3 3 0 0 0 6 0v-1"/>',
   right: '<path d="M9 6l6 6l-6 6"/>',
   down: '<path d="M6 9l6 6l6 -6"/>',
+  scrollToBottom: '<path d="M12 5l0 14"/><path d="M18 13l-6 6"/><path d="M6 13l6 6"/>',
   back: '<path d="M5 12l14 0"/><path d="M5 12l6 6"/><path d="M5 12l6 -6"/>',
   forward: '<path d="M5 12l14 0"/><path d="M13 18l6 -6"/><path d="M13 6l6 6"/>',
   check: '<path d="M5 12l5 5l10 -10"/>',
@@ -130,6 +237,7 @@ var glyphs = {
   swap: '<path d="M7 10h14l-4 -4"/><path d="M17 14h-14l4 4"/>',
   hud: '<path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1l0 -10"/><path d="M7 20h10"/><path d="M9 16v4"/><path d="M15 16v4"/><path d="M9 12v-4"/><path d="M12 12v-1"/><path d="M15 12v-2"/><path d="M12 12v-1"/>',
   changes: '<path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2"/><path d="M12 10l0 4"/><path d="M10 12l4 0"/><path d="M10 17l4 0"/>',
+  turnDiffUndo: '<path d="M9 14l-4 -4l4 -4"/><path d="M5 10h11a4 4 0 1 1 0 8h-1"/>',
   source: '<path d="M5.931 6.936l1.275 4.249m5.607 5.609l4.251 1.275"/><path d="M11.683 12.317l5.759 -5.759"/><path d="M4 5.5a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0 -3 0"/><path d="M17 5.5a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0 -3 0"/><path d="M17 18.5a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0 -3 0"/><path d="M4 15.5a4.5 4.5 0 1 0 9 0a4.5 4.5 0 1 0 -9 0"/>',
   link: '<path d="M9 15l6 -6"/><path d="M11 6l.463 -.536a5 5 0 0 1 7.071 7.072l-.534 .464"/><path d="M13 18l-.397 .534a5.068 5.068 0 0 1 -7.127 0a4.972 4.972 0 0 1 0 -7.071l.524 -.463"/>',
   open: '<path d="M12 6h-6a2 2 0 0 0 -2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-6"/><path d="M11 13l9 -9"/><path d="M15 4h5v5"/>',
@@ -161,13 +269,26 @@ var glyphs = {
   target: '<path d="M11 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/><path d="M7 12a5 5 0 1 0 10 0a5 5 0 1 0 -10 0"/><path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"/>',
   trash: '<path d="M4 7l16 0"/><path d="M10 11l0 6"/><path d="M14 11l0 6"/><path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12"/><path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3"/>',
   play: '<path d="M7 4v16l13 -8l-13 -8"/>',
+  resourcePlay: '<path fill="white" stroke="none" d="M7 5v14l12 -7z"/>',
+  resourcePause: '<rect fill="white" stroke="none" x="6" y="5" width="4" height="14" rx="1"/><rect fill="white" stroke="none" x="14" y="5" width="4" height="14" rx="1"/>',
+  videoVolume: '<path d="M15 8a5 5 0 0 1 0 8"/><path d="M17.7 5a9 9 0 0 1 0 14"/><path d="M5 9h3l4 -4v14l-4 -4h-3a1 1 0 0 1 -1 -1v-4a1 1 0 0 1 1 -1"/>',
+  videoMuted: '<path d="M5 9h3l4 -4v14l-4 -4h-3a1 1 0 0 1 -1 -1v-4a1 1 0 0 1 1 -1"/><path d="M16 10l4 4m0 -4l-4 4"/>',
+  videoFullscreen: '<path d="M16 4h4v4m0 -4l-5 5M8 20h-4v-4m0 4l5 -5"/>',
+  videoExitFullscreen: '<path d="M4 20l5 -5m-5 0h5v5M20 4l-5 5m0 -5v5h5"/>',
   person: '<path d="M8 7a4 4 0 1 0 8 0a4 4 0 0 0 -8 0"/><path d="M6 21v-2a4 4 0 0 1 4 -4h4a4 4 0 0 1 4 4v2"/>',
   team: '<path d="M5 7a4 4 0 1 0 8 0a4 4 0 1 0 -8 0"/><path d="M3 21v-2a4 4 0 0 1 4 -4h4a4 4 0 0 1 4 4v2"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/><path d="M21 21v-2a4 4 0 0 0 -3 -3.85"/>',
   audio: '<path d="M21 12h-2c-.894 0 -1.662 -.857 -1.761 -2c-.296 -3.45 -.749 -6 -2.749 -6s-2.5 3.582 -2.5 8s-.5 8 -2.5 8s-2.452 -2.547 -2.749 -6c-.1 -1.147 -.867 -2 -1.763 -2h-2"/>',
   tools: '<path d="M3 21h4l13 -13a1.5 1.5 0 0 0 -4 -4l-13 13v4"/><path d="M14.5 5.5l4 4"/><path d="M12 8l-5 -5l-4 4l5 5"/><path d="M7 8l-1.5 1.5"/><path d="M16 12l5 5l-4 4l-5 -5"/><path d="M16 17l-1.5 1.5"/>',
+  activityBrowser: '<path d="M4 8h16"/><path d="M4 6a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2l0 -12"/><path d="M8 4v4"/>',
+  chatSkill: '<path d="M12 4l-8 4l8 4l8 -4l-8 -4"/><path d="M4 12l8 4l8 -4"/><path d="M4 16l8 4l8 -4"/>',
   terminal: '<path d="M8 9l3 3l-3 3"/><path d="M13 15l3 0"/><path d="M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12"/>'
 };
 var glyphAliases = {
+  resourceDocument: "artifacts",
+  resourceMore: "more",
+  videoPlay: "play",
+  videoPause: "resourcePause",
+  videoMore: "more",
   activityEdit: "edit",
   activityImage: "image",
   activityIntegration: "tools",
@@ -177,7 +298,11 @@ var glyphAliases = {
   chatPreviewComputer: "laptop",
   tableClose: "close",
   tableCopy: "copy",
-  tableExpand: "open"
+  tableExpand: "open",
+  turnDiff: "changes",
+  turnDiffOpen: "open",
+  turnDiffDown: "down",
+  turnDisclosure: "right"
 };
 var codexReference = Object.freeze({
   spacing: 4,
@@ -205,11 +330,21 @@ var codexReference = Object.freeze({
   // 499225.6d2e47bea2.js, 182735.bb2cb0d2af.js, e77f816560c6.css.
   sidebar: Object.freeze({ rowHeight: 30, rowRadius: 10, previewWidth: 336, previewRadius: 12, previewOffset: 2 })
 });
+var localAssets = false ? null : null;
+var svgMask = (svg) => `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+var defaultMasks = /* @__PURE__ */ new Map();
 function codexMask(name, ink = "white") {
+  if (ink !== "white") return makeMask(name, ink);
+  if (!defaultMasks.has(name)) defaultMasks.set(name, makeMask(name, ink));
+  return defaultMasks.get(name);
+}
+function makeMask(name, ink) {
+  const original = localAssets?.icons[name];
+  if (original) return svgMask(ink === "white" ? original : original.replaceAll('"white"', `"${ink}"`));
   const paths = glyphs[glyphAliases[name] ?? name];
   if (!paths) throw new Error(`Unknown workspace icon: ${name}`);
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="${ink}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
-  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+  return svgMask(svg);
 }
 function codexIconStyle(name) {
   return { mask: `${codexMask(name)} center / contain no-repeat`, backgroundColor: "currentColor" };
@@ -231,18 +366,18 @@ import { host as host2 } from "@hermes/plugin-sdk";
 // source/sidebar-recents.js
 import { createElement as h, isValidElement, useSyncExternalStore, version } from "react";
 var sectionActions = ["onResumeSession", "onArchiveSession", "onDeleteSession", "onTogglePin", "onToggleUnread"];
-function committedFiber(element5) {
-  if (!element5 || !version.startsWith("19.")) return null;
-  const keys = Object.keys(element5);
-  let fiber = element5[keys.find((key) => key.startsWith("__reactFiber$"))];
-  const props = element5[keys.find((key) => key.startsWith("__reactProps$"))];
+function committedFiber(element6) {
+  if (!element6 || !version.startsWith("19.")) return null;
+  const keys = Object.keys(element6);
+  let fiber = element6[keys.find((key) => key.startsWith("__reactFiber$"))];
+  const props = element6[keys.find((key) => key.startsWith("__reactProps$"))];
   if (!props) return null;
   if (fiber?.memoizedProps !== props) fiber = fiber?.alternate;
   return fiber?.memoizedProps === props ? fiber : null;
 }
 function nativeDraftWorkspaceAction(sidebar2) {
-  for (let node2 = committedFiber(sidebar2); node2; node2 = node2.return) {
-    const props = node2.memoizedProps;
+  for (let node3 = committedFiber(sidebar2); node3; node3 = node3.return) {
+    const props = node3.memoizedProps;
     if (typeof props?.onNewSessionInWorkspace === "function" && typeof props.onNewSessionSplit === "function") {
       return props.onNewSessionInWorkspace;
     }
@@ -250,45 +385,45 @@ function nativeDraftWorkspaceAction(sidebar2) {
   return null;
 }
 function nativeWorktreePath(button4) {
-  for (let node2 = committedFiber(button4); node2; node2 = node2.return) {
-    if (typeof node2.memoizedProps?.repoPath === "string") return node2.memoizedProps.repoPath;
+  for (let node3 = committedFiber(button4); node3; node3 = node3.return) {
+    if (typeof node3.memoizedProps?.repoPath === "string") return node3.memoizedProps.repoPath;
   }
   return "";
 }
-function groupingAction(element5) {
-  if (Array.isArray(element5)) {
-    for (const child of element5) {
+function groupingAction(element6) {
+  if (Array.isArray(element6)) {
+    for (const child of element6) {
       const action = groupingAction(child);
       if (action) return action;
     }
     return null;
   }
-  if (!isValidElement(element5)) return null;
-  const { children, onValueChange } = element5.props;
+  if (!isValidElement(element6)) return null;
+  const { children, onValueChange } = element6.props;
   if (typeof onValueChange === "function" && Array.isArray(children) && children.some((option) => option?.props?.option?.id === "project")) return onValueChange;
   return groupingAction(children);
 }
 function projectGroupingAction(trigger) {
-  for (let node2 = committedFiber(trigger); node2; node2 = node2.return) {
-    const props = node2.memoizedProps;
+  for (let node3 = committedFiber(trigger); node3; node3 = node3.return) {
+    const props = node3.memoizedProps;
     if (props?.["data-slot"] === "dropdown-menu") return groupingAction(props.children);
   }
   return null;
 }
 function readNativeList(tree) {
   if (!version.startsWith("19.") || !tree?.matches('[data-sessions-mode="projects"], [data-sessions-mode="flat"]')) return null;
-  for (const group of tree.querySelectorAll(':scope > [data-slot="sidebar-group"]')) {
-    const fiber = committedFiber(group);
+  for (const group2 of tree.querySelectorAll(':scope > [data-slot="sidebar-group"]')) {
+    const fiber = committedFiber(group2);
     if (!fiber) continue;
-    for (let node2 = fiber.return; node2; node2 = node2.return) {
-      const props = node2.memoizedProps;
-      if (typeof node2.type !== "function" || props?.pinned !== false || typeof props.onEnterProject !== "function" || !Array.isArray(props.sessions) || !sectionActions.every((name) => typeof props[name] === "function")) continue;
-      let sidebar2 = node2.return;
+    for (let node3 = fiber.return; node3; node3 = node3.return) {
+      const props = node3.memoizedProps;
+      if (typeof node3.type !== "function" || props?.pinned !== false || typeof props.onEnterProject !== "function" || !Array.isArray(props.sessions) || !sectionActions.every((name) => typeof props[name] === "function")) continue;
+      let sidebar2 = node3.return;
       while (sidebar2 && typeof sidebar2.memoizedProps?.onRetrySessions !== "function") sidebar2 = sidebar2.return;
       return {
-        group,
-        fiber: node2,
-        section: node2.type,
+        group: group2,
+        fiber: node3,
+        section: node3.type,
         props,
         refresh: sidebar2?.memoizedProps.onRetrySessions,
         manageCronJob: sidebar2?.memoizedProps.onManageCronJob
@@ -319,7 +454,7 @@ function nativeProjectActivity(tree) {
   const { projectOverview, projectOverviewPreviews } = source.props;
   const hasStatus = (project2, matches) => {
     const sessionMatches = (session) => matches(session.id);
-    return project2.sessionIds?.some(matches) || projectOverviewPreviews?.[project2.id]?.some(sessionMatches) || !project2.sessionIds && (project2.previewSessions?.some(sessionMatches) || project2.repos.some((repo) => repo.groups.some((group) => group.sessions.some(sessionMatches))));
+    return project2.sessionIds?.some(matches) || projectOverviewPreviews?.[project2.id]?.some(sessionMatches) || !project2.sessionIds && (project2.previewSessions?.some(sessionMatches) || project2.repos.some((repo) => repo.groups.some((group2) => group2.sessions.some(sessionMatches))));
   };
   for (const project2 of projectOverview) {
     if (hasStatus(project2, liveId)) activity.set(project2.id, "working");
@@ -401,8 +536,8 @@ var localDrag = "data-hcv-reordering-sidebar";
 var lifted = "data-hcv-sidebar-lifted";
 function sessionRows(list) {
   const chats = [];
-  for (const row3 of list.children) {
-    const button4 = row3.querySelector(rowButton);
+  for (const row4 of list.children) {
+    const button4 = row4.querySelector(rowButton);
     for (let fiber = committedFiber(button4); fiber; fiber = fiber.return) {
       const props = fiber.memoizedProps;
       const session = props?.session;
@@ -411,14 +546,14 @@ function sessionRows(list) {
       const profile2 = session.profile || "default";
       const lineage = session._lineage_root_id ?? session.id;
       const key = JSON.stringify([profile2, lineage]);
-      if (props.branchStem && parent) parent.rows.push(row3);
-      else chats.push({ key, id: session.id, profile: profile2, anchor: row3, button: button4, rows: [row3] });
+      if (props.branchStem && parent) parent.rows.push(row4);
+      else chats.push({ key, id: session.id, profile: profile2, anchor: row4, button: button4, rows: [row4] });
       break;
     }
   }
   const counts = /* @__PURE__ */ new Map();
-  for (const chat2 of chats) counts.set(chat2.key, (counts.get(chat2.key) ?? 0) + 1);
-  for (const chat2 of chats) if (counts.get(chat2.key) > 1) chat2.key = JSON.stringify([chat2.profile, chat2.id]);
+  for (const chat3 of chats) counts.set(chat3.key, (counts.get(chat3.key) ?? 0) + 1);
+  for (const chat3 of chats) if (counts.get(chat3.key) > 1) chat3.key = JSON.stringify([chat3.profile, chat3.id]);
   return chats;
 }
 function nativeProjectOrder(item) {
@@ -450,18 +585,18 @@ function attachSidebarOrder(content, storage) {
   const styled = /* @__PURE__ */ new Set();
   const line = document.createElement("div");
   const ghost = document.createElement("div");
-  const label = document.createElement("span");
+  const label3 = document.createElement("span");
   line.dataset.hcvChatDropLine = "";
   ghost.dataset.hcvSidebarDragGhost = "";
-  ghost.append(label);
-  for (const node2 of [line, ghost]) node2.setAttribute("aria-hidden", "true");
+  ghost.append(label3);
+  for (const node3 of [line, ghost]) node3.setAttribute("aria-hidden", "true");
   let bindings;
   let drag;
   let frame = 0;
   let clearClick;
   function restore(list) {
     list.removeAttribute(ordered);
-    for (const row3 of list.children) row3.style.removeProperty(orderProperty);
+    for (const row4 of list.children) row4.style.removeProperty(orderProperty);
     styled.delete(list);
   }
   function register(list, items2, key, kind, nativeOrder) {
@@ -474,8 +609,8 @@ function attachSidebarOrder(content, storage) {
       let index = 0;
       list.setAttribute(ordered, kind);
       const children = [...list.children];
-      const reordered = children.map((row3) => itemRows.has(row3) ? remaining[index++] : row3);
-      reordered.forEach((row3, rank) => row3.style.setProperty(orderProperty, String(rank)));
+      const reordered = children.map((row4) => itemRows.has(row4) ? remaining[index++] : row4);
+      reordered.forEach((row4, rank) => row4.style.setProperty(orderProperty, String(rank)));
       styled.add(list);
     } else if (styled.has(list)) restore(list);
     lists.set(list, { key, kind, items: ranked, nativeOrder });
@@ -483,23 +618,23 @@ function attachSidebarOrder(content, storage) {
   function sync(nextBindings) {
     bindings = nextBindings;
     lists.clear();
-    const scope2 = scopeKey();
-    if (scope2) {
+    const scope3 = scopeKey();
+    if (scope3) {
       for (const { project: project2, list } of bindings.chats) {
-        if (list) register(list, sessionRows(list), "sidebar-chat-order:" + JSON.stringify([...scope2, project2]), "chat");
+        if (list) register(list, sessionRows(list), "sidebar-chat-order:" + JSON.stringify([...scope3, project2]), "chat");
       }
       const projectGroups = /* @__PURE__ */ new Map();
-      for (const { item, row: row3, name, id: id2 } of bindings.projects) {
+      for (const { item, row: row4, name, id: id2 } of bindings.projects) {
         if (id2 === "__no_project__") continue;
         const list = item.parentElement;
         if (!projectGroups.has(list)) projectGroups.set(list, []);
-        projectGroups.get(list).push({ key: id2, anchor: row3, button: name, rows: [item] });
+        projectGroups.get(list).push({ key: id2, anchor: row4, button: name, rows: [item] });
       }
       for (const [list, items2] of projectGroups) {
-        const positions = new Map([...list.children].map((row3, index) => [row3, index]));
+        const positions = new Map([...list.children].map((row4, index) => [row4, index]));
         items2.sort((a, b) => positions.get(a.rows[0]) - positions.get(b.rows[0]));
         const reorder = nativeProjectOrder(items2[0].rows[0]);
-        register(list, items2, "sidebar-project-order:" + JSON.stringify(scope2), "project", reorder);
+        register(list, items2, "sidebar-project-order:" + JSON.stringify(scope3), "project", reorder);
       }
     }
     for (const list of styled) if (!lists.has(list)) restore(list);
@@ -554,7 +689,7 @@ function attachSidebarOrder(content, storage) {
         } catch {
         }
       }
-      label.textContent = drag.label;
+      label3.textContent = drag.label;
       ghost.dataset.hcvSidebarDragGhost = drag.kind;
     }
     drag.point = [event.clientX, event.clientY];
@@ -763,10 +898,171 @@ function sidebarOrderStyles(active2) {
   `;
 }
 
+// source/title-overflow.js
+var overflowing = "data-hcv-title-overflow";
+var marqueeDistance = "--hcv-title-distance";
+var marqueeDuration = "--hcv-title-duration";
+var marqueeTiming = "--hcv-title-timing";
+function measureMarquee(label3) {
+  const zoom2 = label3.currentCSSZoom || 1;
+  const width = label3.getBoundingClientRect().width;
+  const content = label3.firstElementChild;
+  if (!width || !content) return null;
+  const padding = Number.parseFloat(getComputedStyle(label3).paddingInlineStart) || 0;
+  const distance = (content.getBoundingClientRect().width - width) / zoom2 + padding;
+  if (distance < 1) return null;
+  const fontSize = Number.parseFloat(getComputedStyle(content).fontSize);
+  return { distance, fontSize: fontSize || 13 };
+}
+function setMarquee(label3, motion2) {
+  if (!motion2) {
+    label3.style.removeProperty(marqueeDistance);
+    label3.style.removeProperty(marqueeDuration);
+    label3.style.removeProperty(marqueeTiming);
+    return;
+  }
+  const { distance, fontSize } = motion2;
+  const travel = distance / (fontSize * 2);
+  const hold = 0.35;
+  const duration3 = hold + travel;
+  const stops = ["0.0000 0.0000%"];
+  for (let index = 0; index <= 32; index++) {
+    const t = index / 32;
+    const inverse = 1 - t;
+    const first = 3 * inverse ** 2 * t;
+    const second = 3 * inverse * t ** 2;
+    const third = t ** 3;
+    const x = first * 0.49 + second * 0.7 + third;
+    const y = first * 0.6 + second + third;
+    const percent = (hold + travel * x) / duration3 * 100;
+    stops.push(`${y.toFixed(4)} ${percent.toFixed(4)}%`);
+  }
+  label3.style.setProperty(marqueeDistance, `${distance}px`);
+  label3.style.setProperty(marqueeDuration, `${duration3.toFixed(3)}s`);
+  label3.style.setProperty(marqueeTiming, `linear(${stops.join(", ")})`);
+}
+function trackTitleOverflow({ marquee = false } = {}) {
+  const measured = /* @__PURE__ */ new Map();
+  const update = (labels12) => {
+    const sizes = labels12.map((label3) => {
+      if (marquee) {
+        const motion2 = measureMarquee(label3);
+        return { label: label3, clipped: Boolean(motion2), motion: motion2 };
+      }
+      const width = label3.clientWidth;
+      return { label: label3, clipped: width > 0 && label3.scrollWidth > width };
+    });
+    for (const { label: label3, clipped, motion: motion2 } of sizes) {
+      const entry = measured.get(label3);
+      if (!entry) continue;
+      label3.toggleAttribute(overflowing, clipped);
+      if (marquee && (entry.motion?.distance !== motion2?.distance || entry.motion?.fontSize !== motion2?.fontSize)) {
+        setMarquee(label3, motion2);
+        entry.motion = motion2;
+      }
+    }
+  };
+  const observer = new ResizeObserver((entries) => {
+    const resized = /* @__PURE__ */ new Set();
+    for (const { target } of entries) {
+      const label3 = measured.has(target) ? target : target.parentElement;
+      if (measured.has(label3)) resized.add(label3);
+    }
+    update([...resized]);
+  });
+  return (labels12 = []) => {
+    const current = new Set(labels12);
+    for (const [label3, entry] of measured) {
+      if (current.has(label3)) continue;
+      observer.unobserve(label3);
+      if (entry.content) observer.unobserve(entry.content);
+      label3.removeAttribute(overflowing);
+      if (marquee) setMarquee(label3, null);
+      measured.delete(label3);
+    }
+    const renamed = [];
+    for (const label3 of current) {
+      const title = label3.textContent;
+      let entry = measured.get(label3);
+      if (!entry) {
+        entry = { title, content: null };
+        measured.set(label3, entry);
+        observer.observe(label3);
+      }
+      if (entry.title !== title) renamed.push(label3);
+      entry.title = title;
+      const content = marquee ? label3.firstElementChild : null;
+      if (entry.content === content) continue;
+      if (entry.content) observer.unobserve(entry.content);
+      if (content) observer.observe(content);
+      entry.content = content;
+    }
+    if (renamed.length) update(renamed);
+  };
+}
+function sidebarMarqueeStyles(row4) {
+  const viewport = `${row4} .hover-marquee`;
+  const content = ".hover-marquee-inner";
+  const hover = `${row4}:hover .hover-marquee[${overflowing}]`;
+  return `
+  ${viewport} {
+    --hcv-title-fade-start: .571429em;
+    --hcv-title-fade-end: 1.14286em;
+    --hcv-title-direction: -1;
+    --hcv-title-gradient: to right;
+    display: block;
+    box-sizing: border-box;
+    inline-size: calc(100% + var(--hcv-title-fade-start));
+    margin-inline-start: calc(-1 * var(--hcv-title-fade-start));
+    padding-inline-start: var(--hcv-title-fade-start);
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: clip;
+    text-align: start;
+  }
+  ${viewport}:dir(rtl) { --hcv-title-direction: 1; --hcv-title-gradient: to left; mask-position: 100% 0; }
+  ${viewport} > ${content} {
+    display: inline-block;
+    min-inline-size: max-content;
+  }
+  ${viewport}[data-marquee="true"] > ${content} { animation: none; }
+  ${viewport}[${overflowing}] {
+    mask-image: linear-gradient(var(--hcv-title-gradient), transparent, #000 var(--hcv-title-fade-start), #000 calc(100% - var(--hcv-title-fade-end)), transparent);
+    mask-size: 100% 100%;
+    mask-repeat: no-repeat;
+  }
+  @media (hover: hover) and (prefers-reduced-motion: no-preference) {
+    ${hover} { animation: hcv-chat-title-mask var(${marqueeDuration}) linear forwards; }
+    ${hover} > ${content} {
+      animation: hcv-chat-title-scroll var(${marqueeDuration}) var(${marqueeTiming}) forwards;
+      will-change: transform;
+    }
+    @keyframes hcv-chat-title-scroll {
+      to { transform: translateX(calc(var(--hcv-title-direction) * var(${marqueeDistance}))); }
+    }
+    @keyframes hcv-chat-title-mask {
+      75% { mask-size: 100% 100%; }
+      to { mask-size: calc(100% + var(--hcv-title-fade-end)) 100%; }
+    }
+  }
+  `;
+}
+function fadingTitleStyles(selector, distance) {
+  const edge = `#000 calc(100% - ${distance}), transparent`;
+  return `
+  ${selector} { text-overflow: clip; }
+  ${selector}[${overflowing}] { mask-image: linear-gradient(to right, ${edge}); }
+  ${selector}[${overflowing}]:dir(rtl) { mask-image: linear-gradient(to left, ${edge}); }
+  `;
+}
+
 // source/sidebar-projects.js
 var media = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 var folderRows = "[data-sessions-project]:not([data-sessions-mode])";
 var scope = '[data-sessions-mode="projects"]';
+var sessionTitle = 'button[data-slot="row-button"] .hover-marquee';
+var sidebarSessionRow = `[data-sessions-mode] .row-hover:has(${sessionTitle})`;
+var scrollingRow = `:is(${sidebarSessionRow}, [data-hcv-recents-fallback] > button)`;
 var projectSection = "[data-hcv-projects-section]";
 var sectionHeader = "[data-hcv-projects-header]";
 var projectRow = "[data-hcv-project-row]";
@@ -774,15 +1070,15 @@ var sectionActions2 = "[data-hcv-projects-actions]";
 var previewCard = "[data-hcv-project-preview]";
 var sectionMotion = codexReference.disclosure;
 function el(tag, attributes = {}, text) {
-  const node2 = document.createElement(tag);
-  for (const [key, value] of Object.entries(attributes)) node2.setAttribute(key, value);
-  if (text !== void 0) node2.textContent = text;
-  return node2;
+  const node3 = document.createElement(tag);
+  for (const [key, value] of Object.entries(attributes)) node3.setAttribute(key, value);
+  if (text !== void 0) node3.textContent = text;
+  return node3;
 }
 function glyph(name) {
-  const node2 = el("span", { "aria-hidden": "true", "data-hcv-icon": name });
-  Object.assign(node2.style, codexIconStyle(name));
-  return node2;
+  const node3 = el("span", { "aria-hidden": "true", "data-hcv-icon": name });
+  Object.assign(node3.style, codexIconStyle(name));
+  return node3;
 }
 function projectStatus() {
   return el("span", { "data-hcv-project-status": "", role: "status", hidden: "" });
@@ -790,16 +1086,16 @@ function projectStatus() {
 function showStatus(indicator, kind, t) {
   if (indicator.dataset.hcvProjectStatus !== kind) indicator.dataset.hcvProjectStatus = kind;
   if (kind) {
-    const label = t(kind);
-    if (indicator.getAttribute("aria-label") !== label) indicator.setAttribute("aria-label", label);
+    const label3 = t(kind);
+    if (indicator.getAttribute("aria-label") !== label3) indicator.setAttribute("aria-label", label3);
   }
   const hidden = !kind;
   if (indicator.hidden !== hidden) indicator.hidden = hidden;
 }
-function blockSize(node2) {
-  const style = getComputedStyle(node2);
+function blockSize(node3) {
+  const style = getComputedStyle(node3);
   return {
-    height: `${node2.offsetHeight}px`,
+    height: `${node3.offsetHeight}px`,
     paddingBlockStart: style.paddingBlockStart,
     paddingBlockEnd: style.paddingBlockEnd
   };
@@ -814,7 +1110,7 @@ function disclosure(button4, native, region, regionId, timing = sectionMotion) {
   let pending = false;
   let forwarding = false;
   let motion2;
-  let marked;
+  let marked2;
   function toggleRegion() {
     forwarding = true;
     try {
@@ -824,8 +1120,8 @@ function disclosure(button4, native, region, regionId, timing = sectionMotion) {
     }
   }
   const restoreId = () => {
-    if (marked?.id === regionId) marked.removeAttribute("id");
-    marked = void 0;
+    if (marked2?.id === regionId) marked2.removeAttribute("id");
+    marked2 = void 0;
   };
   function cancel() {
     const previous = motion2;
@@ -836,51 +1132,51 @@ function disclosure(button4, native, region, regionId, timing = sectionMotion) {
     previous.node.removeAttribute("data-hcv-disclosure-motion");
     if (previous.closing && !previous.wasInert) previous.node.inert = false;
   }
-  function play(node2, opening, from, startOpacity) {
+  function play(node3, opening, from, startOpacity) {
     cancel();
-    if (!node2.isConnected || media()) {
+    if (!node3.isConnected || media()) {
       if (!opening && button4.isConnected) toggleRegion();
       return;
     }
-    const natural = blockSize(node2);
-    if (!node2.offsetHeight) {
+    const natural = blockSize(node3);
+    if (!node3.offsetHeight) {
       if (!opening && button4.isConnected) toggleRegion();
       return;
     }
-    const wasInert = node2.inert;
-    if (!opening) node2.inert = true;
-    node2.setAttribute("data-hcv-disclosure-motion", "");
+    const wasInert = node3.inert;
+    if (!opening) node3.inert = true;
+    node3.setAttribute("data-hcv-disclosure-motion", "");
     const empty = { height: "0px", paddingBlockStart: "0px", paddingBlockEnd: "0px" };
-    const height = node2.animate(
+    const height = node3.animate(
       [from || empty, opening ? natural : empty],
       { duration: timing.heightTime, easing: timing.ease, fill: "both" }
     );
-    const fade = node2.animate(
+    const fade = node3.animate(
       [{ opacity: startOpacity, scale: opening && !from ? ".98" : "1" }, { opacity: opening ? 1 : 0, scale: opening ? "1" : ".98" }],
       { duration: opening ? timing.enterTime : timing.exitTime, delay: opening && !from ? timing.enterDelay : 0, easing: timing.ease, fill: "both" }
     );
-    const current = motion2 = { node: node2, height, fade, closing: !opening, wasInert };
+    const current = motion2 = { node: node3, height, fade, closing: !opening, wasInert };
     height.onfinish = () => {
       if (motion2 !== current) return;
-      if (!opening && button4.isConnected && region() === node2) toggleRegion();
+      if (!opening && button4.isConnected && region() === node3) toggleRegion();
       cancel();
     };
   }
   function onClick(event) {
     if (forwarding) return;
-    const node2 = region();
+    const node3 = region();
     const reduced = media();
-    if (!node2 || reduced) {
-      pending = !node2 && !reduced;
+    if (!node3 || reduced) {
+      pending = !node3 && !reduced;
       if (!direct) toggleRegion();
       return;
     }
     if (direct) event.stopPropagation();
-    const dimensions = blockSize(node2);
-    const opacity = Number(getComputedStyle(node2).opacity);
+    const dimensions = blockSize(node3);
+    const opacity = Number(getComputedStyle(node3).opacity);
     const opening = Boolean(motion2?.closing);
     button4.setAttribute("aria-expanded", String(opening));
-    play(node2, opening, dimensions, opacity);
+    play(node3, opening, dimensions, opacity);
   }
   function onReducedMotion(event) {
     if (!event.matches || !motion2) return;
@@ -893,22 +1189,22 @@ function disclosure(button4, native, region, regionId, timing = sectionMotion) {
   reducedMotion.addEventListener("change", onReducedMotion);
   return {
     sync() {
-      const node2 = region();
-      if (motion2 && motion2.node !== node2) cancel();
-      if (node2 && pending) {
+      const node3 = region();
+      if (motion2 && motion2.node !== node3) cancel();
+      if (node3 && pending) {
         pending = false;
-        play(node2, true, null, 0);
+        play(node3, true, null, 0);
       }
-      if (marked !== node2) {
+      if (marked2 !== node3) {
         restoreId();
-        if (node2 && !node2.id) {
-          node2.id = regionId;
-          marked = node2;
+        if (node3 && !node3.id) {
+          node3.id = regionId;
+          marked2 = node3;
         }
       }
-      const expanded = Boolean(node2 && !motion2?.closing);
+      const expanded = Boolean(node3 && !motion2?.closing);
       if (button4.getAttribute("aria-expanded") !== String(expanded)) button4.setAttribute("aria-expanded", String(expanded));
-      const controlId = node2?.id;
+      const controlId = node3?.id;
       if (controlId && button4.getAttribute("aria-controls") !== controlId) button4.setAttribute("aria-controls", controlId);
       else if (!controlId) button4.removeAttribute("aria-controls");
     },
@@ -926,16 +1222,26 @@ function disclosure(button4, native, region, regionId, timing = sectionMotion) {
     }
   };
 }
-function openNativeEdit(trigger, alive) {
+var projectMenu = '[data-row-actions] button[aria-haspopup="menu"]';
+function nativeProject(trigger, id2) {
+  for (let fiber = committedFiber(trigger); fiber; fiber = fiber.return) {
+    const project2 = fiber.memoizedProps?.project;
+    if (project2?.id === id2) return project2;
+  }
+}
+function openNativeRename(entry, alive) {
+  const trigger = entry?.row.querySelector(projectMenu);
   if (!trigger?.isConnected) return;
   trigger.focus({ preventScroll: true });
   trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
-  requestAnimationFrame(() => {
-    if (!alive()) return;
+  let remaining = 6;
+  function select() {
+    if (!alive() || !trigger.isConnected || trigger.getAttribute("aria-expanded") !== "true") return;
     const menu = document.getElementById(trigger.getAttribute("aria-controls"));
-    const edit3 = menu?.querySelector('[role="menuitem"]:has(> .codicon-edit)') || menu?.querySelector('[role="menuitem"]:has(> .codicon-symbol-color)');
-    edit3?.click();
-  });
+    if (menu) menu.querySelector('[role="menuitem"]:has(> .codicon-edit)')?.click();
+    else if (--remaining) requestAnimationFrame(select);
+  }
+  requestAnimationFrame(select);
 }
 function positionSidebarPreview(card, rect) {
   const gap = codexReference.sidebar.previewOffset;
@@ -954,8 +1260,8 @@ function projectPreview(content, t) {
   const count = el("span");
   const sessions = el("div", { "data-hcv-project-preview-row": "" });
   sessions.append(glyph("messages"), count);
-  const summary = el("div", { "data-hcv-project-preview-summary": "" });
-  summary.append(heading, sessions);
+  const summary2 = el("div", { "data-hcv-project-preview-summary": "" });
+  summary2.append(heading, sessions);
   const path = el("span");
   const folder = el("div", { "data-hcv-project-preview-row": "", "data-hcv-project-preview-path": "" });
   folder.append(glyph("folder"), path);
@@ -964,7 +1270,7 @@ function projectPreview(content, t) {
   edit3.append(glyph("settings"), editLabel);
   const footer = el("div", { "data-hcv-project-preview-edit": "" });
   footer.append(edit3);
-  card.append(summary, folder, footer);
+  card.append(summary2, folder, footer);
   document.body.append(card);
   let hovered;
   let showing;
@@ -973,7 +1279,7 @@ function projectPreview(content, t) {
   let cache;
   let alive = true;
   const supportsHover = window.matchMedia("(any-hover: hover) and (any-pointer: fine)");
-  function close() {
+  function close2() {
     clearTimeout(timer);
     clearTimeout(delay);
     hovered = void 0;
@@ -982,9 +1288,9 @@ function projectPreview(content, t) {
     card.hidden = true;
   }
   function position2() {
-    if (!showing || !showing.row.isConnected || !content.isConnected) return close();
+    if (!showing || !showing.row.isConnected || !content.isConnected) return close2();
     const rect = showing.row.getBoundingClientRect();
-    if (rect.bottom <= 0 || rect.top >= innerHeight) return close();
+    if (rect.bottom <= 0 || rect.top >= innerHeight) return close2();
     positionSidebarPreview(card, rect);
   }
   async function projectData(id2) {
@@ -1013,14 +1319,16 @@ function projectPreview(content, t) {
     showing = entry;
     entry.row.setAttribute("data-hcv-preview-open", "");
     card.setAttribute("aria-label", t("projectDetails"));
-    editLabel.textContent = t("editProject");
+    editLabel.textContent = t("renameProject");
     title.textContent = entry.name.textContent;
+    const trigger = entry.row.querySelector(projectMenu);
+    const project2 = nativeProject(trigger, entry.id);
     sessions.hidden = true;
     folder.hidden = true;
-    footer.hidden = !entry.menu;
+    footer.hidden = !trigger || Boolean(project2?.isAuto || project2?.isNoProject);
     card.hidden = false;
-    position2();
-    const data = await projectData(entry.id);
+    if (!project2) position2();
+    const data = project2 ?? await projectData(entry.id);
     if (!alive || showing !== entry || !data) return;
     if (Number.isFinite(data.sessionCount)) {
       count.textContent = t("projectChats", data.sessionCount);
@@ -1035,37 +1343,37 @@ function projectPreview(content, t) {
   function deferClose() {
     clearTimeout(timer);
     clearTimeout(delay);
-    delay = setTimeout(close, 110);
+    delay = setTimeout(close2, 110);
   }
   function onPointerDown(event) {
-    if (!card.contains(event.target)) close();
+    if (!card.contains(event.target)) close2();
   }
   function onEscape(event) {
-    if (event.key === "Escape" && showing) close();
+    if (event.key === "Escape" && showing) close2();
   }
   edit3.addEventListener("click", () => {
     const entry = showing;
-    close();
-    openNativeEdit(entry?.menu, () => alive && entry?.row.isConnected);
+    close2();
+    openNativeRename(entry, () => alive && entry?.row.isConnected);
   });
   card.addEventListener("pointerenter", () => clearTimeout(delay));
   card.addEventListener("pointerleave", deferClose);
   document.addEventListener("pointerdown", onPointerDown, true);
   document.addEventListener("keydown", onEscape, true);
-  content.addEventListener("scroll", close, true);
-  window.addEventListener("resize", close);
+  content.addEventListener("scroll", close2, true);
+  window.addEventListener("resize", close2);
   const stopProfile = host2.state.profile.subscribe(() => {
     cache = void 0;
-    close();
+    close2();
   });
   const stopConnection = host2.state.connectionId.subscribe(() => {
     cache = void 0;
-    close();
+    close2();
   });
   return {
     attach(entry) {
       const enter = (event) => {
-        if (!supportsHover.matches || event.pointerType !== "mouse" || event.buttons || !entry.menu) return;
+        if (!supportsHover.matches || event.pointerType !== "mouse" || event.buttons || !entry.row.querySelector(projectMenu)) return;
         clearTimeout(delay);
         clearTimeout(timer);
         hovered = entry;
@@ -1078,16 +1386,16 @@ function projectPreview(content, t) {
       return () => {
         entry.name.removeEventListener("pointerenter", enter);
         entry.row.removeEventListener("pointerleave", deferClose);
-        if (hovered === entry || showing === entry) close();
+        if (hovered === entry || showing === entry) close2();
       };
     },
     dispose() {
       alive = false;
-      close();
+      close2();
       stopProfile();
       stopConnection();
-      content.removeEventListener("scroll", close, true);
-      window.removeEventListener("resize", close);
+      content.removeEventListener("scroll", close2, true);
+      window.removeEventListener("resize", close2);
       document.removeEventListener("pointerdown", onPointerDown, true);
       document.removeEventListener("keydown", onEscape, true);
       card.remove();
@@ -1096,8 +1404,9 @@ function projectPreview(content, t) {
 }
 function attachProjects(content, t, storage) {
   const rows = /* @__PURE__ */ new Map();
-  const preview2 = projectPreview(content, t);
+  const preview3 = projectPreview(content, t);
   const order = attachSidebarOrder(content, storage);
+  const measureTitles = trackTitleOverflow({ marquee: true });
   let section2;
   let reveal;
   function clearSection() {
@@ -1124,32 +1433,45 @@ function attachProjects(content, t, storage) {
   }
   function syncSection(tree) {
     const filter = tree?.querySelector(':scope > [data-slot="sidebar-group"] > div button:has(> .codicon-list-filter)');
-    const group = filter?.closest('[data-slot="sidebar-group"]');
-    const header = group?.firstElementChild;
+    const group2 = filter?.closest('[data-slot="sidebar-group"]');
+    const header = group2?.firstElementChild;
     const native = header?.querySelector(":scope > button:not([data-hcv-section-toggle])");
     if (section2?.native !== native) clearSection();
     if (!native) return;
     if (!section2) {
       const button4 = el("button", { type: "button", "data-hcv-section-toggle": "" });
-      const label = document.createTextNode("");
+      const label3 = document.createTextNode("");
       const status = projectStatus();
-      button4.append(label, glyph("sidebarDisclosure"));
+      button4.append(label3, glyph("sidebarDisclosure"));
       native.before(button4);
       native.setAttribute("data-hcv-native-project-action", "");
-      group.setAttribute("data-hcv-projects-section", "");
+      group2.setAttribute("data-hcv-projects-section", "");
       header.setAttribute("data-hcv-projects-header", "");
       const actions = native.nextElementSibling;
       actions?.setAttribute("data-hcv-projects-actions", "");
       header.append(status);
-      const region = () => group.querySelector(':scope > [data-slot="sidebar-group-content"]');
-      section2 = { native, button: button4, group, header, actions, label, status, motion: disclosure(button4, native, region, "hcv-projects-list") };
+      const region = () => group2.querySelector(':scope > [data-slot="sidebar-group-content"]');
+      section2 = { native, button: button4, group: group2, header, actions, label: label3, status, motion: disclosure(button4, native, region, "hcv-projects-list") };
     }
     const text = t("projects");
     if (section2.label.data !== text) section2.label.data = text;
     section2.motion.sync();
   }
+  function syncActivity(tree = content.querySelector(scope)) {
+    if (!tree) return;
+    const activity = nativeProjectActivity(tree);
+    if (section2) {
+      const collapsedStatus = [...activity.values()].includes("working") ? "working" : activity.size ? "unread" : "";
+      showStatus(section2.status, section2.button.ariaExpanded === "false" ? collapsedStatus : "", t);
+    }
+    for (const entry of rows.values()) {
+      showStatus(entry.status, entry.name.ariaExpanded === "true" ? "" : activity.get(entry.id) || "", t);
+    }
+  }
   return {
+    syncActivity,
     sync() {
+      measureTitles(content.querySelectorAll(`${scrollingRow} .hover-marquee`));
       const view = content.querySelector("[data-sessions-mode]");
       const mode = view?.dataset.sessionsMode;
       if (reveal && (reveal.connection !== host2.state.connectionId.get() || reveal.profile !== host2.state.profile.get())) reveal = void 0;
@@ -1166,26 +1488,21 @@ function attachProjects(content, t, storage) {
       if (mode && mode !== "projects") reveal = void 0;
       const tree = content.querySelector(scope);
       syncSection(tree);
-      const activity = nativeProjectActivity(tree);
-      if (section2) {
-        const collapsedStatus = [...activity.values()].includes("working") ? "working" : activity.size ? "unread" : "";
-        showStatus(section2.status, section2.button.ariaExpanded === "false" ? collapsedStatus : "", t);
-      }
       const seen = /* @__PURE__ */ new Set();
       const projectLists = [];
       for (const item of tree?.querySelectorAll(folderRows) || []) {
-        const row3 = item.querySelector(':scope > [class~="group/workspace"]');
-        const link = row3?.querySelector(':scope > div > button[data-slot="row-button"]');
-        const text = link?.textContent.trim();
+        const row4 = item.querySelector(':scope > [class~="group/workspace"]');
+        const link2 = row4?.querySelector(':scope > div > button[data-slot="row-button"]');
+        const text = link2?.textContent.trim();
         if (!text) continue;
-        const toggle2 = row3.querySelector(":scope > div > button[data-row-actions]:has(> .codicon-chevron-right)");
+        const toggle2 = row4.querySelector(":scope > div > button[data-row-actions]:has(> .codicon-chevron-right)");
         const id2 = item.dataset.sessionsProject;
         const emptyKey = !toggle2 && id2 && id2 !== "home" ? JSON.stringify(["emptyProjectOpen", host2.state.connectionId.get(), host2.state.profile.get(), id2]) : null;
         seen.add(item);
         let entry = rows.get(item);
         let restoreFocus = false;
         let previousOpen;
-        if (entry && (entry.link !== link || entry.toggle !== toggle2 || entry.emptyKey !== emptyKey)) {
+        if (entry && (entry.link !== link2 || entry.toggle !== toggle2 || entry.emptyKey !== emptyKey)) {
           restoreFocus = document.activeElement === entry.name;
           if (entry.toggle && !toggle2) previousOpen = entry.name.ariaExpanded === "true";
           clearRow(item, entry);
@@ -1199,10 +1516,10 @@ function attachProjects(content, t, storage) {
             "data-hcv-project-name": ""
           }, text);
           const status = projectStatus();
-          link.before(name);
-          row3.append(status);
-          row3.setAttribute("data-hcv-project-row", "");
-          link.setAttribute("data-hcv-native-project-action", "");
+          link2.before(name);
+          row4.append(status);
+          row4.setAttribute("data-hcv-project-row", "");
+          link2.setAttribute("data-hcv-native-project-action", "");
           toggle2?.setAttribute("data-hcv-native-project-action", "");
           const region = empty ? () => empty.hidden ? null : empty : () => item.querySelector(":scope > div.grid:not([data-hcv-project-row])");
           let action = toggle2;
@@ -1216,21 +1533,21 @@ function attachProjects(content, t, storage) {
             };
           }
           const motion2 = action ? disclosure(name, action, region, `hcv-project-${encodeURIComponent(id2)}`) : null;
-          entry = { item, row: row3, name, link, toggle: toggle2, id: id2, region, motion: motion2, status, empty, emptyKey, menu: row3.querySelector('[data-row-actions] button[aria-haspopup="menu"]') };
-          entry.detach = preview2.attach(entry);
+          entry = { item, row: row4, name, link: link2, toggle: toggle2, id: id2, region, motion: motion2, status, empty, emptyKey };
+          entry.detach = preview3.attach(entry);
           rows.set(item, entry);
           if (restoreFocus && expandable) name.focus({ preventScroll: true });
         } else if (entry.name.textContent !== text) entry.name.textContent = text;
         const emptyLabel = entry.empty?.firstElementChild;
         if (emptyLabel) {
-          const label = t("recentEmpty");
-          if (emptyLabel.textContent !== label) emptyLabel.textContent = label;
+          const label3 = t("recentEmpty");
+          if (emptyLabel.textContent !== label3) emptyLabel.textContent = label3;
         }
         entry.motion?.sync();
         projectLists.push({ project: entry.id, list: entry.toggle ? entry.region() : null });
-        showStatus(entry.status, entry.name.ariaExpanded === "true" ? "" : activity.get(entry.id) || "", t);
       }
       for (const [key, entry] of rows) if (!seen.has(key)) clearRow(key, entry);
+      syncActivity(tree);
       order.sync({ chats: projectLists, projects: [...rows.values()] });
       if (section2 && reveal) {
         if (section2.button.ariaExpanded === "false") {
@@ -1239,7 +1556,7 @@ function attachProjects(content, t, storage) {
             section2.button.click();
           }
         } else {
-          const entry = [...rows.values()].find((row3) => row3.id === reveal.id);
+          const entry = [...rows.values()].find((row4) => row4.id === reveal.id);
           if (entry) {
             reveal = void 0;
             if (entry.name.ariaExpanded === "false") entry.name.click();
@@ -1249,10 +1566,11 @@ function attachProjects(content, t, storage) {
       }
     },
     dispose() {
+      measureTitles();
       order.dispose();
       for (const [key, entry] of rows) clearRow(key, entry);
       clearSection();
-      preview2.dispose();
+      preview3.dispose();
     }
   };
 }
@@ -1261,12 +1579,12 @@ function projectSidebarStyles(active2) {
   const header = `${active2} ${sectionHeader}`;
   const toggle2 = `${sectionHeader} > [data-hcv-section-toggle]`;
   const caret = '[data-hcv-icon="sidebarDisclosure"]';
-  const row3 = `${active2} ${projectRow}`;
-  const preview2 = `${active2} ${previewCard}`;
+  const row4 = `${active2} ${projectRow}`;
+  const preview3 = `${active2} ${previewCard}`;
   const project2 = `${active2} ${folderRows}`;
   const nameFont = "430 14px/21px var(--hcv-ui-font)";
   const actions = `${header} ${sectionActions2}`;
-  const rowActions = `${row3} > [data-row-actions]`;
+  const rowActions = `${row4} > [data-row-actions]`;
   const rowAction = `${rowActions} button`;
   const status = "[data-hcv-project-status]";
   const unread = '[data-hcv-project-status="unread"]:not([hidden])';
@@ -1274,6 +1592,7 @@ function projectSidebarStyles(active2) {
   const readAction = "button:has(> .codicon-check-all)";
   return `
   ${sidebarOrderStyles(active2)}
+  ${sidebarMarqueeStyles(`${active2} [data-tour="sessions-sidebar"] ${scrollingRow}`)}
   ${active2} [data-hcv-native-project-action] { display: none !important; }
   ${active2} [data-tour="sessions-sidebar"] [data-sessions-mode="project"]:has(button[class~="group/back"]) { visibility: hidden; }
   ${active2} [data-hcv-disclosure-motion] {
@@ -1283,8 +1602,8 @@ function projectSidebarStyles(active2) {
     overflow: clip;
     transform-origin: center bottom;
   }
-  ${row3} > div:has(> [data-hcv-project-name]) { gap: 8px; padding-block: 0; }
-  ${row3} [data-hcv-project-name] {
+  ${row4} > div:has(> [data-hcv-project-name]) { gap: 8px; padding-block: 0; }
+  ${row4} [data-hcv-project-name] {
     min-inline-size: 0;
     flex: 1 1 auto;
     align-self: stretch;
@@ -1297,7 +1616,7 @@ function projectSidebarStyles(active2) {
     color: var(--hcv-text);
     font: ${nameFont};
   }
-  ${row3} button[data-hcv-project-name] { cursor: pointer; }
+  ${row4} button[data-hcv-project-name] { cursor: pointer; }
   ${project2} .hover-marquee-inner { font: ${nameFont}; line-height: 20px; }
   ${project2} > [data-hcv-project-empty] {
     padding: 4px 32px;
@@ -1305,9 +1624,9 @@ function projectSidebarStyles(active2) {
     font: ${nameFont};
   }
   ${project2} > [data-hcv-project-empty] > span { opacity: .5; }
-  ${row3} { position: relative; }
-  ${row3}:is(:hover, [data-hcv-preview-open], [data-state="open"], :has(> [data-row-actions] button[data-state="open"])) {
-    background: var(--hcv-hover);
+  ${row4} { position: relative; }
+  ${row4}:is(:hover, [data-hcv-preview-open], [data-state="open"], :has(> [data-row-actions] button[data-state="open"])) {
+    background-color: var(--hcv-sidebar-highlight);
   }
   ${rowActions} { padding-inline-end: 4px; }
   ${rowActions}, ${rowActions} > div[class~="group/group-actions"] > div { column-gap: 8px; }
@@ -1320,11 +1639,11 @@ function projectSidebarStyles(active2) {
     border-color: transparent; background: transparent; box-shadow: none; color: var(--hcv-text);
   }
   ${rowAction} > .codicon { font-size: 14px !important; }
-  ${row3}:has(> ${status}:not([hidden])) { padding-inline-end: 23px; }
-  ${row3} > ${status} {
+  ${row4}:has(> ${status}:not([hidden])) { padding-inline-end: 23px; }
+  ${row4} > ${status} {
     position: absolute; inset-inline-end: 5px; inset-block-start: 50%; translate: 0 -50%;
   }
-  ${row3}:has(> [data-row-actions]):is(:hover, :has(:focus-visible, [data-state="open"]), [data-hcv-preview-open], [data-state="open"]) > ${status} { opacity: 0; }
+  ${row4}:has(> [data-row-actions]):is(:hover, :has(:focus-visible, [data-state="open"]), [data-hcv-preview-open], [data-state="open"]) > ${status} { opacity: 0; }
   ${header} { min-block-size: 32px; padding: 0 4px 0 8px; column-gap: 0; }
   ${active2} ${toggle2} {
     display: flex; align-items: center; gap: 4px; min-block-size: 28px;
@@ -1351,7 +1670,7 @@ function projectSidebarStyles(active2) {
   }
   ${codexIconRules(`${actions} .codicon-list-filter`, "more")}
   ${codexIconRules(`${actions} .codicon-add`, "plus")}
-  ${preview2} {
+  ${preview3} {
     position: fixed; z-index: 48; inline-size: min(${codexReference.sidebar.previewWidth}px, calc(100vw - 16px));
     display: flex; flex-direction: column; gap: 6px;
     max-block-size: calc(100vh - 16px); overflow: auto; padding: 8px; border-radius: ${codexReference.sidebar.previewRadius}px;
@@ -1359,37 +1678,37 @@ function projectSidebarStyles(active2) {
     color: var(--hcv-text); font: 400 13px/20px var(--hcv-ui-font);
     opacity: 1; scale: 1; transform-origin: left top;
   }
-  ${preview2}[hidden] { display: none; opacity: 0; scale: .97; pointer-events: none; }
-  ${preview2} [hidden] { display: none; }
-  ${preview2} [data-hcv-project-preview-summary] { display: flex; flex-direction: column; gap: 4px; }
-  ${preview2} :is(header, [data-hcv-project-preview-row]):not([hidden]) {
+  ${preview3}[hidden] { display: none; opacity: 0; scale: .97; pointer-events: none; }
+  ${preview3} [hidden] { display: none; }
+  ${preview3} [data-hcv-project-preview-summary] { display: flex; flex-direction: column; gap: 4px; }
+  ${preview3} :is(header, [data-hcv-project-preview-row]):not([hidden]) {
     display: grid; grid-template-columns: 16px minmax(0, 1fr); align-items: center; gap: 6px;
   }
-  ${preview2} header { font: 500 14px/20px var(--hcv-ui-font); }
-  ${preview2} header > :last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  ${preview2} [data-hcv-project-preview-row] { font-size: 13px; }
-  ${preview2} :is([data-hcv-project-preview-path], [data-hcv-project-preview-edit]) {
+  ${preview3} header { font: 500 14px/20px var(--hcv-ui-font); }
+  ${preview3} header > :last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  ${preview3} [data-hcv-project-preview-row] { font-size: 13px; }
+  ${preview3} :is([data-hcv-project-preview-path], [data-hcv-project-preview-edit]) {
     border-block-start: 1px solid var(--hcv-hairline); padding-block-start: 6px;
   }
-  ${preview2} [data-hcv-project-preview-path] > :last-child { word-break: break-all; }
-  ${preview2} [data-hcv-icon] { display: inline-block; inline-size: 16px; block-size: 16px; flex: none; color: var(--hcv-muted); }
-  ${preview2} button { inline-size: 100%; text-align: start; border-radius: 6px; cursor: pointer; }
+  ${preview3} [data-hcv-project-preview-path] > :last-child { word-break: break-all; }
+  ${preview3} [data-hcv-icon] { display: inline-block; inline-size: 16px; block-size: 16px; flex: none; color: var(--hcv-muted); }
+  ${preview3} button { inline-size: 100%; text-align: start; border-radius: 6px; cursor: pointer; }
   @supports (corner-shape: superellipse(1.5)) {
-    ${preview2} { border-radius: ${codexReference.sidebar.previewRadius * 1.25}px; corner-shape: superellipse(1.5); }
+    ${preview3} { border-radius: ${codexReference.sidebar.previewRadius * 1.25}px; corner-shape: superellipse(1.5); }
   }
   ${active2} :is(${sectionHeader}, ${previewCard}) button:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }
-  ${preview2} button:focus-visible { background: var(--hcv-dropdown-hover); outline-offset: 0; }
+  ${preview3} button:focus-visible { background: var(--hcv-dropdown-hover); outline-offset: 0; }
   @media (hover: hover) and (pointer: fine) {
-    ${preview2} button:hover { background: var(--hcv-dropdown-hover); }
+    ${preview3} button:hover { background: var(--hcv-dropdown-hover); }
   }
   @media (any-hover: none) {
     ${actions} button { opacity: 1; }
   }
   @media (prefers-reduced-motion: no-preference) {
-    ${preview2} { transition: opacity 150ms var(--hcv-enter), scale 150ms var(--hcv-enter), display 150ms allow-discrete; }
-    ${preview2}[hidden] { transition: opacity 100ms var(--hcv-exit), scale 100ms var(--hcv-exit), display 100ms allow-discrete; }
-    @starting-style { ${preview2}:not([hidden]) { opacity: 0; scale: .95; } }
-    ${preview2} button { transition: background-color 150ms var(--hcv-enter); }
+    ${preview3} { transition: opacity 150ms var(--hcv-enter), scale 150ms var(--hcv-enter), display 150ms allow-discrete; }
+    ${preview3}[hidden] { transition: opacity 100ms var(--hcv-exit), scale 100ms var(--hcv-exit), display 100ms allow-discrete; }
+    @starting-style { ${preview3}:not([hidden]) { opacity: 0; scale: .95; } }
+    ${preview3} button { transition: background-color 150ms var(--hcv-enter); }
     ${active2} ${toggle2} ${caret} { transition: opacity 150ms var(--hcv-enter), rotate 150ms var(--hcv-enter); }
   }
 `;
@@ -1410,9 +1729,9 @@ function registerChatPreviewMarker(ctx) {
   });
 }
 function element(tag, attribute) {
-  const node2 = document.createElement(tag);
-  node2.setAttribute(attribute, "");
-  return node2;
+  const node3 = document.createElement(tag);
+  node3.setAttribute(attribute, "");
+  return node3;
 }
 function ageLabel(dateTime) {
   const seconds = (Date.now() - Date.parse(dateTime)) / 1e3;
@@ -1424,11 +1743,11 @@ function ageLabel(dateTime) {
   const index = intervals.findIndex((interval) => seconds >= interval);
   return `${Math.floor(seconds / intervals[index])}${units[index]}`;
 }
-function scopeOf(node2) {
-  const group = node2.closest("[data-gateway-group]");
-  if (group) {
+function scopeOf(node3) {
+  const group2 = node3.closest("[data-gateway-group]");
+  if (group2) {
     try {
-      const [connection, profile2] = JSON.parse(group.dataset.gatewayGroup);
+      const [connection, profile2] = JSON.parse(group2.dataset.gatewayGroup);
       return { connectionId: connection ?? "local", profile: profile2 };
     } catch {
       return {};
@@ -1459,7 +1778,7 @@ function attachChatPreview(content) {
   let open;
   let button4;
   let description;
-  function close() {
+  function close2() {
     clearTimeout(timer);
     pending = null;
     open?.removeAttribute("data-hcv-chat-preview-open");
@@ -1481,7 +1800,7 @@ function attachChatPreview(content) {
     if (!open) return;
     const rect = open.getBoundingClientRect();
     if (!rect.width || rect.bottom <= 0 || rect.top >= innerHeight || open.closest("[inert], [hidden]")) {
-      close();
+      close2();
       return;
     }
     positionSidebarPreview(card, rect);
@@ -1531,50 +1850,50 @@ function attachChatPreview(content) {
     const target = event.target.closest?.(row);
     if (!target || !content.contains(target)) return;
     if (event.target.closest("[data-row-actions], [data-reorder-handle]")) {
-      close();
+      close2();
       return;
     }
     const keyboard = event.type === "focusin";
     if (keyboard ? !event.target.matches(":focus-visible") : !mouse.matches || event.pointerType !== "mouse" || event.buttons) return;
     if (target === pending) return;
-    close();
+    close2();
     pending = target;
     timer = setTimeout(() => {
       void show(target);
     }, keyboard ? 0 : 350);
   }
   function leave(event) {
-    if (pending?.contains(event.target) && !pending.contains(event.relatedTarget)) close();
+    if (pending?.contains(event.target) && !pending.contains(event.relatedTarget)) close2();
   }
   const onEscape = (event) => {
-    if (event.key === "Escape") close();
+    if (event.key === "Escape") close2();
   };
   content.addEventListener("pointerover", enter);
   content.addEventListener("pointerout", leave);
   content.addEventListener("focusin", enter);
   content.addEventListener("focusout", leave);
-  content.addEventListener("scroll", close, true);
-  document.addEventListener("pointerdown", close, true);
+  content.addEventListener("scroll", close2, true);
+  document.addEventListener("pointerdown", close2, true);
   document.addEventListener("keydown", onEscape, true);
-  window.addEventListener("resize", close);
-  const stopProfile = host3.state.profile.listen(close);
-  const stopConnection = host3.state.connectionId.listen(close);
+  window.addEventListener("resize", close2);
+  const stopProfile = host3.state.profile.listen(close2);
+  const stopConnection = host3.state.connectionId.listen(close2);
   return {
     sync() {
-      if (pending && !pending.isConnected) close();
+      if (pending && !pending.isConnected) close2();
     },
     dispose() {
-      close();
+      close2();
       stopProfile();
       stopConnection();
       content.removeEventListener("pointerover", enter);
       content.removeEventListener("pointerout", leave);
       content.removeEventListener("focusin", enter);
       content.removeEventListener("focusout", leave);
-      content.removeEventListener("scroll", close, true);
-      document.removeEventListener("pointerdown", close, true);
+      content.removeEventListener("scroll", close2, true);
+      document.removeEventListener("pointerdown", close2, true);
       document.removeEventListener("keydown", onEscape, true);
-      window.removeEventListener("resize", close);
+      window.removeEventListener("resize", close2);
       card.remove();
     }
   };
@@ -1636,15 +1955,15 @@ var nativeRows = '[class~="group/cron"]';
 var nativeRowToggle = "> button[aria-expanded]";
 var motion = { ...codexReference.disclosure, heightTime: 220, enterTime: 170, enterDelay: 0, exitTime: 120 };
 function element2(tag, attrs = {}, value) {
-  const node2 = document.createElement(tag);
-  for (const [name, attr] of Object.entries(attrs)) node2.setAttribute(name, attr);
-  if (value) node2.textContent = value;
-  return node2;
+  const node3 = document.createElement(tag);
+  for (const [name, attr] of Object.entries(attrs)) node3.setAttribute(name, attr);
+  if (value) node3.textContent = value;
+  return node3;
 }
 function glyph2(name) {
-  const node2 = element2("span", { "aria-hidden": "true", "data-hcv-cron-icon": name });
-  Object.assign(node2.style, codexIconStyle(name));
-  return node2;
+  const node3 = element2("span", { "aria-hidden": "true", "data-hcv-cron-icon": name });
+  Object.assign(node3.style, codexIconStyle(name));
+  return node3;
 }
 function nextRun(job) {
   const time = Date.parse(job.next_run_at || "");
@@ -1653,37 +1972,37 @@ function nextRun(job) {
 function attachNativeCron(content) {
   const headings = ':scope > [data-sessions-mode] > [data-slot="sidebar-group"] > [class~="group/section"] > button[class~="group/section-label"]';
   let heading;
-  let group;
+  let group2;
   let section2;
   let nextId = 0;
   const rows = /* @__PURE__ */ new Map();
   function dispose() {
-    for (const row3 of rows.values()) row3.dispose();
+    for (const row4 of rows.values()) row4.dispose();
     rows.clear();
     section2?.dispose();
     section2 = void 0;
-    group?.removeAttribute("data-hcv-cron-native");
-    group = void 0;
+    group2?.removeAttribute("data-hcv-cron-native");
+    group2 = void 0;
   }
   return {
     sync() {
-      const label = translateNow("sidebar.cronJobs");
-      const current = [...content.querySelectorAll(headings)].find((node2) => node2.textContent.trim() === label);
+      const label3 = translateNow("sidebar.cronJobs");
+      const current = [...content.querySelectorAll(headings)].find((node3) => node3.textContent.trim() === label3);
       if (current !== heading) {
         dispose();
         heading = current;
         if (heading) {
-          group = heading.closest('[data-slot="sidebar-group"]');
-          group.setAttribute("data-hcv-cron-native", "");
-          section2 = disclosure(heading, heading, () => group.querySelector(':scope > [data-slot="sidebar-group-content"]'), "hcv-native-cron-list", motion);
+          group2 = heading.closest('[data-slot="sidebar-group"]');
+          group2.setAttribute("data-hcv-cron-native", "");
+          section2 = disclosure(heading, heading, () => group2.querySelector(':scope > [data-slot="sidebar-group-content"]'), "hcv-native-cron-list", motion);
         }
       }
-      if (!group) return;
+      if (!group2) return;
       section2.sync();
-      const visible = new Set(group.querySelectorAll(`${nativeRows} ${nativeRowToggle}`));
-      for (const [button4, row3] of rows) {
+      const visible = new Set(group2.querySelectorAll(`${nativeRows} ${nativeRowToggle}`));
+      for (const [button4, row4] of rows) {
         if (visible.has(button4)) continue;
-        row3.dispose();
+        row4.dispose();
         rows.delete(button4);
       }
       for (const button4 of visible) {
@@ -1744,12 +2063,12 @@ function attachSidebarCron(content, storage) {
       named.sort((a, b) => nextRun(a) - nextRun(b) || a.label.localeCompare(b.label));
       list.replaceChildren();
       for (const job of named.slice(0, 3)) {
-        const row3 = element2("button", { type: "button", title: job.label, "data-hcv-cron-job": "" });
-        row3.append(glyph2("schedule"), element2("span", { "data-hcv-cron-label": "" }, job.label), glyph2("right"));
-        row3.addEventListener("click", () => {
+        const row4 = element2("button", { type: "button", title: job.label, "data-hcv-cron-job": "" });
+        row4.append(glyph2("schedule"), element2("span", { "data-hcv-cron-label": "" }, job.label), glyph2("right"));
+        row4.addEventListener("click", () => {
           if (isCurrent() && !manageSidebarCronJob(content.querySelector(projects), job.id)) host4.navigate("/cron");
         });
-        list.append(row3);
+        list.append(row4);
       }
       if (!named.length) note(ru ? "\u0412 \u044D\u0442\u043E\u043C \u043F\u0440\u043E\u0444\u0438\u043B\u0435 \u043D\u0435\u0442 \u0437\u0430\u0434\u0430\u0447" : "No tasks in this profile");
     } catch {
@@ -1797,12 +2116,12 @@ function sidebarCronStyles(active2) {
   const section2 = `${active2} [data-hcv-cron-sidebar]`;
   const stock = `${active2} ${nativeSection}`;
   const heading = `${stock} > div > button[class~="group/section-label"]`;
-  const row3 = `${stock} ${nativeRows}`;
+  const row4 = `${stock} ${nativeRows}`;
   const rowLabel = `${nativeRowToggle} > .truncate`;
-  const trailing = `${row3} > [data-row-actions] > div`;
+  const trailing = `${row4} > [data-row-actions] > div`;
   const rowCaret = `${nativeRowToggle} > .codicon-chevron-right`;
-  const caret = `${row3} ${rowCaret}`;
-  const run = `${row3} + div > button`;
+  const caret = `${row4} ${rowCaret}`;
+  const run = `${row4} + div > button`;
   return `
   ${section2} { flex: none; padding: 2px 5px 4px; }
   ${section2} > header { display: flex; align-items: center; justify-content: space-between; min-block-size: 28px; }
@@ -1825,22 +2144,22 @@ function sidebarCronStyles(active2) {
   ${section2} p { margin: 0; padding: 4px 6px; color: var(--hcv-muted); font-size: 12px; }
 
   ${heading} { min-block-size: 26px; padding-inline: 0 6px; gap: 6px; border-radius: 7px; }
-  ${heading}:is(:hover, :focus-visible), ${row3}:is(:hover, :focus-within), ${run}:is(:hover, :focus-visible) {
+  ${heading}:is(:hover, :focus-visible), ${row4}:is(:hover, :focus-within), ${run}:is(:hover, :focus-visible) {
     background-color: var(--hcv-hover);
     color: var(--hcv-text);
   }
-  ${row3} { border-radius: 8px; }
-  ${heading}:is(:hover, :focus-visible) > span, ${row3}:is(:hover, :focus-within) ${rowLabel} {
+  ${row4} { border-radius: 8px; }
+  ${heading}:is(:hover, :focus-visible) > span, ${row4}:is(:hover, :focus-within) ${rowLabel} {
     color: var(--hcv-text);
   }
-  ${row3} ${nativeRowToggle} { border-radius: inherit; }
-  ${row3} ${nativeRowToggle}:focus-visible { background-color: transparent; box-shadow: none; }
+  ${row4} ${nativeRowToggle} { border-radius: inherit; }
+  ${row4} ${nativeRowToggle}:focus-visible { background-color: transparent; box-shadow: none; }
   ${trailing} { display: grid; align-items: center; }
   ${trailing} > :is(span, div) { grid-area: 1 / 1; justify-self: end; }
   ${trailing} > span { display: inline; }
   ${trailing} > div { display: flex; gap: 2px; opacity: 0; pointer-events: none; }
-  ${row3}:is(:hover, :focus-within) > [data-row-actions] > div > span { opacity: 0; }
-  ${row3}:is(:hover, :focus-within) > [data-row-actions] > div > div { opacity: 1; pointer-events: auto; }
+  ${row4}:is(:hover, :focus-within) > [data-row-actions] > div > span { opacity: 0; }
+  ${row4}:is(:hover, :focus-within) > [data-row-actions] > div > div { opacity: 1; pointer-events: auto; }
   ${trailing} button { inline-size: 24px; block-size: 24px; border-radius: 7px; }
   ${trailing} button:is(:hover, :focus-visible):enabled { color: var(--hcv-text); background-color: var(--hcv-hover); }
   ${stock} button:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }
@@ -1851,8 +2170,8 @@ function sidebarCronStyles(active2) {
   ${heading} > .codicon-chevron-right { opacity: 1; }
   ${heading} > .codicon-chevron-right, ${caret} { rotate: 0deg; transform: none; transition: none; }
   ${heading}[aria-expanded="true"] > .codicon-chevron-right,
-  ${row3} > button[aria-expanded="true"] > .codicon-chevron-right { opacity: 1; rotate: 90deg; }
-  ${row3}:is(:hover, :focus-within) ${rowCaret} { opacity: 1; }
+  ${row4} > button[aria-expanded="true"] > .codicon-chevron-right { opacity: 1; rotate: 90deg; }
+  ${row4}:is(:hover, :focus-within) ${rowCaret} { opacity: 1; }
   @media (any-hover: none) {
     ${trailing} > span { opacity: 0; }
     ${trailing} > div { opacity: 1; pointer-events: auto; }
@@ -1860,10 +2179,10 @@ function sidebarCronStyles(active2) {
   @media (prefers-reduced-motion: no-preference) {
     ${section2} [data-hcv-cron-body] { transition: grid-template-rows ${motion.heightTime}ms ${motion.ease}, opacity 150ms ${motion.ease}; }
     ${section2} [data-hcv-cron-icon="right"] { transition: rotate 150ms var(--hcv-enter); }
-    ${section2} button, ${heading}, ${row3}, ${trailing} button, ${run} {
+    ${section2} button, ${heading}, ${row4}, ${trailing} button, ${run} {
       transition: background-color 120ms var(--hcv-ease), color 120ms var(--hcv-ease);
     }
-    ${heading} > span, ${row3} ${rowLabel} { transition: color 120ms var(--hcv-ease); }
+    ${heading} > span, ${row4} ${rowLabel} { transition: color 120ms var(--hcv-ease); }
     ${section2} [data-hcv-cron-job] > [data-hcv-cron-icon="right"], ${trailing} > :is(span, div) {
       transition: opacity 120ms var(--hcv-ease);
     }
@@ -1900,7 +2219,7 @@ var sidebarCopy = {
     recentOpenError: "Could not open the chat. Reopen this list.",
     untitledChat: "Untitled chat",
     projectDetails: "Project details",
-    editProject: "Edit project",
+    renameProject: "Rename project",
     working: "Working",
     unread: "Unread chats",
     projectChats: (count) => `${count} ${count === 1 ? "chat" : "chats"}`,
@@ -1923,7 +2242,7 @@ var sidebarCopy = {
     recentOpenError: "\u0427\u0430\u0442 \u043D\u0435 \u043E\u0442\u043A\u0440\u044B\u043B\u0441\u044F. \u041E\u0431\u043D\u043E\u0432\u0438\u0442\u0435 \u0441\u043F\u0438\u0441\u043E\u043A.",
     untitledChat: "\u0427\u0430\u0442 \u0431\u0435\u0437 \u043D\u0430\u0437\u0432\u0430\u043D\u0438\u044F",
     projectDetails: "\u041E \u043F\u0440\u043E\u0435\u043A\u0442\u0435",
-    editProject: "\u0420\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u043F\u0440\u043E\u0435\u043A\u0442",
+    renameProject: "\u041F\u0435\u0440\u0435\u0438\u043C\u0435\u043D\u043E\u0432\u0430\u0442\u044C \u043F\u0440\u043E\u0435\u043A\u0442",
     working: "\u0412 \u0440\u0430\u0431\u043E\u0442\u0435",
     unread: "\u0415\u0441\u0442\u044C \u043D\u0435\u043F\u0440\u043E\u0447\u0438\u0442\u0430\u043D\u043D\u044B\u0435 \u0447\u0430\u0442\u044B",
     projectChats: (count) => `${count} ${{ one: "\u0447\u0430\u0442", few: "\u0447\u0430\u0442\u0430" }[russianPlurals.select(count)] || "\u0447\u0430\u0442\u043E\u0432"}`,
@@ -1934,7 +2253,7 @@ var sidebarCopy = {
 };
 function visibleControl(selector) {
   return [...document.querySelectorAll(selector)].find(
-    (control2) => !control2.disabled && !control2.closest("[inert], [hidden]") && control2.getClientRects().length && getComputedStyle(control2).visibility === "visible"
+    (control3) => !control3.disabled && !control3.closest("[inert], [hidden]") && control3.getClientRects().length && getComputedStyle(control3).visibility === "visible"
   );
 }
 function newChat() {
@@ -1966,6 +2285,13 @@ function WindowMenus({ menus: menus2 }) {
   const [current, setCurrent] = useState(null);
   const openMenu = useRef(null);
   const triggers = useRef(/* @__PURE__ */ new Map());
+  const menuOpen = current !== null;
+  useLayoutEffect(() => {
+    if (!menuOpen) return;
+    const root = document.documentElement;
+    root.setAttribute("data-hcv-window-menu-open", "");
+    return () => root.removeAttribute("data-hcv-window-menu-open");
+  }, [menuOpen]);
   function show(id2) {
     openMenu.current = id2;
     setCurrent(id2);
@@ -1988,7 +2314,7 @@ function WindowMenus({ menus: menus2 }) {
     if (openMenu.current) show(id2);
     else triggers.current.get(id2)?.focus();
   }
-  return h3("nav", { "aria-label": "\u041C\u0435\u043D\u044E \u043E\u043A\u043D\u0430", "data-hcv-window-menu": "" }, menus2.map(([id2, label, items2], index) => {
+  return h3("nav", { "aria-label": "\u041C\u0435\u043D\u044E \u043E\u043A\u043D\u0430", "data-hcv-window-menu": "" }, menus2.map(([id2, label3, items2], index) => {
     const open = current === id2;
     const change = (next) => {
       if (next || openMenu.current === id2) show(next ? id2 : null);
@@ -1998,8 +2324,8 @@ function WindowMenus({ menus: menus2 }) {
       { key: id2, modal: false, open, onOpenChange: change },
       h3(DropdownMenuTrigger, { asChild: true }, h3("button", {
         type: "button",
-        ref: (node2) => {
-          if (node2) triggers.current.set(id2, node2);
+        ref: (node3) => {
+          if (node3) triggers.current.set(id2, node3);
           else triggers.current.delete(id2);
         },
         "data-hcv-menu-button": "",
@@ -2010,7 +2336,7 @@ function WindowMenus({ menus: menus2 }) {
         onClick: (event) => {
           if (event.detail === 0) change(!open);
         }
-      }, label)),
+      }, label3)),
       open && h3(DropdownMenuContent, {
         align: "start",
         sideOffset: 0,
@@ -2043,9 +2369,18 @@ function windowMenuShortcut(action, fallback) {
 function WindowChrome({ themeName: themeName2, recentRows }) {
   const selected = useTheme().themeName === themeName2;
   const [historyState, setHistoryState] = useState({ back: false, forward: false });
+  useLayoutEffect(() => {
+    if (!selected) return;
+    const root = document.documentElement;
+    root.setAttribute("data-hcv-window-chrome", "");
+    return () => root.removeAttribute("data-hcv-window-chrome");
+  }, [selected]);
   useEffect(() => {
     if (!selected || !window.navigation) return;
-    const update = () => setHistoryState({ back: window.navigation.canGoBack, forward: window.navigation.canGoForward });
+    const update = () => {
+      const { canGoBack: back, canGoForward: forward } = window.navigation;
+      setHistoryState((previous) => previous.back === back && previous.forward === forward ? previous : { back, forward });
+    };
     update();
     window.navigation.addEventListener("currententrychange", update);
     return () => window.navigation.removeEventListener("currententrychange", update);
@@ -2087,18 +2422,18 @@ function WindowChrome({ themeName: themeName2, recentRows }) {
   );
 }
 function element3(tag, attrs = {}, text) {
-  const node2 = document.createElement(tag);
-  for (const [key, value] of Object.entries(attrs)) node2.setAttribute(key, value);
-  if (text) node2.textContent = text;
-  return node2;
+  const node3 = document.createElement(tag);
+  for (const [key, value] of Object.entries(attrs)) node3.setAttribute(key, value);
+  if (text) node3.textContent = text;
+  return node3;
 }
-function appendIcon(node2, name) {
+function appendIcon(node3, name) {
   const glyph3 = element3("span", { "aria-hidden": "true", "data-hcv-icon": name });
   Object.assign(glyph3.style, codexIconStyle(name));
-  node2.append(glyph3);
+  node3.append(glyph3);
 }
-function sidebarButton(label, symbol, onClick) {
-  const button4 = element3("button", { type: "button", "aria-label": label, title: label });
+function sidebarButton(label3, symbol, onClick) {
+  const button4 = element3("button", { type: "button", "aria-label": label3, title: label3 });
   appendIcon(button4, symbol);
   if (onClick) button4.addEventListener("click", onClick);
   return button4;
@@ -2112,9 +2447,9 @@ function recentsControl(groupId, rows, t) {
   body.append(list, fallback);
   body.inert = true;
   const button4 = element3("button", { type: "button", "aria-expanded": "false", "aria-controls": id2 });
-  const label = document.createTextNode("");
+  const label3 = document.createTextNode("");
   button4.dataset.hcvRecentsToggle = "";
-  button4.append(label);
+  button4.append(label3);
   appendIcon(button4, "sidebarDisclosure");
   const header = element3("div", { "data-hcv-recents-header": "" });
   const actions = element3("div", { "data-hcv-recents-actions": "" });
@@ -2131,7 +2466,7 @@ function recentsControl(groupId, rows, t) {
   const refresh = element3("button", { type: "button", autofocus: "" });
   const all = element3("button", { type: "button" });
   function localize() {
-    label.data = t("recent");
+    label3.data = t("recent");
     more.title = t("recentActions");
     more.setAttribute("aria-label", more.title);
     add.title = t("newChat");
@@ -2158,7 +2493,7 @@ function recentsControl(groupId, rows, t) {
   header.append(button4, actions);
   let generation = 0;
   let nativeUpdates;
-  const close = () => {
+  const close2 = () => {
     ++generation;
     clearInterval(nativeUpdates);
     area.removeAttribute("data-hcv-recents-open");
@@ -2168,7 +2503,7 @@ function recentsControl(groupId, rows, t) {
     dismiss();
   };
   const reset = () => {
-    close();
+    close2();
     rows.clear(list);
   };
   async function show() {
@@ -2206,12 +2541,15 @@ function recentsControl(groupId, rows, t) {
       fallback.textContent = "";
       for (const session of (result.recents?.sessions ?? []).filter((session2) => session2.id && !session2.pinned).slice(0, 12)) {
         const title = session.title?.trim() || t("untitledChat");
-        const row3 = element3("button", { type: "button", title }, title);
+        const row4 = element3("button", { type: "button", title });
+        const label4 = element3("span", { class: "hover-marquee" });
+        label4.append(element3("span", { class: "hover-marquee-inner" }, title));
+        row4.append(label4);
         const seconds = Number(session.last_active || session.started_at);
         const date = new Date(seconds * 1e3);
-        row3.dataset.hcvPreviewSession = session.id;
-        if (seconds > 0 && Number.isFinite(date.getTime())) row3.dataset.hcvPreviewTime = date.toISOString();
-        row3.addEventListener("click", async () => {
+        row4.dataset.hcvPreviewSession = session.id;
+        if (seconds > 0 && Number.isFinite(date.getTime())) row4.dataset.hcvPreviewTime = date.toISOString();
+        row4.addEventListener("click", async () => {
           if (!current()) return;
           try {
             await host5.openSession(session.id);
@@ -2219,7 +2557,7 @@ function recentsControl(groupId, rows, t) {
             if (current()) fallback.textContent = t("recentOpenError");
           }
         });
-        fallback.append(row3);
+        fallback.append(row4);
       }
       if (!fallback.childElementCount) fallback.textContent = t("recentEmpty");
     } catch {
@@ -2229,7 +2567,7 @@ function recentsControl(groupId, rows, t) {
     }
   }
   button4.addEventListener("click", () => {
-    if (area.hasAttribute("data-hcv-recents-open")) close();
+    if (area.hasAttribute("data-hcv-recents-open")) close2();
     else void show();
   });
   area.append(header, body, popup);
@@ -2312,13 +2650,13 @@ function keybindLabel(action, fallback, separator) {
   }
   const combo = Array.isArray(binding) ? binding.find((value) => typeof value === "string") : fallback;
   const mac = /Mac/.test(navigator.platform);
-  const labels11 = { ctrl: "Ctrl", mod: mac ? "\u2318" : "Ctrl", meta: mac ? "\u2318" : "Win", alt: "Alt", shift: "Shift" };
-  return combo?.split("+").map((key) => labels11[key] || key.toUpperCase()).join(separator);
+  const labels12 = { ctrl: "Ctrl", mod: mac ? "\u2318" : "Ctrl", meta: mac ? "\u2318" : "Win", alt: "Alt", shift: "Shift" };
+  return combo?.split("+").map((key) => labels12[key] || key.toUpperCase()).join(separator);
 }
 function newTerminalShortcut() {
   return keybindLabel("view.newTerminal", "ctrl+shift+`", " + ");
 }
-function attachSidebarHeader(group, t) {
+function attachSidebarHeader(group2, t) {
   const bar = element3("header", { "data-hcv-sidebar-bar": "" });
   const search = sidebarButton("\u041F\u043E\u0438\u0441\u043A \u0447\u0430\u0442\u043E\u0432", "search");
   const bell = sidebarButton("\u0423\u0432\u0435\u0434\u043E\u043C\u043B\u0435\u043D\u0438\u044F", "bell", () => host5.navigate("/settings?tab=notifications"));
@@ -2326,10 +2664,10 @@ function attachSidebarHeader(group, t) {
   bell.dataset.hcvNotifications = "";
   search.setAttribute("aria-expanded", "false");
   bar.append(element3("span", { "data-hcv-brand": "" }, "Hermes"), bell, search);
-  group.setAttribute("data-hcv-sidebar-shell", "");
+  group2.setAttribute("data-hcv-sidebar-shell", "");
   let terminalEmpty;
   function syncTerminal() {
-    const surface3 = group.querySelector(`:scope > [data-panel-header] ${selectedTerminal}`) && document.querySelector("[data-persistent-terminal]:not(:has(> [data-terminal]))");
+    const surface3 = group2.querySelector(`:scope > [data-panel-header] ${selectedTerminal}`) && document.querySelector("[data-persistent-terminal]:not(:has(> [data-terminal]))");
     if (!surface3) {
       terminalEmpty?.remove();
       return;
@@ -2341,16 +2679,16 @@ function attachSidebarHeader(group, t) {
     const shortcut = newTerminalShortcut();
     const [title, description, keys] = terminalEmpty.children;
     const copy6 = [t("noTerminals"), t(shortcut ? "terminalShortcut" : "terminalUnbound"), shortcut || ""];
-    for (const [index, node2] of [title, description, keys].entries()) {
-      if (node2.textContent !== copy6[index]) node2.textContent = copy6[index];
+    for (const [index, node3] of [title, description, keys].entries()) {
+      if (node3.textContent !== copy6[index]) node3.textContent = copy6[index];
     }
     if (terminalEmpty.parentElement !== surface3) surface3.append(terminalEmpty);
   }
   return {
-    group,
+    group: group2,
     search,
     sync(content) {
-      const parent = group.querySelector(":scope > [data-panel-header]") || content;
+      const parent = group2.querySelector(":scope > [data-panel-header]") || content;
       if (parent && bar.parentElement !== parent) parent.prepend(bar);
       if (search.hidden !== !content) search.hidden = !content;
       syncTerminal();
@@ -2358,7 +2696,7 @@ function attachSidebarHeader(group, t) {
     remove() {
       bar.remove();
       terminalEmpty?.remove();
-      group.removeAttribute("data-hcv-sidebar-shell");
+      group2.removeAttribute("data-hcv-sidebar-shell");
     }
   };
 }
@@ -2368,9 +2706,9 @@ function flatRecents(recentRows, t) {
   const flatList = element3("div", { "data-hcv-flat-list": "" });
   function localizeFlatHeader() {
     if (!flatHeader) return;
-    const label = t("recent");
-    flatHeader.setAttribute("data-hcv-flat-recent", label);
-    flatHeader.setAttribute("aria-label", label);
+    const label3 = t("recent");
+    flatHeader.setAttribute("data-hcv-flat-recent", label3);
+    flatHeader.setAttribute("aria-label", label3);
   }
   function updateFlatHeader(next) {
     if (flatHeader === next) return;
@@ -2398,18 +2736,18 @@ function flatRecents(recentRows, t) {
   }
   return { sync: syncFlatList, localize: localizeFlatHeader };
 }
-function attachSidebar(content, group, recentRows, t, { search }) {
+function attachSidebar(content, group2, recentRows, t, { search }) {
   let searchField;
   let searchOpen = false;
   let chooseGrouping;
   let projectRequest;
-  const searchFieldId = `hcv-search-${group.dataset.treeGroup}`;
+  const searchFieldId = `hcv-search-${group2.dataset.treeGroup}`;
   const toggleSearch = () => {
     if (searchOpen) closeSearch(true);
     else openSearch();
   };
   search.addEventListener("click", toggleSearch);
-  const recent = recentsControl(group.dataset.treeGroup, recentRows, t);
+  const recent = recentsControl(group2.dataset.treeGroup, recentRows, t);
   const sidebarMenu2 = sidebarMenuBehavior(content);
   const projectsLabel = document.createTextNode("");
   const projectsButton = element3("button", {
@@ -2480,15 +2818,15 @@ function attachSidebar(content, group, recentRows, t, { search }) {
     });
   }
   function onOutsidePress(event) {
-    if (searchOpen && !group.contains(event.target)) closeSearch(false);
+    if (searchOpen && !group2.contains(event.target)) closeSearch(false);
   }
   content.addEventListener("click", onSearchResult);
-  group.addEventListener("keydown", onSearchKey, true);
+  group2.addEventListener("keydown", onSearchKey, true);
   document.addEventListener("pointerdown", onOutsidePress, true);
   window.addEventListener("hermes:focus-session-search", openSearch, true);
   return {
     content,
-    group,
+    group: group2,
     localize,
     sync(flat) {
       const input = content.querySelector(':scope > div > div > input[type="text"][placeholder]');
@@ -2529,7 +2867,7 @@ function attachSidebar(content, group, recentRows, t, { search }) {
       search.setAttribute("aria-expanded", "false");
       clearSearchField();
       content.removeEventListener("click", onSearchResult);
-      group.removeEventListener("keydown", onSearchKey, true);
+      group2.removeEventListener("keydown", onSearchKey, true);
       document.removeEventListener("pointerdown", onOutsidePress, true);
       window.removeEventListener("hermes:focus-session-search", openSearch, true);
       stopProfile();
@@ -2540,10 +2878,38 @@ function attachSidebar(content, group, recentRows, t, { search }) {
     }
   };
 }
+function sidebarFills() {
+  const fills = /* @__PURE__ */ new Map();
+  function skipHiddenTooltip(event) {
+    if (event.pointerType === "mouse" && !event.buttons && event.cancelable && !event.currentTarget.closest('[data-slot="sidebar"][data-state="collapsed"], [data-collapsible="icon"]')) {
+      event.preventDefault();
+    }
+  }
+  return (content) => {
+    const labels12 = content?.querySelectorAll('[data-sidebar="menu-button"] > [data-tour^="sidebar-nav-"]') ?? [];
+    const buttons = new Set(Array.from(labels12, (label3) => label3.parentElement));
+    for (const [button4, fill] of fills) {
+      if (buttons.has(button4) && fill.parentElement === button4) continue;
+      fill.remove();
+      button4.removeEventListener("pointermove", skipHiddenTooltip);
+      button4.removeAttribute("data-hcv-sidebar-nav");
+      fills.delete(button4);
+    }
+    for (const button4 of buttons) {
+      if (fills.has(button4)) continue;
+      const fill = element3("span", { "data-hcv-sidebar-fill": "", "aria-hidden": "true" });
+      button4.prepend(fill);
+      button4.addEventListener("pointermove", skipHiddenTooltip, { passive: false });
+      button4.setAttribute("data-hcv-sidebar-nav", "");
+      fills.set(button4, fill);
+    }
+  };
+}
 function registerSidebar(ctx, active2, recentRows) {
   const wide = window.matchMedia("(forced-colors: none) and (min-width: 800px) and (min-height: 480px)");
   const contrast = window.matchMedia("(forced-colors: none)");
   const flatList = flatRecents(recentRows, ctx.i18n.t);
+  const syncFills = sidebarFills();
   let projects2;
   let chatPreview;
   let cron;
@@ -2551,7 +2917,10 @@ function registerSidebar(ctx, active2, recentRows) {
   let mounted;
   let header;
   let anchors = [];
+  let measuredWidth = 0;
+  let measure = true;
   let queued;
+  let activityFrame = 0;
   const setToolbarOffset = (value) => {
     const property = "--hcv-sidebar-right-offset";
     const style = document.documentElement.style;
@@ -2563,47 +2932,59 @@ function registerSidebar(ctx, active2, recentRows) {
   };
   const sync = () => {
     queued = void 0;
+    if (activityFrame) {
+      cancelAnimationFrame(activityFrame);
+      activityFrame = 0;
+    }
     const enabled = contrast.matches && document.documentElement.matches(active2);
     const sidebar2 = enabled ? [...document.querySelectorAll(`${sideSelector} > [data-slot="sidebar-content"]`)].find(
-      (node2) => !node2.closest("[data-pane-hidden], [hidden]") && node2.getClientRects().length
+      (node3) => !node3.closest("[data-pane-hidden], [hidden]") && node3.getClientRects().length
     ) : null;
     if (projectContent !== sidebar2) {
+      projectLabels.disconnect();
       projects2?.dispose();
       chatPreview?.dispose();
       cron?.dispose();
       projectContent = sidebar2;
+      if (sidebar2) projectLabels.observe(sidebar2, { characterData: true, subtree: true });
       projects2 = sidebar2 ? attachProjects(sidebar2, ctx.i18n.t, ctx.storage) : void 0;
       chatPreview = sidebar2 ? attachChatPreview(sidebar2) : void 0;
       cron = sidebar2 ? attachSidebarCron(sidebar2, ctx.storage) : void 0;
     }
+    syncFills(sidebar2);
     projects2?.sync();
     chatPreview?.sync();
     cron?.sync();
     const content = wide.matches ? sidebar2 : null;
-    const group = enabled && wide.matches ? content?.closest("[data-tree-group]") ?? document.querySelector('[data-tree-tab="sessions"]')?.closest("[data-tree-group]") ?? document.querySelector('[data-tree-group="grp-sessions"][data-window-top]:not([data-pane-host])') : null;
-    const compatible = group?.clientWidth >= 190 && (content || group.querySelector(":scope > [data-panel-header]"));
-    const workspace = group && document.querySelector('[data-tree-group="grp-main"][data-window-top]');
-    const targets = [...new Set([content, group, workspace].filter(Boolean))];
-    if (targets.length !== anchors.length || targets.some((node2, index) => node2 !== anchors[index])) {
+    const group2 = enabled && wide.matches ? content?.closest("[data-tree-group]") ?? document.querySelector('[data-tree-tab="sessions"]')?.closest("[data-tree-group]") ?? document.querySelector('[data-tree-group="grp-sessions"][data-window-top]:not([data-pane-host])') : null;
+    const workspace = group2 && document.querySelector('[data-tree-group="grp-main"][data-window-top]');
+    const targets = [...new Set([content, group2, workspace].filter(Boolean))];
+    if (targets.length !== anchors.length || targets.some((node3, index) => node3 !== anchors[index])) {
       resize.disconnect();
-      for (const node2 of targets) resize.observe(node2);
+      for (const node3 of targets) resize.observe(node3);
       anchors = targets;
+      measure = true;
     }
-    const railBox = group?.getBoundingClientRect();
-    const workspaceBox = workspace?.getBoundingClientRect();
-    const rightRail = railBox?.width > 0 && workspaceBox?.width > 0 && railBox.left >= workspaceBox.right - 2;
-    setToolbarOffset(rightRail ? Math.max(0, window.innerWidth - workspaceBox.right) : 0);
-    if (mounted && (mounted.content !== content || mounted.group !== group || !compatible)) {
+    if (measure) {
+      measure = false;
+      const railBox = group2?.getBoundingClientRect();
+      const workspaceBox = workspace?.getBoundingClientRect();
+      measuredWidth = group2?.clientWidth ?? 0;
+      const rightRail = railBox?.width > 0 && workspaceBox?.width > 0 && railBox.left >= workspaceBox.right - 2;
+      setToolbarOffset(rightRail ? Math.max(0, window.innerWidth - workspaceBox.right) : 0);
+    }
+    const compatible = group2 && measuredWidth >= 190 && (content || group2.querySelector(":scope > [data-panel-header]"));
+    if (mounted && (mounted.content !== content || mounted.group !== group2 || !compatible)) {
       mounted.remove();
       mounted = void 0;
     }
-    if (header && (header.group !== group || !compatible)) {
+    if (header && (header.group !== group2 || !compatible)) {
       header.remove();
       header = void 0;
     }
-    if (compatible && !header) header = attachSidebarHeader(group, ctx.i18n.t);
+    if (compatible && !header) header = attachSidebarHeader(group2, ctx.i18n.t);
     header?.sync(content);
-    if (header && content && !mounted) mounted = attachSidebar(content, group, recentRows, ctx.i18n.t, header);
+    if (header && content && !mounted) mounted = attachSidebar(content, group2, recentRows, ctx.i18n.t, header);
     const flat = sidebar2?.querySelector(flatSelector);
     mounted?.sync(flat);
     flatList.sync(flat);
@@ -2611,34 +2992,72 @@ function registerSidebar(ctx, active2, recentRows) {
   const schedule = () => {
     if (queued === void 0) queued = requestAnimationFrame(sync);
   };
-  const stopBusy = host5.state.busyBySession.listen(schedule);
+  const stopBusy = host5.state.busyBySession.listen(() => {
+    if (queued !== void 0 || activityFrame || !projectContent?.isConnected) return;
+    activityFrame = requestAnimationFrame(() => {
+      activityFrame = 0;
+      if (queued !== void 0 || !contrast.matches || !document.documentElement.matches(active2)) return;
+      projects2?.syncActivity();
+      const flat = projectContent?.querySelector(flatSelector);
+      if (flat) flatList.sync(flat);
+    });
+  });
   ctx.i18n.onLocaleChange(() => {
     mounted?.localize();
     flatList.localize();
     schedule();
   });
-  const resize = new ResizeObserver(schedule);
-  const observer = new MutationObserver(schedule);
-  observer.observe(document.documentElement, {
+  const measureAndSync = () => {
+    measure = true;
+    schedule();
+  };
+  const resize = new ResizeObserver(measureAndSync);
+  const projectLabels = new MutationObserver((records) => {
+    if (records.some(({ target }) => target.parentElement?.closest("[data-hcv-native-project-action], .hover-marquee-inner"))) schedule();
+  });
+  const root = document.documentElement;
+  const mounts = `${sideSelector}, [data-tree-group], [data-tree-tab="sessions"], [data-persistent-terminal]`;
+  const visibility = /* @__PURE__ */ new Set(["data-window-top", "inert", "hidden", "data-pane-hidden"]);
+  const observer = new MutationObserver((records) => {
+    const enabled = root.matches(active2);
+    let needsSync = false;
+    for (const record of records) {
+      const { target, type, attributeName } = record;
+      if (target === root) return measureAndSync();
+      if (!enabled || !(target instanceof Element)) continue;
+      if (type === "attributes") {
+        if (visibility.has(attributeName) && anchors.some((node3) => target.contains(node3))) return measureAndSync();
+      } else if (target.matches("[data-tree-split]") || !target.closest("[data-chat-surface], [data-catalog-results]") && movedElementMatches(record, mounts)) {
+        return measureAndSync();
+      }
+      if (needsSync) continue;
+      needsSync = Boolean(target.closest(sideSelector) || header?.group.contains(target) || type === "childList" && !target.closest("[data-tree-group]") && movedElementMatches(record, '[data-slot="dropdown-menu-content"]') && projectContent?.querySelector('button[aria-haspopup="menu"][aria-expanded="true"]'));
+    }
+    if (needsSync) schedule();
+  });
+  observer.observe(root, {
     attributes: true,
-    attributeFilter: ["data-hermes-theme", "data-hermes-codex-visual", "aria-expanded", "aria-selected", "data-sessions-mode", "data-sessions-project", "data-working", "data-side", "inert", "hidden", "data-pane-hidden"],
+    attributeFilter: ["data-hermes-theme", "data-hermes-codex-visual", "aria-expanded", "aria-selected", "data-sessions-mode", "data-sessions-project", "data-working", "data-window-top", "inert", "hidden", "data-pane-hidden"],
     childList: true,
     subtree: true
   });
-  wide.addEventListener("change", schedule);
-  contrast.addEventListener("change", schedule);
-  window.addEventListener("resize", schedule);
+  wide.addEventListener("change", measureAndSync);
+  contrast.addEventListener("change", measureAndSync);
+  window.addEventListener("resize", measureAndSync);
   ctx.onDispose(() => {
     stopBusy();
     observer.disconnect();
+    projectLabels.disconnect();
     resize.disconnect();
-    wide.removeEventListener("change", schedule);
-    contrast.removeEventListener("change", schedule);
-    window.removeEventListener("resize", schedule);
+    wide.removeEventListener("change", measureAndSync);
+    contrast.removeEventListener("change", measureAndSync);
+    window.removeEventListener("resize", measureAndSync);
     setToolbarOffset(0);
     if (queued !== void 0) cancelAnimationFrame(queued);
+    if (activityFrame) cancelAnimationFrame(activityFrame);
     mounted?.remove();
     flatList.sync(void 0);
+    syncFills(null);
     header?.remove();
     projects2?.dispose();
     chatPreview?.dispose();
@@ -2650,8 +3069,9 @@ function registerWorkspaceChrome(ctx, themeName2) {
   ctx.i18n.register(sidebarCopy);
   registerChatPreviewMarker(ctx);
   const active2 = `html[data-hermes-codex-visual][data-hermes-theme="${themeName2}"]`;
-  const shell = `${active2}:has([data-hcv-window-menu])`;
+  const shell = `${active2}[data-hcv-window-chrome]`;
   const side = `${shell} [data-hcv-sidebar-shell]`;
+  const sidebarTrack = `${active2} [data-tree-split].flex-row > div[style*="min-width: 237px"]:has(> [data-tree-group="grp-sessions"]:not([data-pane-host]))`;
   const sidebarStrip = `${active2} :is([data-hcv-sidebar-shell] > [data-panel-header] [data-zone-tabstrip], [data-zone-tabstrip="grp-sessions"])`;
   const sidebarTab = `${sidebarStrip} > [role="tablist"] > [role="tab"]:has(> .pane-tab-content)`;
   const sidebarTerminal = `${active2}:has([data-hcv-sidebar-shell] > [data-panel-header] ${selectedTerminal}) [data-persistent-terminal]`;
@@ -2678,6 +3098,9 @@ function registerWorkspaceChrome(ctx, themeName2) {
   ${active2} {
     --hcv-sidebar-heading: light-dark(color-mix(in oklab, var(--hcv-text) 50%, transparent), rgb(255 255 255 / 50%));
   }
+  /* Match the reference at the owner's current zoom. The native sash
+     reads this minimum and still writes the user's width. */
+  ${sidebarTrack} { min-width: 222px !important; }
   ${projectSidebarStyles(active2)}
   ${chatPreviewStyles(active2)}
   ${sidebarCronStyles(active2)}
@@ -2817,7 +3240,7 @@ function registerWorkspaceChrome(ctx, themeName2) {
     color: var(--hcv-window-text);
   }
   /* Deliver outside presses to the menu while the window's drag zones are covered. */
-  ${shell}:has([data-hcv-window-menu] [aria-expanded="true"]) :is([class~="[-webkit-app-region:drag]"], [data-window-drag-handle]) {
+  ${shell}[data-hcv-window-menu-open] :is([class~="[-webkit-app-region:drag]"], [data-window-drag-handle]) {
     -webkit-app-region: no-drag;
   }
   ${windowPopup}[data-state] {
@@ -3076,14 +3499,14 @@ function registerWorkspaceChrome(ctx, themeName2) {
   ${active2} :is([data-hcv-history], [data-hcv-window-menu]) { display: none; }
 }
 `;
-  document.head.append(stylesheet);
-  ctx.onDispose(() => stylesheet.remove());
+  mountStyle(ctx, stylesheet);
   ctx.register({ id: "window-menu", area: TITLEBAR_AREAS.left, render: () => h3(WindowChrome, { themeName: themeName2, recentRows }) });
   registerSidebar(ctx, active2, recentRows);
 }
 
 // source/workspace-card.js
 import {
+  atom as atom4,
   DropdownMenu as DropdownMenu4,
   DropdownMenuContent as DropdownMenuContent4,
   DropdownMenuItem as DropdownMenuItem4,
@@ -3096,23 +3519,922 @@ import {
   useTheme as useTheme2,
   useValue as useValue4
 } from "@hermes/plugin-sdk";
-import { createElement as h10, Fragment as Fragment2, useEffect as useEffect7, useId as useId3, useRef as useRef5, useState as useState7 } from "react";
+import { createElement as h11, Fragment as Fragment2, useEffect as useEffect7, useId as useId3, useRef as useRef5, useState as useState7 } from "react";
 
 // source/summary-sources.js
 import { useEffect as useEffect2, useState as useState3 } from "react";
 
+// source/chat-audio.js
+var mark = "data-hcv-audio";
+var controls = "data-hcv-audio-controls";
+var mediaEvents = [
+  "emptied",
+  "loadedmetadata",
+  "durationchange",
+  "timeupdate",
+  "seeking",
+  "play",
+  "pause",
+  "ended",
+  "error"
+];
+function node(tag, className) {
+  const element6 = document.createElement(tag);
+  if (className) element6.className = className;
+  return element6;
+}
+function clock(seconds) {
+  const time = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
+  return `${Math.floor(time / 60)}:${String(time % 60).padStart(2, "0")}`;
+}
+function attachPlayer(card, audio) {
+  const nativeTitle = card.firstElementChild;
+  const player = node("span");
+  const header = node("span", "hcv-audio-header");
+  const glyph3 = node("span", "hcv-audio-glyph");
+  const info = node("span", "hcv-audio-info");
+  const title = node("span", "hcv-audio-title");
+  const subtitle = node("span", "hcv-audio-subtitle");
+  const play = node("button", "hcv-audio-play");
+  const options = node("button", "hcv-audio-options");
+  const timeline = node("span", "hcv-audio-timeline");
+  const seek = node("input");
+  const time = node("span");
+  const listeners = new AbortController();
+  const { signal } = listeners;
+  let currentName;
+  let currentLocale;
+  let currentPlaying;
+  let currentError;
+  let currentDuration;
+  play.type = options.type = "button";
+  options.setAttribute("aria-expanded", "false");
+  seek.type = "range";
+  seek.min = "0";
+  seek.step = "0.1";
+  glyph3.setAttribute("aria-hidden", "true");
+  player.setAttribute(controls, "");
+  info.append(title, subtitle);
+  header.append(glyph3, info, play, options);
+  timeline.append(seek, time);
+  player.append(header, timeline);
+  card.insertBefore(player, audio);
+  card.setAttribute(mark, "");
+  function sync() {
+    const ru = document.documentElement.lang.startsWith("ru");
+    const name = nativeTitle.textContent.trim();
+    const unavailable = !!audio.error;
+    const playing = !audio.paused && !audio.ended;
+    const duration3 = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 0;
+    const position2 = Math.min(audio.currentTime, duration3);
+    const labelChanged = name !== currentName || ru !== currentLocale;
+    if (labelChanged) {
+      title.title = title.textContent = name;
+      options.title = ru ? "\u041F\u0430\u0440\u0430\u043C\u0435\u0442\u0440\u044B \u0432\u043E\u0441\u043F\u0440\u043E\u0438\u0437\u0432\u0435\u0434\u0435\u043D\u0438\u044F" : "Playback options";
+      options.setAttribute("aria-label", `${options.title} \xB7 ${name}`);
+      seek.setAttribute("aria-label", `${ru ? "\u041F\u043E\u0437\u0438\u0446\u0438\u044F \u0432\u043E\u0441\u043F\u0440\u043E\u0438\u0437\u0432\u0435\u0434\u0435\u043D\u0438\u044F" : "Playback position"} \xB7 ${name}`);
+      currentName = name;
+      currentLocale = ru;
+    }
+    if (labelChanged || unavailable !== currentError) {
+      const format = name.match(/\.([a-z\d]+)$/i)?.[1]?.toUpperCase();
+      const audioType = format ? ru ? `\u0410\u0443\u0434\u0438\u043E ${format}` : `${format} audio` : ru ? "\u0410\u0443\u0434\u0438\u043E" : "Audio";
+      subtitle.textContent = unavailable ? ru ? "\u0410\u0443\u0434\u0438\u043E \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E" : "Audio unavailable" : audioType;
+      play.disabled = unavailable;
+    }
+    if (labelChanged || playing !== currentPlaying) {
+      const action = playing ? ru ? "\u041F\u0430\u0443\u0437\u0430" : "Pause" : ru ? "\u0412\u043E\u0441\u043F\u0440\u043E\u0438\u0437\u0432\u0435\u0441\u0442\u0438" : "Play";
+      play.dataset.playing = String(playing);
+      play.setAttribute("aria-label", `${action} ${name}`);
+      currentPlaying = playing;
+    }
+    if (duration3 !== currentDuration || unavailable !== currentError) {
+      seek.disabled = unavailable || duration3 <= 0;
+      seek.max = String(duration3 || 1);
+      currentDuration = duration3;
+      currentError = unavailable;
+    }
+    seek.value = String(position2);
+    const progress = `${clock(position2)} / ${clock(duration3)}`;
+    if (time.textContent !== progress) time.textContent = progress;
+  }
+  play.addEventListener("click", () => {
+    if (audio.paused) void audio.play().catch(sync);
+    else audio.pause();
+  }, { signal });
+  seek.addEventListener("input", () => {
+    if (seek.disabled) return;
+    audio.currentTime = seek.valueAsNumber;
+    sync();
+  }, { signal });
+  options.addEventListener("click", () => {
+    const expanded = card.toggleAttribute("data-hcv-audio-expanded");
+    options.setAttribute("aria-expanded", String(expanded));
+  }, { signal });
+  for (const event of mediaEvents) audio.addEventListener(event, sync, { signal });
+  sync();
+  return () => {
+    listeners.abort();
+    player.remove();
+    card.removeAttribute(mark);
+    card.removeAttribute("data-hcv-audio-expanded");
+  };
+}
+function registerChatAudio(ctx, active2, selector) {
+  const root = document.documentElement;
+  const forcedColors = window.matchMedia("(forced-colors: active)");
+  const players = /* @__PURE__ */ new Map();
+  const card = `${active2} [${mark}]`;
+  const waveform = localAssets?.icons.resourceAudioLight && localAssets?.icons.resourceAudioDark ? `background: light-dark(${svgMask(localAssets.icons.resourceAudioLight)}, ${svgMask(localAssets.icons.resourceAudioDark)}) center / contain no-repeat;` : `background: var(--hcv-focus); mask: ${codexMask("audio")} center / contain no-repeat;`;
+  mountCSS(ctx, "data-hcv-chat-audio", `
+@media (forced-colors: none) {
+  ${card} {
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    inline-size: 100%;
+    max-inline-size: 32rem;
+    padding: 0;
+    border: 0;
+    border-radius: 10px;
+    corner-shape: superellipse(1.5);
+    background: color-mix(in oklab, var(--hcv-panel) 50%, transparent);
+    box-shadow: inset 0 0 0 .5px var(--hcv-hairline);
+    color: var(--hcv-text);
+  }
+  @supports (corner-shape: superellipse(1.5)) {
+    ${card}, ${card} .hcv-audio-glyph { border-radius: 12.5px; }
+  }
+  ${card} > span:first-child, ${card}:not([data-hcv-audio-expanded]) > audio { display: none; }
+  ${card} > [${controls}] { display: block; }
+  ${card} > audio { box-sizing: border-box; padding: 0 12px 8px; }
+  ${card} .hcv-audio-header {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px;
+  }
+  ${card} .hcv-audio-glyph {
+    display: grid;
+    place-items: center;
+    flex: none;
+    inline-size: 40px;
+    block-size: 40px;
+    border-radius: 10px;
+    background: var(--hcv-hover);
+  }
+  ${card} .hcv-audio-glyph::before {
+    content: '';
+    inline-size: 24px;
+    block-size: 24px;
+    ${waveform}
+  }
+  ${card} .hcv-audio-info {
+    display: grid;
+    flex: 1;
+    min-inline-size: 0;
+    margin-inline: 6px;
+  }
+  ${card} :is(.hcv-audio-title, .hcv-audio-subtitle) {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  ${card} .hcv-audio-title { font: 500 var(--conversation-text-font-size, 13px)/20px var(--hcv-ui-font); }
+  ${card} :is(.hcv-audio-subtitle, .hcv-audio-timeline) {
+    color: var(--hcv-muted);
+    font: 400 calc(var(--conversation-text-font-size, 13px) - 1px)/18px var(--hcv-ui-font);
+  }
+  ${card} :is(.hcv-audio-play, .hcv-audio-options) {
+    display: grid;
+    place-items: center;
+    flex: none;
+    inline-size: 28px;
+    block-size: 28px;
+    padding: 0;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--hcv-muted);
+    cursor: pointer;
+  }
+  ${card} .hcv-audio-play {
+    inline-size: 32px;
+    block-size: 32px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--hcv-text) 5%, transparent);
+    color: var(--hcv-text);
+  }
+  ${card} .hcv-audio-play:not(:disabled):hover { background: color-mix(in srgb, var(--hcv-text) 10%, transparent); }
+  ${card} .hcv-audio-options:hover { color: var(--hcv-text); }
+  ${card} .hcv-audio-play:disabled { opacity: .4; cursor: default; }
+  ${card} :is(.hcv-audio-play, .hcv-audio-options)::before {
+    content: '';
+    inline-size: 16px;
+    block-size: 16px;
+    background: currentColor;
+    mask: ${codexMask("resourcePlay")} center / contain no-repeat;
+  }
+  ${card} .hcv-audio-play[data-playing="true"]::before { mask-image: ${codexMask("resourcePause")}; }
+  ${card} .hcv-audio-options::before { mask-image: ${codexMask("resourceMore")}; }
+  ${card} .hcv-audio-timeline {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-block-start: 1px solid var(--hcv-hairline);
+    font-variant-numeric: tabular-nums;
+  }
+  ${card} .hcv-audio-timeline input {
+    flex: 1;
+    min-inline-size: 0;
+    block-size: 20px;
+    margin: 0;
+    accent-color: var(--hcv-focus);
+    cursor: pointer;
+  }
+  ${card} .hcv-audio-timeline input:disabled { opacity: .4; cursor: default; }
+  ${card} :is(.hcv-audio-play, .hcv-audio-options, input):focus-visible {
+    outline: 2px solid var(--hcv-focus);
+    outline-offset: 1px;
+  }
+}
+`, { surface: `[${mark}]` });
+  function clear() {
+    for (const remove of players.values()) remove();
+    players.clear();
+  }
+  function collect() {
+    for (const [audio, remove] of players) {
+      if (audio.isConnected && audio.matches(selector)) continue;
+      remove();
+      players.delete(audio);
+    }
+    for (const audio of document.querySelectorAll(selector)) {
+      if (players.has(audio)) continue;
+      players.set(audio, attachPlayer(audio.parentElement, audio));
+    }
+  }
+  const changes2 = new MutationObserver((records) => {
+    if (records.some((record) => movedElementMatches(record, "audio"))) collect();
+  });
+  function reconcile() {
+    changes2.disconnect();
+    if (!root.matches(active2) || forcedColors.matches) {
+      clear();
+      return;
+    }
+    collect();
+    changes2.observe(document.body, { childList: true, subtree: true });
+  }
+  const theme2 = new MutationObserver(reconcile);
+  theme2.observe(root, { attributes: true, attributeFilter: ["data-hermes-theme"] });
+  forcedColors.addEventListener("change", reconcile);
+  reconcile();
+  ctx.onDispose(() => {
+    theme2.disconnect();
+    changes2.disconnect();
+    forcedColors.removeEventListener("change", reconcile);
+    clear();
+  });
+}
+
+// source/chat-video.js
+var cardSelector = "[data-hcv-video]";
+var rates = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+var labels = {
+  ru: {
+    play: "\u0412\u043E\u0441\u043F\u0440\u043E\u0438\u0437\u0432\u0435\u0441\u0442\u0438 \u0432\u0438\u0434\u0435\u043E",
+    pause: "\u041F\u0440\u0438\u043E\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u044C \u0432\u043E\u0441\u043F\u0440\u043E\u0438\u0437\u0432\u0435\u0434\u0435\u043D\u0438\u0435 \u0432\u0438\u0434\u0435\u043E",
+    seek: "\u041F\u0435\u0440\u0435\u043C\u043E\u0442\u043A\u0430 \u0432\u0438\u0434\u0435\u043E",
+    volume: "\u0413\u0440\u043E\u043C\u043A\u043E\u0441\u0442\u044C \u0432\u0438\u0434\u0435\u043E",
+    mute: "\u041E\u0442\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0437\u0432\u0443\u043A \u0432\u0438\u0434\u0435\u043E",
+    options: "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u0432\u0438\u0434\u0435\u043E",
+    speed: "\u0421\u043A\u043E\u0440\u043E\u0441\u0442\u044C \u0432\u043E\u0441\u043F\u0440\u043E\u0438\u0437\u0432\u0435\u0434\u0435\u043D\u0438\u044F",
+    save: "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C \u0432\u0438\u0434\u0435\u043E \u043A\u0430\u043A\u2026",
+    pictureInPicture: "\u041A\u0430\u0440\u0442\u0438\u043D\u043A\u0430 \u0432 \u043A\u0430\u0440\u0442\u0438\u043D\u043A\u0435",
+    fullscreen: "\u0412\u043E \u0432\u0435\u0441\u044C \u044D\u043A\u0440\u0430\u043D",
+    exitFullscreen: "\u0412\u044B\u0439\u0442\u0438 \u0438\u0437 \u043F\u043E\u043B\u043D\u043E\u044D\u043A\u0440\u0430\u043D\u043D\u043E\u0433\u043E \u0440\u0435\u0436\u0438\u043C\u0430",
+    video: "\u0412\u0438\u0434\u0435\u043E",
+    error: "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0432\u044B\u043F\u043E\u043B\u043D\u0438\u0442\u044C \u044D\u0442\u043E \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u0441 \u0432\u0438\u0434\u0435\u043E. \u041F\u043E\u043F\u0440\u043E\u0431\u0443\u0439\u0442\u0435 \u0441\u043D\u043E\u0432\u0430."
+  },
+  en: {
+    play: "Play video",
+    pause: "Pause video",
+    seek: "Seek in video",
+    volume: "Video volume",
+    mute: "Mute video",
+    options: "Video options",
+    speed: "Playback speed",
+    save: "Save video as\u2026",
+    pictureInPicture: "Picture in picture",
+    fullscreen: "Fullscreen",
+    exitFullscreen: "Exit fullscreen",
+    video: "Video",
+    error: "Could not complete this video action. Try again"
+  }
+};
+function element4(tag, className) {
+  const el2 = document.createElement(tag);
+  el2.className = className;
+  return el2;
+}
+function control(label3, icon8) {
+  const el2 = element4("button", "hcv-video-button");
+  el2.type = "button";
+  el2.dataset.icon = icon8;
+  el2.setAttribute("aria-label", label3);
+  return el2;
+}
+function range(label3, max, step2) {
+  const el2 = element4("input", "hcv-video-range");
+  el2.type = "range";
+  el2.min = "0";
+  el2.max = max;
+  el2.step = step2;
+  el2.setAttribute("aria-label", label3);
+  return el2;
+}
+function setRange(el2, value, max, description) {
+  el2.value = value;
+  el2.style.setProperty("--hcv-video-position", el2.valueAsNumber / max);
+  el2.setAttribute("aria-valuetext", description);
+}
+function clock2(seconds) {
+  const whole = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+}
+function popover(trigger, className, label3, role) {
+  const panel2 = element4("span", `hcv-video-popover ${className}`);
+  panel2.setAttribute("popover", "auto");
+  panel2.setAttribute("aria-label", label3);
+  trigger.setAttribute("aria-haspopup", role);
+  trigger.setAttribute("aria-expanded", "false");
+  trigger.popoverTargetElement = panel2;
+  return panel2;
+}
+function menuItem(label3, role = "menuitem") {
+  const item = element4("button", "hcv-video-menu-item");
+  item.type = "button";
+  item.tabIndex = -1;
+  item.setAttribute("role", role);
+  item.textContent = label3;
+  return item;
+}
+function saveVideo(video, filename) {
+  const url = video.currentSrc || video.src;
+  if (!url) throw new Error("Missing video source");
+  const src = new URL(url, document.baseURI);
+  if (src.protocol === "hermes-media:" && window.hermesDesktop?.saveGatewayFile) {
+    const params = src.searchParams;
+    return window.hermesDesktop.saveGatewayFile({
+      path: decodeURIComponent(src.pathname.slice(1)),
+      connectionId: params.get("connectionId") || (src.hostname === "stream" ? "local" : void 0),
+      profile: params.get("profile") || void 0,
+      sessionId: params.get("sessionId") || void 0,
+      suggestedName: filename
+    });
+  }
+  const sameOrigin = /^(https?):$/.test(src.protocol) && src.origin === location.origin;
+  if (!sameOrigin && src.protocol !== "blob:" && !/^data:video\//i.test(url)) {
+    throw new Error("Video download source is unavailable");
+  }
+  const link2 = document.createElement("a");
+  link2.href = src.href;
+  link2.download = filename;
+  link2.click();
+}
+function attachPlayer2(card, video) {
+  const controller = new AbortController();
+  const { signal } = controller;
+  const locale = /^ru\b/i.test(document.documentElement.lang) ? "ru" : "en";
+  const copy6 = labels[locale];
+  const formatPercent = new Intl.NumberFormat(locale, { style: "percent" });
+  const formatRate = new Intl.NumberFormat(locale);
+  const filename = card.firstElementChild?.textContent.trim() || copy6.video;
+  const nativeAttrs = ["controls", "tabindex", "preload", "aria-label"].map((name) => [name, video.getAttribute(name)]);
+  const controls2 = element4("span", "hcv-video-controls");
+  const row4 = element4("span", "hcv-video-row");
+  const actions = element4("span", "hcv-video-actions");
+  const time = element4("span", "hcv-video-time");
+  const status = element4("span", "hcv-video-status");
+  status.setAttribute("role", "status");
+  status.hidden = true;
+  status.textContent = copy6.error;
+  const play = control(copy6.play, "play");
+  const seek = range(copy6.seek, 1, 0.1);
+  const volume = control(copy6.volume, "volume");
+  const mute = control(copy6.mute, "volume");
+  const volumeRange = range(copy6.volume, 1, 0.01);
+  const sound = popover(volume, "hcv-video-sound", copy6.volume, "dialog");
+  sound.append(mute, volumeRange);
+  const options = control(copy6.options, "more");
+  const menu = popover(options, "hcv-video-menu", copy6.options, "menu");
+  const save = menuItem(copy6.save);
+  const separator = document.createElement("hr");
+  separator.setAttribute("role", "separator");
+  const heading = element4("span", "hcv-video-menu-label");
+  heading.textContent = copy6.speed;
+  const speedItems = rates.map((rate) => menuItem(`${formatRate.format(rate)}\xD7`, "menuitemradio"));
+  const items2 = [save, ...speedItems];
+  menu.append(save, separator, heading, ...speedItems);
+  const pip = document.pictureInPictureEnabled && !video.disablePictureInPicture ? menuItem(copy6.pictureInPicture) : null;
+  if (pip) {
+    menu.append(pip);
+    items2.push(pip);
+  }
+  const fullscreen = control(copy6.fullscreen, "fullscreen");
+  actions.append(volume, sound, options, menu);
+  if (document.fullscreenEnabled) actions.append(fullscreen);
+  row4.append(play, seek, time, actions);
+  controls2.append(row4, status);
+  video.after(controls2);
+  card.setAttribute("data-hcv-video", "");
+  video.controls = false;
+  video.tabIndex = 0;
+  video.preload = "metadata";
+  video.setAttribute("aria-label", filename);
+  const listen = (el2, type, fn, extra) => el2.addEventListener(type, fn, { signal, ...extra });
+  const duration3 = () => Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
+  let drag = null;
+  let wasFullscreen = false;
+  async function run(action) {
+    status.hidden = true;
+    try {
+      await action();
+    } catch {
+      status.hidden = false;
+    }
+  }
+  function updateTime() {
+    const total = duration3();
+    const current = Math.min(video.currentTime, total);
+    const progress = `${clock2(current)} / ${clock2(total)}`;
+    if (time.textContent !== progress) time.textContent = progress;
+    seek.max = total || 1;
+    seek.disabled = !total;
+    setRange(seek, current, total || 1, progress);
+  }
+  function updatePlayback() {
+    const playing = !video.paused && !video.ended;
+    play.dataset.icon = playing ? "pause" : "play";
+    play.setAttribute("aria-label", playing ? copy6.pause : copy6.play);
+  }
+  function updateVolume() {
+    const level = video.muted ? 0 : video.volume;
+    volume.dataset.icon = mute.dataset.icon = level === 0 ? "muted" : "volume";
+    mute.setAttribute("aria-pressed", video.muted);
+    setRange(volumeRange, level, 1, formatPercent.format(level));
+  }
+  function updateSpeed() {
+    for (const [i, item] of speedItems.entries()) item.setAttribute("aria-checked", video.playbackRate === rates[i]);
+  }
+  const togglePlayback = () => void run(() => video.paused ? video.play() : video.pause());
+  listen(video, "click", (event) => {
+    event.preventDefault();
+    togglePlayback();
+  });
+  listen(video, "keydown", (event) => {
+    if (event.key !== " " && event.code !== "Space" && event.key !== "Enter") return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (!event.repeat) togglePlayback();
+  });
+  listen(play, "click", togglePlayback);
+  listen(seek, "input", () => {
+    video.currentTime = seek.valueAsNumber;
+    updateTime();
+  });
+  listen(seek, "pointerdown", (event) => {
+    if (seek.disabled || event.button !== 0 || drag) return;
+    drag = { pointerId: event.pointerId, resume: !video.paused };
+    seek.setPointerCapture(event.pointerId);
+    video.pause();
+  });
+  function finishSeek(event) {
+    if (drag?.pointerId !== event.pointerId) return;
+    const { resume } = drag;
+    drag = null;
+    if (resume) void run(() => video.play());
+  }
+  for (const event of ["pointerup", "pointercancel", "lostpointercapture"]) listen(seek, event, finishSeek);
+  listen(mute, "click", () => {
+    video.muted = !video.muted;
+  });
+  listen(volumeRange, "input", () => {
+    video.volume = volumeRange.valueAsNumber;
+    video.muted = false;
+    updateVolume();
+  });
+  for (const [panel2, button4, role] of [[sound, volume, "dialog"], [menu, options, "menu"]]) {
+    listen(panel2, "beforetoggle", (event) => {
+      if (event.newState === "open") panel2.setAttribute("role", role);
+    });
+    listen(panel2, "toggle", () => {
+      const open = panel2.matches(":popover-open");
+      button4.setAttribute("aria-expanded", open);
+      if (!open) panel2.removeAttribute("role");
+      else if (panel2 === menu) items2[0].focus({ preventScroll: true });
+    });
+  }
+  listen(menu, "keydown", (event) => {
+    const index = items2.indexOf(document.activeElement);
+    let next;
+    switch (event.key) {
+      case "ArrowDown":
+        next = (index + 1) % items2.length;
+        break;
+      case "ArrowUp":
+        next = index > 0 ? index - 1 : items2.length - 1;
+        break;
+      case "Home":
+        next = 0;
+        break;
+      case "End":
+        next = items2.length - 1;
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
+    items2[next].focus({ preventScroll: true });
+  });
+  function choose(item, action) {
+    listen(item, "click", () => {
+      menu.hidePopover();
+      options.focus({ preventScroll: true });
+      void run(action);
+    });
+  }
+  choose(save, () => saveVideo(video, filename));
+  for (const [i, item] of speedItems.entries()) choose(item, () => {
+    video.playbackRate = rates[i];
+  });
+  if (pip) choose(pip, () => document.pictureInPictureElement === video ? document.exitPictureInPicture() : video.requestPictureInPicture());
+  const toggleFullscreen = () => run(() => document.fullscreenElement === card ? document.exitFullscreen() : card.requestFullscreen());
+  listen(fullscreen, "click", toggleFullscreen);
+  listen(card, "fullscreenchange", () => {
+    const enabled = document.fullscreenElement === card;
+    fullscreen.dataset.icon = enabled ? "exitFullscreen" : "fullscreen";
+    fullscreen.setAttribute("aria-label", enabled ? copy6.exitFullscreen : copy6.fullscreen);
+    if (enabled) {
+      card.setAttribute("role", "dialog");
+      card.setAttribute("aria-label", filename);
+      video.focus({ preventScroll: true });
+    } else if (wasFullscreen) {
+      fullscreen.focus({ preventScroll: true });
+      card.removeAttribute("role");
+      card.removeAttribute("aria-label");
+    }
+    wasFullscreen = enabled;
+  });
+  listen(card, "keydown", (event) => {
+    if (event.key !== "Escape") return;
+    const panel2 = [sound, menu].find((el2) => el2.matches(":popover-open"));
+    if (!panel2 && document.fullscreenElement !== card) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (panel2) {
+      const trigger = panel2 === sound ? volume : options;
+      panel2.hidePopover();
+      trigger.focus({ preventScroll: true });
+    } else void toggleFullscreen();
+  });
+  for (const event of ["durationchange", "timeupdate", "loadedmetadata", "emptied"]) listen(video, event, updateTime);
+  for (const event of ["play", "pause", "ended", "emptied"]) listen(video, event, updatePlayback);
+  listen(video, "volumechange", updateVolume);
+  listen(video, "ratechange", updateSpeed);
+  updateTime();
+  updatePlayback();
+  updateVolume();
+  updateSpeed();
+  return () => {
+    controller.abort();
+    if (document.fullscreenElement === card) void document.exitFullscreen().catch(() => {
+    });
+    if (wasFullscreen) {
+      card.removeAttribute("role");
+      card.removeAttribute("aria-label");
+    }
+    if (drag?.resume && video.isConnected) void video.play().catch(() => {
+    });
+    controls2.remove();
+    card.removeAttribute("data-hcv-video");
+    for (const [name, value] of nativeAttrs) {
+      if (value === null) video.removeAttribute(name);
+      else video.setAttribute(name, value);
+    }
+  };
+}
+function registerChatVideo(ctx, active2, selector) {
+  if (!HTMLElement.prototype.showPopover || !CSS.supports("bottom", "anchor(top)")) return;
+  const card = `${active2} ${cardSelector}`;
+  const iconRules2 = Object.entries({
+    play: "videoPlay",
+    pause: "videoPause",
+    volume: "videoVolume",
+    muted: "videoMuted",
+    more: "videoMore",
+    fullscreen: "videoFullscreen",
+    exitFullscreen: "videoExitFullscreen"
+  }).map(([icon8, mask2]) => `${card} .hcv-video-button[data-icon="${icon8}"]::before { mask-image: ${codexMask(mask2)}; }`).join("\n");
+  mountCSS(ctx, "data-hcv-chat-video", `
+  ${card} {
+    --hcv-video-surface: light-dark(#fff, #181818);
+    --hcv-video-ink: light-dark(#181818, #dfdfdf);
+    --hcv-video-secondary: light-dark(#666, #a1a1a1);
+    --hcv-video-track: light-dark(#dedede, #2b2b2b);
+    --hcv-video-divider: light-dark(#efefef, #222);
+    --hcv-video-thumb: light-dark(#f3f3f3, #282828);
+    --hcv-video-thumb-shadow: 0 2px 4px -1px #00000014;
+    --hcv-video-ring: light-dark(#0169cc, #0285ff);
+    --hcv-video-hover: light-dark(#eeeeee, #292929);
+    --hcv-video-menu-surface: light-dark(#fff, #2d2d2d);
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    inline-size: fit-content;
+    min-inline-size: min(100%, 14rem);
+    max-inline-size: min(100%, 44rem);
+    max-block-size: min(48vh, 32rem);
+    margin-block: 12px;
+    padding: 0;
+    border: 0;
+    border-radius: 8px;
+    background: var(--hcv-video-surface);
+    box-shadow: 0 2px 4px -1px #00000014;
+    anchor-scope: --hcv-video-volume-anchor, --hcv-video-options-anchor;
+  }
+  ${card} > span:first-child { display: none; }
+  ${card} > video {
+    display: block;
+    flex: 1 1 auto;
+    box-sizing: border-box;
+    inline-size: 100%;
+    block-size: auto;
+    min-block-size: 0;
+    max-block-size: none;
+    margin: 0;
+    border-radius: 8px 8px 0 0;
+    background: transparent;
+    object-fit: contain;
+    cursor: pointer;
+  }
+  ${card}:fullscreen {
+    inline-size: 100%;
+    block-size: 100%;
+    max-inline-size: none;
+    max-block-size: none;
+    margin: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  ${card}:fullscreen > video { border-radius: 0; }
+  ${card} .hcv-video-controls {
+    container: hcv-video-controls / inline-size;
+    flex: none;
+    border-block-start: 1px solid var(--hcv-video-divider);
+    color: var(--hcv-video-secondary);
+    font: 400 12px/16px var(--hcv-ui-font);
+    user-select: none;
+  }
+  ${card} .hcv-video-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 8px;
+    block-size: 40px;
+    padding-inline: 8px;
+  }
+  ${card} .hcv-video-actions {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 6px;
+    margin-inline-start: auto;
+  }
+  ${card} .hcv-video-time { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  ${card} .hcv-video-button {
+    position: relative;
+    display: grid;
+    flex: none;
+    place-items: center;
+    box-sizing: border-box;
+    inline-size: 28px;
+    block-size: 28px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--hcv-video-secondary);
+    cursor: pointer;
+  }
+  ${card} .hcv-video-button:is(:hover, [aria-expanded="true"]) { background: var(--hcv-video-hover); }
+  ${card} .hcv-video-button::before {
+    content: "";
+    inline-size: 16px;
+    block-size: 16px;
+    background: currentColor;
+    mask: none center / contain no-repeat;
+  }
+  ${iconRules2}
+  ${card} .hcv-video-button::after {
+    position: absolute;
+    z-index: 1;
+    inset-inline-end: 0;
+    inset-block-end: calc(100% + 5px);
+    content: attr(aria-label);
+    inline-size: max-content;
+    max-inline-size: 320px;
+    padding: ${codexReference.tooltip.padding};
+    border-radius: ${codexReference.tooltip.radius};
+    background: var(--hcv-dropdown-background);
+    color: var(--hcv-dropdown-text);
+    box-shadow: var(--hcv-popover-shadow);
+    font: 400 13px/18px var(--hcv-ui-font);
+    letter-spacing: -.15px;
+    pointer-events: none;
+    visibility: hidden;
+    transition: visibility 0s;
+  }
+  ${card} .hcv-video-row > .hcv-video-button::after { inset-inline: 0 auto; }
+  ${card} .hcv-video-button:not([aria-expanded="true"]):is(:hover, :focus-visible)::after {
+    visibility: visible;
+    transition-delay: 150ms;
+  }
+  ${card} .hcv-video-range {
+    appearance: none;
+    flex: 1 1 0;
+    min-inline-size: 0;
+    block-size: 24px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    cursor: pointer;
+    touch-action: none;
+  }
+  ${card} .hcv-video-range:disabled { opacity: .4; cursor: default; }
+  ${card} .hcv-video-range::-webkit-slider-runnable-track {
+    --fill: calc(8px + (100% - 16px) * var(--hcv-video-position, 0));
+    block-size: 2px;
+    border-radius: 999px;
+    background: linear-gradient(to right, var(--hcv-video-ink) var(--fill), var(--hcv-video-track) var(--fill));
+  }
+  ${card} .hcv-video-range::-webkit-slider-thumb {
+    appearance: none;
+    box-sizing: border-box;
+    inline-size: 16px;
+    block-size: 16px;
+    margin-block-start: -7px;
+    border: 1px solid color-mix(in srgb, var(--hcv-video-ink) 8%, transparent);
+    border-radius: 50%;
+    background: var(--hcv-video-thumb);
+    box-shadow: var(--hcv-video-thumb-shadow);
+    outline: none;
+  }
+  ${card} :is(video, .hcv-video-button, .hcv-video-menu-item):focus-visible {
+    outline: 2px solid var(--hcv-focus);
+    outline-offset: -2px;
+  }
+  ${card} .hcv-video-range:focus { outline: none; }
+  ${card} .hcv-video-range:focus-visible:not(:active)::-webkit-slider-thumb {
+    box-shadow: 0 0 0 2px var(--hcv-video-ring), var(--hcv-video-thumb-shadow);
+  }
+  ${card} .hcv-video-actions > [data-icon="more"] { anchor-name: --hcv-video-options-anchor; }
+  ${card} .hcv-video-actions > :is([data-icon="volume"], [data-icon="muted"]) { anchor-name: --hcv-video-volume-anchor; }
+  ${card} .hcv-video-popover {
+    position: fixed;
+    inset: auto;
+    right: anchor(right);
+    bottom: calc(anchor(top) + 5px);
+    position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
+    box-sizing: border-box;
+    max-inline-size: calc(100vw - 16px);
+    max-block-size: calc(100vh - 16px);
+    margin: 0;
+    padding: 4px;
+    border: 0;
+    border-radius: 16px;
+    background: var(--hcv-video-menu-surface);
+    box-shadow: 0 4px 12px #0003, inset 0 0 0 .5px #ffffff12;
+    color: var(--hcv-video-ink);
+  }
+  ${card} .hcv-video-sound {
+    position-anchor: --hcv-video-volume-anchor;
+    inline-size: 168px;
+    align-items: center;
+    gap: 8px;
+  }
+  ${card} .hcv-video-sound:popover-open { display: flex; }
+  ${card} .hcv-video-menu {
+    position-anchor: --hcv-video-options-anchor;
+    inline-size: max-content;
+    overflow-y: auto;
+    font-size: 13px;
+    line-height: 1.43;
+  }
+  ${card} .hcv-video-menu-item, ${card} .hcv-video-menu-label { padding: 4px 8px; }
+  ${card} .hcv-video-menu-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    inline-size: 100%;
+    min-block-size: 28px;
+    border: 0;
+    border-radius: 8px;
+    color: inherit;
+    background: transparent;
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+  }
+  ${card} .hcv-video-menu-item:is(:hover, :focus-visible) { background: color-mix(in srgb, currentColor 10%, transparent); }
+  ${card} .hcv-video-menu-item[aria-checked="true"]::after {
+    content: "";
+    inline-size: 14px;
+    block-size: 14px;
+    background: currentColor;
+    mask: ${codexMask("check")} center / contain no-repeat;
+  }
+  ${card} .hcv-video-menu-label { display: block; color: var(--hcv-video-secondary); }
+  ${card} .hcv-video-menu hr {
+    margin: 4px;
+    border: 0;
+    border-block-start: 1px solid var(--hcv-video-track);
+  }
+  ${card} .hcv-video-status:not([hidden]) { display: block; padding: 0 8px 8px; }
+  @container hcv-video-controls (width < 320px) {
+    ${card} .hcv-video-row { block-size: auto; padding-block: 4px; }
+    ${card} .hcv-video-row > .hcv-video-range { order: -1; flex-basis: 100%; }
+  }
+  `, { surface: cardSelector });
+  const root = document.documentElement;
+  const forcedColors = window.matchMedia("(forced-colors: active)");
+  const players = /* @__PURE__ */ new Map();
+  function collect() {
+    for (const [video, player] of players) {
+      if (video.isConnected && video.parentElement === player.card && video.matches(selector)) continue;
+      player.remove();
+      players.delete(video);
+    }
+    for (const video of document.querySelectorAll(selector)) {
+      if (players.has(video) || !video.controls) continue;
+      const card2 = video.parentElement;
+      players.set(video, { card: card2, remove: attachPlayer2(card2, video) });
+    }
+  }
+  function clear() {
+    for (const { remove } of players.values()) remove();
+    players.clear();
+  }
+  const changes2 = new MutationObserver((records) => {
+    if (records.some((record) => movedElementMatches(record, "video"))) collect();
+  });
+  function reconcile() {
+    changes2.disconnect();
+    if (!root.matches(active2) || forcedColors.matches) {
+      clear();
+      return;
+    }
+    collect();
+    changes2.observe(document.body, { childList: true, subtree: true });
+  }
+  const theme2 = new MutationObserver(reconcile);
+  theme2.observe(root, { attributes: true, attributeFilter: ["data-hermes-theme"] });
+  forcedColors.addEventListener("change", reconcile);
+  reconcile();
+  ctx.onDispose(() => {
+    theme2.disconnect();
+    changes2.disconnect();
+    forcedColors.removeEventListener("change", reconcile);
+    clear();
+  });
+}
+
 // source/chat-resources.js
-var previewResourceCard = "div:has(> span:first-child > svg.tabler-icon-device-desktop-analytics):has(> span.truncate[title] + button[aria-label] + button:not([aria-label]):last-child)";
+var revealIcon = "svg.tabler-icon-folder-open";
+var secondaryAction = `button:has(> :is(svg.tabler-icon-download, ${revealIcon}))`;
+var directoryCard = `:has(> button:last-child > ${revealIcon})`;
+var previewResourceCard = "div:has(> span:first-child > svg.tabler-icon-device-desktop-analytics):has(> span.truncate[title] + button)";
 function registerChatResources(ctx, active2) {
   const thread = `${active2} [data-chat-surface] [data-slot="aui_thread-content"]`;
   const answer2 = `${thread} [data-slot="aui_assistant-message-content"]`;
-  const preview2 = `${answer2} ${previewResourceCard}`;
-  const site = `${preview2}:has(> span[title]:is([title^="http://" i], [title^="https://" i]))`;
+  const preview3 = `${answer2} ${previewResourceCard}`;
+  const site = `${preview3}:has(> span[title]:is([title^="http://" i], [title^="https://" i]))`;
+  const directory = `${preview3}${directoryCard}`;
+  const file = `${preview3}:not(${site}, ${directory})`;
   const artifact = `${answer2} [data-slot="aui_artifact-card"]`;
-  const icon8 = `:is(${preview2}, ${artifact}) > span:first-child`;
-  const open = `${preview2} > button:last-child`;
-  const download = `${preview2} > button[aria-label]`;
-  const media2 = `${answer2} .aui-md span[class~="bg-muted/35"]:has(> :is(audio, video))`;
+  const icon8 = `:is(${preview3}, ${artifact}) > span:first-child`;
+  const withPreview = `${preview3}:not(${directoryCard})`;
+  const open = `${withPreview} > button:last-child`;
+  const trailing = `${preview3} > ${secondaryAction}`;
+  const secondary = `${preview3} > ${secondaryAction}:not(:last-child)`;
+  const reveal = `${preview3} > button:has(> ${revealIcon})`;
+  const media2 = `${answer2} .aui-md span[class~="bg-muted/35"]`;
   const image = `${thread} :is([data-slot="aui_embedded-images"], [data-slot="aui_markdown-image"])`;
   const generated2 = `${answer2} [data-slot="aui_generated-image"]`;
   const imageDownload = `:is(${image}, ${generated2}) button:has(> svg.tabler-icon-download)`;
@@ -3121,7 +4443,7 @@ function registerChatResources(ctx, active2) {
   function openFromCard(event) {
     const target = event.target;
     if (event.defaultPrevented || forcedColors.matches || !(target instanceof Element) || target.closest("button")) return;
-    const card = target.closest(preview2);
+    const card = target.closest(preview3);
     if (card && document.getSelection()?.isCollapsed !== false) card.lastElementChild.click();
   }
   const style = document.createElement("style");
@@ -3129,7 +4451,7 @@ function registerChatResources(ctx, active2) {
   style.textContent = `
 @media (forced-colors: none) {
   /* fLcv and qO6B in 739301.37a39f26d6.js, Desktop tokens in 9ec44337a842.css. */
-  :is(${preview2}, ${artifact}) {
+  :is(${preview3}, ${artifact}) {
     box-sizing: border-box;
     inline-size: 100%;
     max-inline-size: 100%;
@@ -3145,15 +4467,23 @@ function registerChatResources(ctx, active2) {
     color: var(--hcv-text);
     font-family: var(--hcv-ui-font);
   }
-  ${preview2} {
+  ${preview3} {
+    container-type: inline-size;
     display: grid;
     grid-template-columns: 40px minmax(0, 1fr) auto;
     grid-template-rows: 1fr 1fr;
     gap: 0 10px;
   }
+  :is(${file}, ${directory}) {
+    max-inline-size: 32rem;
+    min-block-size: 52px;
+    padding: 6px;
+  }
+  ${directory} { grid-template-rows: 1fr; }
+  ${directory} > span[title] { align-self: center; }
   ${artifact} { gap: 10px; }
   @supports (corner-shape: superellipse(1.5)) {
-    :is(${preview2}, ${artifact}) { border-radius: 12.5px; }
+    :is(${preview3}, ${artifact}) { border-radius: 12.5px; }
   }
   ${icon8} {
     inline-size: 40px;
@@ -3162,23 +4492,33 @@ function registerChatResources(ctx, active2) {
     background: var(--hcv-hover);
     color: var(--hcv-muted);
   }
-  ${preview2} > span:first-child {
+  ${preview3} > span:first-child {
     grid-area: 1 / 1 / 3 / 2;
   }
-  ${preview2} > span:first-child > svg { display: none; }
-  ${preview2} > span:first-child::before {
+  ${preview3} > span:first-child > svg { display: none; }
+  ${preview3} > span:first-child::before {
     content: "";
     inline-size: 24px;
     block-size: 24px;
     background: currentColor;
-    mask: ${codexMask("artifacts")} center / contain no-repeat;
+    mask: ${codexMask("resourceDocument")} center / 20px no-repeat;
   }
-  ${site} > span:first-child::before { mask-image: ${codexMask("web")}; }
-  ${preview2} > span[title], ${artifact} > span:nth-child(2) > span:first-child {
+  ${site} > span:first-child::before { mask-image: ${codexMask("web")}; mask-size: contain; }
+  ${directory} > span:first-child::before { mask-image: ${codexMask("folder")}; mask-size: contain; }
+  ${artifact} > span:first-child > :is(.codicon-browser, .codicon-symbol-color) {
+    inline-size: 24px;
+    block-size: 24px;
+    background: currentColor;
+    mask: ${codexMask("web")} center / contain no-repeat;
+    font-size: 0;
+  }
+  ${artifact} > span:first-child > .codicon-symbol-color { mask-image: ${codexMask("image")}; }
+  ${artifact} > span:first-child > :is(.codicon-browser, .codicon-symbol-color)::before { visibility: hidden; }
+  ${preview3} > span[title], ${artifact} > span:nth-child(2) > span:first-child {
     color: var(--hcv-text);
     font: 500 var(--conversation-text-font-size, 13px) / 20px var(--hcv-ui-font);
   }
-  ${preview2} > span[title] { grid-area: 1 / 2; align-self: end; }
+  ${preview3} > span[title] { grid-area: 1 / 2; align-self: end; }
   ${open}, ${artifact} > span:nth-child(2) > span + span {
     color: var(--hcv-muted);
     font: 400 calc(var(--conversation-text-font-size, 13px) - 1px) / 18px var(--hcv-ui-font);
@@ -3196,8 +4536,8 @@ function registerChatResources(ctx, active2) {
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  ${preview2}:has(> button:last-child:not(:disabled)) { cursor: pointer; }
-  ${download} {
+  ${preview3}:has(> button:last-child:not(:disabled)) { cursor: pointer; }
+  ${trailing} {
     grid-area: 1 / 3 / 3 / 4;
     min-block-size: 28px;
     padding: 0 8px;
@@ -3207,7 +4547,16 @@ function registerChatResources(ctx, active2) {
     color: var(--hcv-muted);
     font: 400 12px/18px var(--hcv-ui-font);
   }
-  ${download} > svg { inline-size: 14px; block-size: 14px; }
+  ${directory} > button { grid-row: 1; }
+  ${reveal} {
+    justify-content: center;
+    gap: 4px;
+    white-space: nowrap;
+  }
+  @container (max-width: 340px) {
+    ${reveal} { min-inline-size: 28px; padding-inline: 0; font-size: 0; gap: 0; }
+  }
+  ${preview3} > button > svg { inline-size: 16px; block-size: 16px; }
   ${artifact} > span:nth-child(3) {
     max-inline-size: 40%;
     overflow: hidden;
@@ -3221,12 +4570,12 @@ function registerChatResources(ctx, active2) {
   ${artifact}:focus-visible > span:nth-child(3) { opacity: 1; }
   /* GnI8 in 904817.6fbcca27bc.js reveals the trailing action on hover or focus. */
   @media (hover: hover) {
-    ${download}:not(:disabled) { opacity: 0; pointer-events: none; }
-    ${preview2}:is(:hover, :focus-within) > button[aria-label]:not(:disabled) {
+    ${secondary}:not(:disabled) { opacity: 0; pointer-events: none; }
+    ${preview3}:is(:hover, :focus-within) > ${secondaryAction}:not(:last-child):not(:disabled) {
       opacity: 1;
       pointer-events: auto;
     }
-    ${preview2}:hover:has(> button:last-child:not(:disabled)),
+    ${preview3}:hover:has(> button:last-child:not(:disabled)),
     ${artifact}:not(:disabled):hover {
       background-image: linear-gradient(var(--hcv-resource-hover), var(--hcv-resource-hover));
       --hcv-resource-hover: color-mix(in oklab, var(--hcv-hover-menu) 30%, transparent);
@@ -3236,25 +4585,16 @@ function registerChatResources(ctx, active2) {
     ${artifact} > span:nth-child(3) { opacity: 1; }
   }
   @media (prefers-reduced-motion: reduce) {
-    :is(${preview2}, ${artifact}, ${download}, ${artifact} > span:nth-child(3)) { transition: none; }
+    :is(${preview3}, ${artifact}, ${secondary}, ${artifact} > span:nth-child(3)) { transition: none; }
   }
-  ${preview2}:has(> button:last-child:focus-visible),
-  :is(${artifact}, ${download}, ${imageDownload}):focus-visible,
+  ${withPreview}:has(> button:last-child:focus-visible),
+  :is(${artifact}, ${secondary}, ${reveal}, ${imageDownload}):focus-visible,
   ${generated2} > button:first-of-type:focus-visible {
     outline: 2px solid var(--hcv-focus);
     outline-offset: -2px;
   }
   ${open}:focus-visible { outline: none; }
 
-  ${media2} {
-    padding: 12px;
-    border: 0;
-    border-radius: 10px;
-    box-shadow: inset 0 0 0 .5px var(--hcv-stroke);
-    background: var(--hcv-panel);
-  }
-  ${media2} > span:first-child { color: var(--hcv-muted); font: 500 13px/18px var(--hcv-ui-font); }
-  ${media2} > video { border-radius: 8px; }
   ${image} img, ${generated2} { border-radius: 12px; }
   ${image} img {
     border: 0;
@@ -3269,15 +4609,18 @@ function registerChatResources(ctx, active2) {
     background: var(--hcv-panel);
     color: var(--hcv-muted);
   }
-  :is(${download}, ${imageDownload}):not(:disabled):hover {
+  :is(${secondary}, ${reveal}, ${imageDownload}):not(:disabled):hover {
     background: var(--hcv-selected);
     color: var(--hcv-text);
   }
-  ${codexIconRules(`:is(${download}, ${imageDownload}) > svg.tabler-icon-download`, "download")}
+  ${codexIconRules(`:is(${preview3} > button, ${imageDownload}) > svg.tabler-icon-download`, "download")}
+  ${codexIconRules(`${reveal} > ${revealIcon}`, "folderOpen")}
 
 }
 `;
-  document.head.append(style);
+  mountStyle(ctx, style, { surface: '[data-slot="aui_assistant-message-content"], [data-slot="aui_user-message-root"]', retainAcrossChatTabs: true });
+  registerChatAudio(ctx, active2, `${media2} > audio`);
+  registerChatVideo(ctx, active2, `${media2} > video`);
   document.addEventListener("click", openFromCard);
   ctx.onDispose(() => {
     document.removeEventListener("click", openFromCard);
@@ -3287,10 +4630,82 @@ function registerChatResources(ctx, active2) {
 
 // source/summary-sources-view.js
 import { DropdownMenu as DropdownMenu2, DropdownMenuContent as DropdownMenuContent2, DropdownMenuItem as DropdownMenuItem2, DropdownMenuTrigger as DropdownMenuTrigger2, useI18n } from "@hermes/plugin-sdk";
-import { createElement as h4, useId, useRef as useRef2, useState as useState2 } from "react";
-var labels = {
+import { createElement as h5, useRef as useRef2, useState as useState2 } from "react";
+
+// source/summary-section.js
+import { createElement as h4, useId } from "react";
+function SummarySection({ kind, title, expanded, onToggle, action, children, ...props }) {
+  const id2 = useId();
+  return h4(
+    "section",
+    { ...props, "data-hcv-summary-section": kind, "data-collapsed": !expanded || void 0, "aria-label": title },
+    h4(
+      "header",
+      null,
+      h4(
+        "button",
+        {
+          type: "button",
+          "data-hcv-summary-heading": "",
+          "aria-controls": id2,
+          "aria-expanded": expanded,
+          onClick: onToggle
+        },
+        h4("span", { title, dir: "auto" }, title),
+        h4("span", { "aria-hidden": true, "data-hcv-summary-chevron": "", style: codexIconStyle("down") })
+      ),
+      action
+    ),
+    h4(
+      "div",
+      { id: id2, "data-hcv-summary-disclosure": "", inert: !expanded, "aria-hidden": !expanded },
+      h4("div", { "data-hcv-summary-contents": "" }, children)
+    )
+  );
+}
+function summarySectionStyles(card) {
+  const section2 = card + " > [data-hcv-summary-section]";
+  return `
+${section2} + [data-hcv-summary-section] {
+  border-block-start: .5px solid var(--hcv-hairline);
+  margin-block-start: 8px;
+  padding-block-start: 8px;
+}
+${section2}[data-hcv-summary-section="outputs"] + [data-hcv-summary-agents] { border-block-start: 0; padding-block-start: 0; }
+${section2} > header { display: flex; align-items: center; gap: 4px; min-block-size: 28px; }
+${section2} [data-hcv-summary-heading] {
+  display: flex; align-items: center; gap: 6px; min-inline-size: 0; max-inline-size: 100%;
+  min-block-size: 24px; padding: 0; border: 0; border-radius: 6px; background: none; cursor: pointer;
+  color: var(--hcv-muted); font: inherit; text-align: start;
+}
+${section2} [data-hcv-summary-heading] > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+${section2} [data-hcv-summary-chevron] {
+  display: block; inline-size: 12px; block-size: 12px; flex: none; opacity: 0;
+}
+${section2} [data-hcv-summary-heading]:is(:hover, :focus-visible, [aria-expanded="false"]) [data-hcv-summary-chevron] { opacity: 1; }
+${section2}[data-collapsed] [data-hcv-summary-chevron] { rotate: -90deg; }
+${section2}[data-collapsed]:dir(rtl) [data-hcv-summary-chevron] { rotate: 90deg; }
+${section2} > header > :last-child:not([data-hcv-summary-heading]) { margin-inline-start: auto; }
+${section2} [data-hcv-summary-disclosure] {
+  display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 1fr; margin-block-start: 2px;
+}
+${section2}[data-collapsed] [data-hcv-summary-disclosure] { grid-template-rows: 0fr; opacity: 0; margin-block-start: 0; }
+${section2} [data-hcv-summary-contents] { min-inline-size: 0; min-block-size: 0; overflow: clip; margin-inline: -8px; padding-inline: 8px; }
+@media (prefers-reduced-motion: no-preference) {
+  ${section2} [data-hcv-summary-disclosure] {
+    transition: grid-template-rows 300ms cubic-bezier(.19, 1, .22, 1), opacity 300ms cubic-bezier(.19, 1, .22, 1);
+  }
+  ${section2} [data-hcv-summary-chevron] { transition: rotate 300ms cubic-bezier(.19, 1, .22, 1); }
+}
+`;
+}
+
+// source/summary-sources-view.js
+var labels2 = {
   ru: {
     title: "\u0418\u0441\u0442\u043E\u0447\u043D\u0438\u043A\u0438",
+    outputs: "\u0420\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442\u044B",
+    pullRequests: "\u0417\u0430\u043F\u0440\u043E\u0441\u044B \u043D\u0430 \u0432\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439",
     showAll: "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0432\u0441\u0435",
     add: "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u0438\u0441\u0442\u043E\u0447\u043D\u0438\u043A",
     addHint: "\u041F\u0440\u0438\u043A\u0440\u0435\u043F\u0438\u0442\u044C \u0444\u0430\u0439\u043B\u044B \u0438\u043B\u0438 \u043F\u043E\u0434\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u043F\u0440\u0438\u043B\u043E\u0436\u0435\u043D\u0438\u044F",
@@ -3311,6 +4726,8 @@ var labels = {
   },
   en: {
     title: "Sources",
+    outputs: "Outputs",
+    pullRequests: "Pull requests",
     showAll: "View all",
     add: "Add source",
     addHint: "Attach files or connect apps",
@@ -3332,62 +4749,60 @@ var labels = {
 };
 var composerAdd = '[data-slot="composer-root"] button[aria-haspopup="menu"]:has(> .codicon-add)';
 function icon2(name) {
-  return h4("span", { "aria-hidden": true, className: "hcv-source-glyph", style: codexIconStyle(name) });
+  return h5("span", { "aria-hidden": true, className: "hcv-source-glyph", style: codexIconStyle(name) });
 }
 function viewAllIcon() {
-  return h4(
+  return h5(
     "svg",
     { "aria-hidden": true, className: "hcv-sources-all-icon", viewBox: "0 0 20 20", fill: "currentColor" },
-    h4("path", { d: "M16.6345 5.83331C16.6345 4.81987 15.813 3.99835 14.7996 3.99835C13.7863 3.99855 12.9646 4.81999 12.9646 5.83331C12.9646 6.84663 13.7863 7.66808 14.7996 7.66827C15.813 7.66827 16.6345 6.84676 16.6345 5.83331ZM3.36499 14.1663C3.36499 15.1798 4.18651 16.0013 5.19995 16.0013C6.21339 16.0013 7.03491 15.1798 7.03491 14.1663C7.03471 13.153 6.21327 12.3314 5.19995 12.3314C4.18663 12.3314 3.36519 13.153 3.36499 14.1663ZM17.9646 5.83331C17.9646 7.58129 16.5475 8.99835 14.7996 8.99835C13.2785 8.99818 12.0078 7.92497 11.7039 6.49445L11.6667 6.49835H11.3347C10.5362 6.49835 9.96426 6.49872 9.54565 6.52081C9.21098 6.53848 9.04089 6.56873 8.96069 6.59113L8.90796 6.60968C8.41777 6.86301 8.2248 7.46527 8.47632 7.95636L8.50757 8.00323C8.55968 8.068 8.68066 8.19148 8.94312 8.4007C9.27097 8.66203 9.73648 8.99501 10.3865 9.45929L11.239 10.0716C11.489 10.2539 11.7044 10.4155 11.8855 10.5599C12.2255 10.8309 12.5425 11.1144 12.7078 11.4368L12.8054 11.6536C13.206 12.6785 12.8306 13.8502 11.9089 14.4515L11.7029 14.5716C11.381 14.7379 10.9584 14.785 10.5242 14.8079C10.0619 14.8323 9.44766 14.8314 8.66479 14.8314H8.33276C8.31992 14.8314 8.30734 14.8282 8.29468 14.8275C7.9907 16.2581 6.72124 17.3314 5.19995 17.3314C3.45197 17.3314 2.03491 15.9143 2.03491 14.1663C2.03511 12.4185 3.45209 11.0013 5.19995 11.0013C6.72066 11.0013 7.99008 12.0743 8.29468 13.5042C8.30731 13.5035 8.31995 13.5013 8.33276 13.5013H8.66479C9.46362 13.5013 10.0362 13.5019 10.4548 13.4798C10.9013 13.4562 11.0544 13.4096 11.0925 13.39L11.1804 13.3382C11.5766 13.0799 11.7385 12.5765 11.5662 12.136L11.5242 12.0433C11.5046 12.0051 11.4062 11.8788 11.0564 11.5999C10.8925 11.4693 10.6943 11.3206 10.4558 11.1468L9.61304 10.5413C8.97593 10.0862 8.47599 9.72927 8.11401 9.44073C7.81659 9.20364 7.53702 8.95681 7.36108 8.68292L7.29272 8.56378C6.70695 7.42066 7.15568 6.0189 8.29663 5.42902L8.42163 5.3714C8.7241 5.25059 9.09524 5.21275 9.47534 5.19269C9.93756 5.16829 10.5518 5.16827 11.3347 5.16827H11.6667L11.7039 5.1712C12.0082 3.74114 13.2788 2.66845 14.7996 2.66827C16.5475 2.66827 17.9646 4.08533 17.9646 5.83331Z" })
+    h5("path", { d: "M16.6345 5.83331C16.6345 4.81987 15.813 3.99835 14.7996 3.99835C13.7863 3.99855 12.9646 4.81999 12.9646 5.83331C12.9646 6.84663 13.7863 7.66808 14.7996 7.66827C15.813 7.66827 16.6345 6.84676 16.6345 5.83331ZM3.36499 14.1663C3.36499 15.1798 4.18651 16.0013 5.19995 16.0013C6.21339 16.0013 7.03491 15.1798 7.03491 14.1663C7.03471 13.153 6.21327 12.3314 5.19995 12.3314C4.18663 12.3314 3.36519 13.153 3.36499 14.1663ZM17.9646 5.83331C17.9646 7.58129 16.5475 8.99835 14.7996 8.99835C13.2785 8.99818 12.0078 7.92497 11.7039 6.49445L11.6667 6.49835H11.3347C10.5362 6.49835 9.96426 6.49872 9.54565 6.52081C9.21098 6.53848 9.04089 6.56873 8.96069 6.59113L8.90796 6.60968C8.41777 6.86301 8.2248 7.46527 8.47632 7.95636L8.50757 8.00323C8.55968 8.068 8.68066 8.19148 8.94312 8.4007C9.27097 8.66203 9.73648 8.99501 10.3865 9.45929L11.239 10.0716C11.489 10.2539 11.7044 10.4155 11.8855 10.5599C12.2255 10.8309 12.5425 11.1144 12.7078 11.4368L12.8054 11.6536C13.206 12.6785 12.8306 13.8502 11.9089 14.4515L11.7029 14.5716C11.381 14.7379 10.9584 14.785 10.5242 14.8079C10.0619 14.8323 9.44766 14.8314 8.66479 14.8314H8.33276C8.31992 14.8314 8.30734 14.8282 8.29468 14.8275C7.9907 16.2581 6.72124 17.3314 5.19995 17.3314C3.45197 17.3314 2.03491 15.9143 2.03491 14.1663C2.03511 12.4185 3.45209 11.0013 5.19995 11.0013C6.72066 11.0013 7.99008 12.0743 8.29468 13.5042C8.30731 13.5035 8.31995 13.5013 8.33276 13.5013H8.66479C9.46362 13.5013 10.0362 13.5019 10.4548 13.4798C10.9013 13.4562 11.0544 13.4096 11.0925 13.39L11.1804 13.3382C11.5766 13.0799 11.7385 12.5765 11.5662 12.136L11.5242 12.0433C11.5046 12.0051 11.4062 11.8788 11.0564 11.5999C10.8925 11.4693 10.6943 11.3206 10.4558 11.1468L9.61304 10.5413C8.97593 10.0862 8.47599 9.72927 8.11401 9.44073C7.81659 9.20364 7.53702 8.95681 7.36108 8.68292L7.29272 8.56378C6.70695 7.42066 7.15568 6.0189 8.29663 5.42902L8.42163 5.3714C8.7241 5.25059 9.09524 5.21275 9.47534 5.19269C9.93756 5.16829 10.5518 5.16827 11.3347 5.16827H11.6667L11.7039 5.1712C12.0082 3.74114 13.2788 2.66845 14.7996 2.66827C16.5475 2.66827 17.9646 4.08533 17.9646 5.83331Z" })
   );
 }
 function connectorRows(connectors) {
   return (connectors ?? []).map(({ name }) => ({ kind: "source", key: name, name }));
 }
-function sourceLabel(row3, copy6) {
-  return row3.name || ({ image: copy6.image, folder: copy6.folder, link: copy6.link }[row3.kind] ?? copy6.file);
+function sourceLabel(row4, copy6) {
+  return row4.name || ({ image: copy6.image, folder: copy6.folder, link: copy6.link }[row4.kind] ?? copy6.file);
 }
-function sourceDescription(row3, copy6) {
-  if (row3.kind === "source") return copy6.connector;
-  if (!row3.attached) return copy6.fromChat;
-  return row3.kind === "link" ? copy6.provided : copy6.attached;
+function sourceDescription(row4, copy6) {
+  if (row4.kind === "source") return copy6.connector;
+  if (!row4.attached) return copy6.fromChat;
+  return row4.kind === "link" ? copy6.provided : copy6.attached;
 }
-function SourceRow({ row: row3, expanded = false, copy: copy6, onOpenSource, onConnectors }) {
-  const name = sourceLabel(row3, copy6);
-  const open = row3.kind === "source" ? onConnectors && (() => onConnectors(row3.name)) : row3.action && onOpenSource && (() => onOpenSource(row3));
+function SourceRow({ row: row4, expanded = false, copy: copy6, onOpenSource, onConnectors }) {
+  const name = sourceLabel(row4, copy6);
+  const open = row4.kind === "source" ? onConnectors && (() => onConnectors(row4.name)) : row4.action && onOpenSource && (() => onOpenSource(row4));
   const props = { className: "hcv-source-row", title: name };
-  const content = h4("span", { className: "hcv-source-leading", "aria-hidden": true }, row3.thumbnail ? h4("img", { className: "hcv-source-thumbnail", src: row3.thumbnail, alt: "", draggable: false }) : icon2(row3.kind));
-  const text = h4(
+  const content = h5("span", { className: "hcv-source-leading", "aria-hidden": true }, row4.thumbnail ? h5("img", { className: "hcv-source-thumbnail", src: row4.thumbnail, alt: "", draggable: false }) : icon2(row4.kind));
+  const text = h5(
     "span",
     { className: "hcv-source-text" },
-    h4("span", { className: "hcv-source-title", dir: "auto" }, name),
-    expanded && row3.meta && h4("span", { className: "hcv-source-meta", dir: "auto" }, row3.meta)
+    h5("span", { className: "hcv-source-title", dir: "auto" }, name),
+    expanded && row4.meta && h5("span", { className: "hcv-source-meta", dir: "auto" }, row4.meta)
   );
-  return h4(
+  return h5(
     "li",
-    { "data-hcv-source-row": row3.kind },
-    h4(open ? "button" : "div", open ? { ...props, type: "button", "aria-label": name, onClick: open } : props, content, text),
-    expanded && h4("p", { className: "hcv-source-description" }, sourceDescription(row3, copy6))
+    { "data-hcv-source-row": row4.kind },
+    h5(open ? "button" : "div", open ? { ...props, type: "button", "aria-label": name, onClick: open } : props, content, text),
+    expanded && h5("p", { className: "hcv-source-description" }, sourceDescription(row4, copy6))
   );
 }
 function sourceList(rows, props) {
-  return rows.map((row3) => h4(SourceRow, { ...props, key: `${row3.kind}:${row3.key}`, row: row3 }));
+  return rows.map((row4) => h5(SourceRow, { ...props, key: `${row4.kind}:${row4.key}`, row: row4 }));
 }
 function openComposerMenu(getChat) {
-  const chat2 = getChat?.();
+  const chat3 = getChat?.();
   requestAnimationFrame(() => {
-    if (!chat2?.isConnected || getChat() !== chat2) return;
-    const add = chat2.querySelector(composerAdd);
+    if (!chat3?.isConnected || getChat() !== chat3) return;
+    const add = chat3.querySelector(composerAdd);
     if (!add || add.disabled || add.getAttribute("aria-expanded") === "true") return;
     add.focus({ preventScroll: true });
     add.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
   });
 }
-function CompactSources({ rows = [], connectors, loading, onExpand, onConnectors, onOpenSource, getChat }) {
+function CompactSources({ rows = [], connectors, loading, onExpand, onConnectors, onOpenSource, getChat, disclosure: disclosure2 }) {
   const { locale } = useI18n();
-  const copy6 = labels[locale] || labels.en;
-  const contentId = useId();
-  const [expanded, setExpanded] = useState2(true);
+  const copy6 = labels2[locale] || labels2.en;
   const [menuOpen, setMenuOpen] = useState2(false);
   const movingFocus = useRef2(false);
   const items2 = [...rows, ...connectorRows(connectors)];
@@ -3396,80 +4811,69 @@ function CompactSources({ rows = [], connectors, loading, onExpand, onConnectors
     movingFocus.current = true;
     action();
   }
-  return h4(
-    "section",
-    { "data-hcv-sources-compact": "", "data-collapsed": !expanded || void 0, "aria-label": copy6.title },
-    h4(
-      "header",
-      null,
-      h4(
-        "button",
-        {
-          className: "hcv-sources-heading",
-          type: "button",
-          "aria-controls": contentId,
-          "aria-expanded": expanded,
-          onClick: () => setExpanded((value) => !value)
-        },
-        h4("span", null, copy6.title),
-        !expanded && items2.length > 0 && h4("span", { className: "hcv-sources-count" }, items2.length),
-        h4("span", { className: "hcv-sources-chevron" }, icon2("down"))
-      ),
-      h4(
-        DropdownMenu2,
-        { open: menuOpen, onOpenChange: setMenuOpen, modal: false },
-        h4(DropdownMenuTrigger2, { asChild: true }, h4("button", {
-          type: "button",
-          className: "hcv-sources-add",
-          "aria-label": copy6.add,
-          title: copy6.addHint
-        }, icon2("plus"))),
-        h4(
-          DropdownMenuContent2,
-          {
-            align: "end",
-            sideOffset: 4,
-            "data-hcv-sources-add-menu": "",
-            onCloseAutoFocus: (event) => {
-              if (movingFocus.current) event.preventDefault();
-              movingFocus.current = false;
-            }
-          },
-          h4(DropdownMenuItem2, { disabled: !onConnectors, onSelect: () => menuAction(() => onConnectors()) }, icon2("plugins"), copy6.plugins),
-          h4(DropdownMenuItem2, { disabled: !getChat, onSelect: () => menuAction(() => openComposerMenu(getChat)) }, icon2("attach"), copy6.attach)
-        )
-      )
-    ),
-    h4(
-      "div",
-      { id: contentId, className: "hcv-sources-disclosure", inert: !expanded, "aria-hidden": !expanded },
-      h4("div", { className: "hcv-sources-compact-content" }, items2.length ? [
-        h4("ul", { key: "list", "aria-label": copy6.title }, ...sourceList(items2.slice(0, 3), { copy: copy6, onOpenSource, onConnectors })),
-        h4(
-          "button",
-          { key: "expand", type: "button", className: "hcv-source-row hcv-sources-all", onClick: onExpand },
-          h4("span", { className: "hcv-source-leading" }, viewAllIcon()),
-          h4("span", null, copy6.showAll)
-        )
-      ] : loading ? h4("p", { role: "status", className: "hcv-sources-state" }, copy6.loading) : h4("button", { type: "button", className: "hcv-source-row hcv-sources-empty", onClick: showMenu }, copy6.addHint))
+  const add = h5(
+    DropdownMenu2,
+    { open: menuOpen, onOpenChange: setMenuOpen, modal: false },
+    h5(DropdownMenuTrigger2, { asChild: true }, h5("button", {
+      type: "button",
+      className: "hcv-sources-add",
+      "aria-label": copy6.add,
+      title: copy6.addHint
+    }, icon2("plus"))),
+    h5(
+      DropdownMenuContent2,
+      {
+        align: "end",
+        sideOffset: 4,
+        "data-hcv-sources-add-menu": "",
+        onCloseAutoFocus: (event) => {
+          if (movingFocus.current) event.preventDefault();
+          movingFocus.current = false;
+        }
+      },
+      h5(DropdownMenuItem2, { disabled: !onConnectors, onSelect: () => menuAction(() => onConnectors()) }, icon2("plugins"), copy6.plugins),
+      h5(DropdownMenuItem2, { disabled: !getChat, onSelect: () => menuAction(() => openComposerMenu(getChat)) }, icon2("attach"), copy6.attach)
     )
+  );
+  return h5(
+    SummarySection,
+    { ...disclosure2, kind: "sources", title: copy6.title, action: add, "data-hcv-sources-compact": "" },
+    items2.length ? [
+      h5("ul", { key: "list", "aria-label": copy6.title }, sourceList(items2.slice(0, 3), { copy: copy6, onOpenSource, onConnectors })),
+      h5(
+        "button",
+        { key: "expand", type: "button", className: "hcv-source-row hcv-sources-all", onClick: onExpand },
+        h5("span", { className: "hcv-source-leading" }, viewAllIcon()),
+        h5("span", null, copy6.showAll)
+      )
+    ] : loading ? h5("p", { role: "status", className: "hcv-sources-state" }, copy6.loading) : h5("button", { type: "button", className: "hcv-source-row hcv-sources-empty", onClick: showMenu }, copy6.addHint)
+  );
+}
+function CompactSummaryItems({ kind, rows, onOpenSource, disclosure: disclosure2 }) {
+  const { locale } = useI18n();
+  const copy6 = labels2[locale] || labels2.en;
+  if (!rows.length) return null;
+  return h5(
+    SummarySection,
+    { ...disclosure2, kind, title: copy6[kind], "data-hcv-summary-items": "" },
+    h5("ul", { "aria-label": copy6[kind] }, sourceList(rows, { copy: copy6, onOpenSource }))
   );
 }
 function SourcesPane({ rows = [], connectors, loading, onConnectors, onOpenSource }) {
   const { locale } = useI18n();
-  const copy6 = labels[locale] || labels.en;
+  const copy6 = labels2[locale] || labels2.en;
   const items2 = [...rows, ...connectorRows(connectors)];
-  return h4(
+  return h5(
     "div",
     { "data-hcv-sources-pane": "" },
-    items2.length ? h4("ul", { "aria-label": copy6.title }, ...sourceList(items2, { expanded: true, copy: copy6, onOpenSource, onConnectors })) : h4("p", { role: "status", className: "hcv-sources-state" }, loading ? copy6.loading : connectors == null ? copy6.unavailable : copy6.empty),
-    onConnectors && h4("button", { type: "button", className: "hcv-sources-connectors", onClick: () => onConnectors() }, icon2("source"), copy6.connectors)
+    items2.length ? h5("ul", { "aria-label": copy6.title }, ...sourceList(items2, { expanded: true, copy: copy6, onOpenSource, onConnectors })) : h5("p", { role: "status", className: "hcv-sources-state" }, loading ? copy6.loading : connectors == null ? copy6.unavailable : copy6.empty),
+    onConnectors && h5("button", { type: "button", className: "hcv-sources-connectors", onClick: () => onConnectors() }, icon2("source"), copy6.connectors)
   );
 }
 function registerSummarySources(ctx, active2) {
-  const compact = `${active2} [data-hcv-sources-compact]`;
+  const compact = `${active2} :is([data-hcv-sources-compact], [data-hcv-summary-items])`;
   const pane = `${active2} [data-hcv-sources-pane]`;
-  const view = `${active2} :is([data-hcv-sources-compact], [data-hcv-sources-pane])`;
+  const view = `${active2} :is([data-hcv-sources-compact], [data-hcv-sources-pane], [data-hcv-summary-items])`;
   const menu = `${active2} [data-hcv-sources-add-menu]`;
   const style = document.createElement("style");
   style.dataset.hcvSummarySources = "";
@@ -3492,26 +4896,12 @@ function registerSummarySources(ctx, active2) {
     ${view} .hcv-source-row { inline-size: 100%; min-inline-size: 0; display: flex; align-items: center; }
     ${view} .hcv-sources-state { padding-block: 4px; color: var(--hcv-muted); }
 
-    ${compact} { border-block-start: .5px solid var(--hcv-hairline); padding-block-start: 6px; }
-    ${compact} > header { display: flex; align-items: center; gap: 8px; min-block-size: 28px; padding-block-end: 2px; color: var(--hcv-muted); }
-    ${compact} .hcv-sources-heading {
-      display: flex; align-items: center; gap: 4px; flex: 1; min-inline-size: 0;
-      padding: 2px 4px 2px 3.5px; margin-inline-start: -3.5px; border-radius: 12px;
-    }
-    ${compact} .hcv-sources-chevron { display: grid; place-items: center; opacity: 0; }
-    ${compact} .hcv-sources-chevron > span { inline-size: 12px; block-size: 12px; }
-    ${compact} .hcv-sources-heading:is(:hover, :focus-visible) .hcv-sources-chevron { opacity: 1; }
-    ${compact}[data-collapsed] .hcv-sources-chevron { opacity: 1; rotate: -90deg; }
-    ${compact} .hcv-sources-count { color: var(--hcv-source-tertiary); }
     ${compact} .hcv-sources-add {
       display: grid; place-items: center; inline-size: 24px; block-size: 24px; padding: 0; margin-inline-end: -6px;
       border-radius: 7px; color: color-mix(in srgb, var(--hcv-text) 40%, transparent);
     }
     ${compact} .hcv-sources-add:is(:hover, [data-state="open"]) { color: var(--hcv-text); background: color-mix(in srgb, var(--hcv-text) 8%, transparent); }
-    ${compact} .hcv-sources-disclosure { display: grid; grid-template-rows: 1fr; opacity: 1; margin-block-start: 2px; }
-    ${compact}[data-collapsed] .hcv-sources-disclosure { grid-template-rows: 0fr; opacity: 0; margin-block-start: 0; }
-    ${compact} .hcv-sources-compact-content { min-block-size: 0; overflow: clip; margin-inline: -8px; padding-inline: 8px; }
-    ${compact} .hcv-sources-compact-content > ul { display: flex; flex-direction: column; gap: 2px; }
+    ${compact} [data-hcv-summary-contents] > ul { display: flex; flex-direction: column; }
     ${compact} .hcv-source-row {
       position: relative; isolation: isolate; gap: 12px; min-block-size: 28px;
       padding: 4px 0; border-radius: 6px; color: var(--hcv-muted);
@@ -3542,18 +4932,8 @@ function registerSummarySources(ctx, active2) {
       border-radius: 8px; color: var(--hcv-muted);
     }
     ${pane} .hcv-sources-connectors:hover { color: var(--hcv-text); background: var(--hcv-hover); }
-    @media (prefers-reduced-motion: no-preference) {
-      /* Nwje's disclosure uses V8uZ.X7: 300ms and cubic-bezier(.19, 1, .22, 1). */
-      ${compact} .hcv-sources-disclosure {
-        transition-property: grid-template-rows, opacity, margin-block-start;
-        transition-duration: 300ms;
-        transition-timing-function: cubic-bezier(.19, 1, .22, 1);
-      }
-      ${compact} .hcv-sources-chevron { transition: rotate 150ms cubic-bezier(.4, 0, .2, 1); }
-    }
   `;
-  document.head.append(style);
-  ctx.onDispose(() => style.remove());
+  mountStyle(ctx, style, { surface: "[data-hcv-sources-compact], [data-hcv-sources-pane], [data-hcv-sources-add-menu], [data-hcv-summary-items]", retainAcrossChatTabs: true });
 }
 
 // source/summary-sources.js
@@ -3567,6 +4947,10 @@ var candidates = [
   ".aui-md a[href]"
 ].join(", ");
 var directiveKinds = /* @__PURE__ */ new Map([["file", "artifacts"], ["folder", "folder"], ["image", "image"]]);
+var sourceNodes = 'a[href], img, [data-slot="aui_directive-chip"], [data-slot="aui_artifact-card"], svg.tabler-icon-device-desktop-analytics';
+var sourceContainer = 'a[href], [data-slot="aui_directive-chip"], [data-slot="aui_artifact-card"], div:has(> span:first-child > svg.tabler-icon-device-desktop-analytics)';
+var userMessage = '[data-slot="aui_user-message-root"]';
+var userAttachment = userMessage + ' + div:not([data-slot]):has(> [data-slot="aui_directive-text"])';
 function httpLink(value) {
   try {
     const url = new URL(value);
@@ -3575,65 +4959,84 @@ function httpLink(value) {
     return null;
   }
 }
-function sourceFrom(node2) {
-  const attached = Boolean(node2.closest('[data-slot="aui_user-message-root"]'));
-  if (node2 instanceof HTMLImageElement) {
-    const action2 = node2.closest("button");
-    const src = node2.currentSrc || node2.getAttribute("src");
-    if (!action2 || !src || !node2.complete || !node2.naturalWidth) return null;
+function isPullRequest(link2) {
+  return link2?.hostname === "github.com" && /^\/[^/]+\/[^/]+\/pull\/\d+\/?$/.test(link2.pathname) || link2?.hostname === "gitlab.com" && /\/-\/merge_requests\/\d+\/?$/.test(link2.pathname);
+}
+function sourceFrom(node3) {
+  const attached = Boolean(node3.closest(userMessage + ", " + userAttachment));
+  if (node3 instanceof HTMLImageElement) {
+    const action2 = node3.closest("button");
+    const src = node3.currentSrc || node3.getAttribute("src");
+    if (!action2 || !src || !node3.complete || !node3.naturalWidth) return null;
     const thumbnail = /^(?:blob:|file:|hermes-[a-z-]+:|data:image\/(?:png|jpe?g|gif|webp|avif|bmp);)/i.test(src) ? src : null;
-    const alt = node2.alt.trim() || action2.title?.trim() || "";
+    const alt = node3.alt.trim() || action2.title?.trim() || "";
     const path = /^(?:[a-z]:[/\\]|[/\\])/i.test(alt) ? alt : null;
     const name2 = path ? path.split(/[/\\]/).at(-1) : alt;
-    return { kind: "image", key: src, name: name2, meta: path, thumbnail, attached, action: action2 };
+    const section3 = !attached && node3.closest('[data-slot="aui_generated-image"]') ? "outputs" : void 0;
+    return { kind: "image", key: src, name: name2, meta: path, thumbnail, attached, action: action2, section: section3 };
   }
-  if (node2.matches(filePreview)) {
-    const label = node2.previousElementSibling?.previousElementSibling;
-    const name2 = label?.textContent.trim();
-    return name2 ? { kind: "artifacts", key: label.title, name: name2, meta: label.title, attached, action: node2 } : null;
+  if (node3.matches(filePreview)) {
+    const label4 = node3.previousElementSibling?.previousElementSibling;
+    const name2 = label4?.textContent.trim();
+    return name2 ? {
+      kind: "artifacts",
+      key: label4.title,
+      name: name2,
+      meta: label4.title,
+      attached,
+      action: node3,
+      section: attached ? void 0 : "outputs"
+    } : null;
   }
-  const reference = node2.dataset.directiveId;
-  const kind = directiveKinds.get(node2.dataset.ref) || (node2.dataset.slot === "aui_artifact-card" ? "artifacts" : "link");
-  const link = kind === "link" && httpLink(node2.getAttribute("href") || reference);
-  if (kind === "link" && !link) return null;
-  const name = node2.querySelector(".truncate")?.textContent.trim() || node2.textContent.trim() || link?.hostname || null;
-  const action = node2.matches("button, a[href]") ? node2 : null;
-  return { kind, key: reference || link?.href || name, name, meta: link?.href || reference, attached, action };
+  const reference = node3.dataset.directiveId;
+  const kind = directiveKinds.get(node3.dataset.ref) || (node3.dataset.slot === "aui_artifact-card" ? "artifacts" : "link");
+  const link2 = kind === "link" && httpLink(node3.getAttribute("href") || reference);
+  if (kind === "link" && !link2) return null;
+  const label3 = node3.querySelector(".truncate")?.textContent.trim() || node3.textContent.trim() || link2?.hostname || null;
+  const name = kind === "folder" && label3 && label3 === reference ? label3.split(/[/\\]/).filter(Boolean).at(-1) || label3 : label3;
+  const action = node3.matches("button, a[href]") ? node3 : null;
+  const section2 = isPullRequest(link2) ? "pullRequests" : !attached && node3.dataset.slot === "aui_artifact-card" ? "outputs" : void 0;
+  return { kind, key: reference || link2?.href || name, name, meta: link2?.href || reference, attached, action, section: section2 };
 }
 function useChatSources(getChat, scopeKey3, enabled) {
   const [snapshot, setSnapshot] = useState3(null);
   useEffect2(() => {
     if (!enabled) return;
     let frame = 0;
-    let chat2 = null;
+    let chat3 = null;
     let body = null;
-    const content = new MutationObserver(queue);
+    const content = new MutationObserver((records) => {
+      if (records.some(({ type, target, addedNodes, removedNodes }) => type === "attributes" && target.matches("a, img") || target.closest(sourceContainer) || [addedNodes, removedNodes].some((nodes) => Array.prototype.some.call(
+        nodes,
+        (node3) => node3 instanceof Element && (node3.matches(sourceNodes) || node3.querySelector(sourceNodes))
+      )))) queue();
+    });
     const mounts = new MutationObserver((records) => {
-      if (!chat2?.isConnected || !body?.isConnected || records.some((record) => [...record.addedNodes, ...record.removedNodes].some(
-        (node2) => node2 instanceof Element && (node2.matches(transcript) || node2.querySelector(transcript))
+      if (!chat3?.isConnected || !body?.isConnected || records.some((record) => [...record.addedNodes, ...record.removedNodes].some(
+        (node3) => node3 instanceof Element && (node3.matches(transcript) || node3.querySelector(transcript))
       ))) queue();
     });
     function collect() {
       frame = 0;
-      chat2 = getChat();
-      const next = chat2?.querySelector(transcript);
+      chat3 = getChat();
+      const next = chat3?.querySelector(transcript);
       if (next !== body) {
         content.disconnect();
         body?.removeEventListener("load", queue, true);
         body = next;
         if (body) {
-          content.observe(body, { childList: true, subtree: true, attributes: true, attributeFilter: ["href", "src", "alt"] });
+          content.observe(body, { childList: true, subtree: true, attributes: true, attributeFilter: ["href", "src", "alt", "title"] });
           body.addEventListener("load", queue, true);
         }
       }
       const unique = /* @__PURE__ */ new Map();
-      for (const node2 of [...body?.querySelectorAll(candidates) || []].reverse()) {
-        const row3 = sourceFrom(node2);
-        const key = row3 && `${row3.kind}:${row3.key}`;
-        if (key && !unique.has(key)) unique.set(key, row3);
+      for (const node3 of [...body?.querySelectorAll(candidates) || []].reverse()) {
+        const row4 = sourceFrom(node3);
+        const key = row4 && `${row4.kind}:${row4.key}`;
+        if (key && !unique.has(key)) unique.set(key, row4);
       }
       const rows = [...unique.values()];
-      setSnapshot((old) => old?.scopeKey === scopeKey3 && old.rows.length === rows.length && rows.every((row3, i) => row3.action === old.rows[i].action && row3.key === old.rows[i].key && row3.name === old.rows[i].name && row3.thumbnail === old.rows[i].thumbnail && row3.kind === old.rows[i].kind && row3.meta === old.rows[i].meta && row3.attached === old.rows[i].attached) ? old : { scopeKey: scopeKey3, rows });
+      setSnapshot((old) => old?.scopeKey === scopeKey3 && old.rows.length === rows.length && rows.every((row4, i) => row4.action === old.rows[i].action && row4.key === old.rows[i].key && row4.name === old.rows[i].name && row4.thumbnail === old.rows[i].thumbnail && row4.kind === old.rows[i].kind && row4.meta === old.rows[i].meta && row4.attached === old.rows[i].attached && row4.section === old.rows[i].section) ? old : { scopeKey: scopeKey3, rows });
     }
     function queue() {
       if (!frame) frame = requestAnimationFrame(collect);
@@ -3652,7 +5055,7 @@ function useChatSources(getChat, scopeKey3, enabled) {
 
 // source/subagents.js
 import { atom, host as host7, useValue } from "@hermes/plugin-sdk";
-import { createElement as h6, useEffect as useEffect4 } from "react";
+import { createElement as h7, useEffect as useEffect4 } from "react";
 
 // source/agent-avatars.js
 var shapes = [
@@ -3670,7 +5073,7 @@ var palettes = [
   [["#2f3959", "#b4c3ff"], ["#e1e7fb", "#4a5eac"]],
   [["#4b3230", "#ffb4a1"], ["#f5e1d9", "#963e35"]]
 ];
-var agentAvatars = shapes.flatMap(
+var agentAvatars = localAssets?.avatars ?? shapes.flatMap(
   (shape) => palettes.map((palette) => palette.map(
     ([background, foreground]) => `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" style="color:${foreground};--badge-bg:${background}"><rect x="1" y="1" width="22" height="22" rx="8" fill="${background}"/>${shape}</svg>`
   ))
@@ -3678,8 +5081,8 @@ var agentAvatars = shapes.flatMap(
 
 // source/summary-agents.js
 import { CopyButton, host as host6, reasoningEffortLabel, Streamdown } from "@hermes/plugin-sdk";
-import { createElement as h5, useEffect as useEffect3, useLayoutEffect, useRef as useRef3, useState as useState4 } from "react";
-var labels2 = {
+import { createElement as h6, useEffect as useEffect3, useLayoutEffect as useLayoutEffect2, useRef as useRef3, useState as useState4 } from "react";
+var labels3 = {
   ru: {
     title: "\u0421\u0443\u0431\u0430\u0433\u0435\u043D\u0442\u044B",
     active: "\u0410\u043A\u0442\u0438\u0432\u043D\u044B\u0435",
@@ -3739,7 +5142,7 @@ function relativeTime(value, now, lang) {
   return new Intl.RelativeTimeFormat(lang, { style: "narrow", numeric: "auto" }).format(-age, unit);
 }
 function AgentAvatar({ agent, dark: dark2, avatarUrl: avatarUrl2 }) {
-  return h5("img", {
+  return h6("img", {
     "data-hcv-subagent-avatar": "",
     src: avatarUrl2(agent.seed, dark2),
     alt: "",
@@ -3749,12 +5152,12 @@ function AgentAvatar({ agent, dark: dark2, avatarUrl: avatarUrl2 }) {
   });
 }
 function Glyph({ name }) {
-  return h5("span", { "aria-hidden": true, "data-hcv-subagent-glyph": name, style: codexIconStyle(name) });
+  return h6("span", { "aria-hidden": true, "data-hcv-subagent-glyph": name, style: codexIconStyle(name) });
 }
 function trailingLabel(agent, now, lang, copy6) {
   if (agent.status === "running" && agent.startedAt) return formatDuration((now - agent.startedAt) / 1e3);
   if (agent.status === "completed" && agent.finishedAt) {
-    return h5("time", { dateTime: new Date(agent.finishedAt).toISOString() }, relativeTime(agent.finishedAt, now, lang));
+    return h6("time", { dateTime: new Date(agent.finishedAt).toISOString() }, relativeTime(agent.finishedAt, now, lang));
   }
   return copy6.status[agent.status] || null;
 }
@@ -3762,17 +5165,17 @@ function AgentGroup({ name, title, agents, limit, empty, copy: copy6, now, lang,
   const [expanded, setExpanded] = useState4(false);
   if (!agents.length && !empty) return null;
   const shown = expanded ? agents : agents.slice(0, limit);
-  return h5(
+  return h6(
     "section",
     { "data-hcv-subagent-group": name },
-    h5("h2", null, h5("span", null, title + " \xB7 " + agents.length), trailing && h5("small", null, trailing)),
-    agents.length ? h5("ul", null, shown.map((agent) => {
+    h6("h2", null, h6("span", null, title + " \xB7 " + agents.length), trailing && h6("small", null, trailing)),
+    agents.length ? h6("ul", null, shown.map((agent) => {
       const goal = goalLabel(agent, copy6);
-      const preview2 = !finished(agent) && (agent.activity?.at(-1) || (agent.status === "running" ? copy6.status.running : ""));
-      return h5(
+      const preview3 = !finished(agent) && (agent.activity?.at(-1) || (agent.status === "running" ? copy6.status.running : ""));
+      return h6(
         "li",
         { key: agent.id },
-        h5(
+        h6(
           "button",
           {
             type: "button",
@@ -3780,22 +5183,22 @@ function AgentGroup({ name, title, agents, limit, empty, copy: copy6, now, lang,
             "data-status": agent.status,
             onClick: () => select(agent.id)
           },
-          h5(AgentAvatar, { agent, dark: dark2, avatarUrl: avatarUrl2 }),
-          h5(
+          h6(AgentAvatar, { agent, dark: dark2, avatarUrl: avatarUrl2 }),
+          h6(
             "span",
             { "data-hcv-subagent-row-body": "" },
-            h5(
+            h6(
               "span",
               { "data-hcv-subagent-row-title": "" },
-              h5("span", { "data-hcv-subagent-name": "", title: goal, dir: "auto" }, goal),
-              h5("span", { "data-hcv-subagent-trailing": "" }, trailingLabel(agent, now, lang, copy6))
+              h6("span", { "data-hcv-subagent-name": "", title: goal, dir: "auto" }, goal),
+              h6("span", { "data-hcv-subagent-trailing": "" }, trailingLabel(agent, now, lang, copy6))
             ),
-            preview2 && h5("span", { "data-hcv-subagent-preview": "", title: preview2, dir: "auto" }, preview2)
+            preview3 && h6("span", { "data-hcv-subagent-preview": "", title: preview3, dir: "auto" }, preview3)
           )
         )
       );
-    })) : h5("p", { "data-hcv-subagent-empty": "" }, empty),
-    !expanded && agents.length > limit && h5("button", { type: "button", "data-hcv-subagent-more": "", onClick: () => setExpanded(true) }, copy6.more(agents.length - limit))
+    })) : h6("p", { "data-hcv-subagent-empty": "" }, empty),
+    !expanded && agents.length > limit && h6("button", { type: "button", "data-hcv-subagent-more": "", onClick: () => setExpanded(true) }, copy6.more(agents.length - limit))
   );
 }
 function textFromContent(value) {
@@ -3803,11 +5206,18 @@ function textFromContent(value) {
   if (!Array.isArray(value)) return "";
   return value.filter((part) => part?.type === "text" && typeof part.text === "string").map((part) => part.text).join("\n").trim();
 }
-function useChildResponse(childSession, scope2, status) {
+function savedResponse(rows) {
+  return rows.filter((message) => message?.role === "assistant" && !message.display_kind).map((message) => ({
+    text: textFromContent(message.text ?? message.display_content ?? message.content),
+    timestamp: message.timestamp
+  })).filter((message) => message.text);
+}
+function useChildResponse({ subagentId, childSession, status, model }, scope3) {
   const [snapshot, setSnapshot] = useState4(null);
+  const key = JSON.stringify([scope3, subagentId, childSession]);
   useEffect3(() => {
-    if (!childSession || !scope2 || !window.hermesDesktop?.api) return;
-    const [connectionId, profile2, parent] = JSON.parse(scope2);
+    if (!subagentId && !childSession || !scope3) return;
+    const [connectionId, profile2, parent] = JSON.parse(scope3);
     if (childSession === parent) return;
     let current = true;
     const sameOwner = () => current && host6.state.activeSessionId.get() === parent && (host6.state.connectionId.get() || null) === connectionId && normalizeProfile(host6.state.profile.get()) === profile2;
@@ -3817,56 +5227,108 @@ function useChildResponse(childSession, scope2, status) {
       if (!sameOwner()) return;
       const route = routes.find((entry) => entry.connectionId === connectionId && normalizeProfile(entry.profile) === profile2);
       const targetProfile = route?.targetProfile ?? profile2;
+      const owner = { ...connectionId ? { connectionId } : {}, profile: profile2, passive: true, timeoutMs: 8e3 };
+      if (subagentId) {
+        const stored = host6.state.focusedSessionId?.get() === parent ? host6.state.focusedStoredSessionId?.get() : null;
+        try {
+          const history3 = await host6.request("session.transcript", {
+            session_id: stored || parent,
+            profile: targetProfile,
+            subagent_id: subagentId,
+            order: "latest",
+            limit: 100
+          }, 8e3);
+          if (!sameOwner()) return;
+          const rows = history3?.available === true && history3.subagent_id === subagentId && Array.isArray(history3.rows) ? history3.rows : [];
+          const steps = rows.filter((row4) => row4?.role === "tool" && typeof row4.name === "string").map((row4) => row4.name).slice(-40);
+          const start = rows[0]?.timestamp;
+          const end = rows.at(-1)?.timestamp;
+          const elapsed = history3?.running === false && history3.next_cursor == null && Number.isFinite(start) && Number.isFinite(end) && end > start ? end - start : void 0;
+          const child = rows.length && typeof history3.child_session_id === "string" ? history3.child_session_id : null;
+          const saved = { key, status, messages: savedResponse(rows), steps, elapsed, child };
+          setSnapshot(saved);
+          if (!model && child && child !== parent && window.hermesDesktop?.api) {
+            const query2 = new URLSearchParams({ profile: targetProfile });
+            const details = await window.hermesDesktop.api({
+              ...owner,
+              path: "/api/sessions/" + encodeURIComponent(child) + "?" + query2
+            }).catch(() => null);
+            if (sameOwner() && typeof details?.model === "string") setSnapshot({ ...saved, model: details.model });
+          }
+          return;
+        } catch (error) {
+          if (error?.code !== -32601 && !/method not found|unknown method/i.test(error?.message || "")) throw error;
+        }
+      }
+      if (!sameOwner()) return;
+      if (!childSession || !window.hermesDesktop?.api) {
+        setSnapshot({ key, status, messages: [] });
+        return;
+      }
       const query = new URLSearchParams({ profile: targetProfile, order: "latest", limit: "80", include_compacted: "true" });
       const result = await window.hermesDesktop.api({
-        ...connectionId ? { connectionId } : {},
-        profile: profile2,
-        passive: true,
-        timeoutMs: 8e3,
+        ...owner,
         path: "/api/sessions/" + encodeURIComponent(childSession) + "/messages?" + query
       });
       if (!sameOwner()) return;
       const history2 = result?.messages ?? result?.data;
       const available = Array.isArray(history2) && (!result.profile || normalizeProfile(result.profile) === normalizeProfile(targetProfile));
-      const messages = available ? history2.filter((message) => message?.role === "assistant" && !message.display_kind).map((message) => textFromContent(message.display_content === void 0 ? message.content : message.display_content)).filter(Boolean) : [];
-      setSnapshot({ childSession, status, messages });
+      setSnapshot({ key, status, messages: available ? savedResponse(history2) : [] });
     }
     void read().catch(() => {
-      if (sameOwner()) setSnapshot({ childSession, status, messages: [] });
+      if (sameOwner()) setSnapshot({ key, status, messages: [] });
     });
     return () => {
       current = false;
     };
-  }, [childSession, scope2, status]);
-  return snapshot?.childSession === childSession ? snapshot : null;
+  }, [subagentId, childSession, scope3, status, key, model]);
+  return snapshot?.key === key ? snapshot : null;
 }
 var markdownComponents = {
-  img: ({ alt }) => alt ? h5("span", null, alt) : null,
-  a: ({ children, href }) => /^https?:\/\//i.test(href || "") ? h5("a", { href, target: "_blank", rel: "noopener noreferrer" }, children) : h5("span", null, children)
+  img: ({ alt }) => alt ? h6("span", null, alt) : null,
+  a: ({ children, href }) => /^https?:\/\//i.test(href || "") ? h6("a", { href, target: "_blank", rel: "noopener noreferrer" }, children) : h6("span", null, children),
+  table: ({ node: node3, ...props }) => h6("div", { "data-hcv-subagent-table": "" }, h6("table", props))
 };
-function AgentDetail({ agent, scope: scope2, now, copy: copy6, dark: dark2, avatarUrl: avatarUrl2, onBack, nativeActions: nativeActions2, openNativeAgent: openNativeAgent2 }) {
+function responseMarkdown(text) {
+  if (!text.startsWith("{") && !text.startsWith("[")) return text;
+  try {
+    JSON.parse(text);
+    return "```json\n" + text + "\n```";
+  } catch {
+    return text;
+  }
+}
+function AgentDetail({ agent, scope: scope3, now, copy: copy6, lang, dark: dark2, avatarUrl: avatarUrl2, onBack, nativeActions: nativeActions2, openNativeAgent: openNativeAgent2 }) {
   const back = useRef3(null);
-  useLayoutEffect(() => {
+  useLayoutEffect2(() => {
     back.current?.focus({ preventScroll: true });
   }, []);
-  const snapshot = useChildResponse(agent.childSession, scope2, agent.status);
+  const snapshot = useChildResponse(agent, scope3);
   const completed = finished(agent);
-  const model = [agent.model, agent.effort && reasoningEffortLabel(agent.effort)].filter(Boolean).join(" \xB7 ");
-  const elapsed = agent.durationSeconds ?? (agent.startedAt && ((agent.finishedAt || now) - agent.startedAt) / 1e3);
-  const durationLabel = elapsed == null ? null : (completed ? copy6.worked : copy6.elapsed)(formatDuration(elapsed));
+  const model = [agent.model || snapshot?.model, agent.effort && reasoningEffortLabel(agent.effort)].filter(Boolean).join(" \xB7 ");
+  const elapsed = agent.durationSeconds ?? snapshot?.elapsed ?? (agent.startedAt && ((agent.finishedAt || now) - agent.startedAt) / 1e3);
+  const durationLabel = elapsed == null ? null : (completed || snapshot?.elapsed != null ? copy6.worked : copy6.elapsed)(formatDuration(elapsed));
   const statusLabel = copy6.status[agent.status];
-  const meta = completed && statusLabel ? [durationLabel, statusLabel].filter(Boolean).join(" \xB7 ") : durationLabel || statusLabel;
-  const activity = agent.activity || [];
+  const activity = snapshot?.steps?.length ? snapshot.steps : agent.activity || [];
   const source = snapshot?.messages.length ? "transcript" : agent.summary ? "summary" : void 0;
-  const result = source === "transcript" ? snapshot.messages : source === "summary" ? [agent.summary] : [];
-  const destinations = nativeActions2(agent, scope2);
-  const loading = window.hermesDesktop?.api && agent.childSession && (!snapshot || snapshot.status !== agent.status);
-  const label = goalLabel(agent, copy6);
-  const actions = (result.length > 0 || destinations.length > 0) && h5(
+  const result = source === "transcript" ? snapshot.messages : source === "summary" ? [{ text: agent.summary }] : [];
+  const timestamp2 = result.at(-1)?.timestamp;
+  const writtenAt = Number.isFinite(timestamp2) && timestamp2 > 0 ? new Date(timestamp2 * 1e3) : null;
+  const openable = snapshot?.child ? { ...agent, childSession: snapshot.child, lifecycleChild: true } : agent;
+  const destinations = nativeActions2(openable, scope3);
+  const readsHistory = agent.subagentId || agent.childSession && window.hermesDesktop?.api;
+  const loading = Boolean(readsHistory && (!snapshot || snapshot.status !== agent.status));
+  const label3 = goalLabel(agent, copy6);
+  const actions = (result.length > 0 || destinations.length > 0) && h6(
     "div",
     { "data-hcv-subagent-actions": "" },
-    result.length > 0 && h5(CopyButton, { label: copy6.copy, text: result.join("\n\n"), appearance: "icon", buttonSize: "icon-sm" }),
-    destinations.map((action) => h5(
+    result.length > 0 && h6(CopyButton, {
+      label: copy6.copy,
+      text: result.map(({ text }) => text).join("\n\n"),
+      appearance: "icon",
+      buttonSize: "icon-sm"
+    }),
+    destinations.map((action) => h6(
       "button",
       {
         key: action,
@@ -3874,97 +5336,108 @@ function AgentDetail({ agent, scope: scope2, now, copy: copy6, dark: dark2, avat
         "data-hcv-subagent-native": action,
         "aria-label": copy6[action],
         title: copy6[action],
-        onClick: () => openNativeAgent2(agent, scope2, action)
+        onClick: () => openNativeAgent2(openable, scope3, action)
       },
-      h5(Glyph, { name: action === "native" ? "open" : "chatTab" })
-    ))
+      h6(Glyph, { name: action === "native" ? "open" : "chatTab" })
+    )),
+    writtenAt && Number.isFinite(writtenAt.valueOf()) && h6(
+      "time",
+      { dateTime: writtenAt.toISOString() },
+      writtenAt.toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit" })
+    )
   );
-  return h5(
+  return h6(
     "div",
     { "data-hcv-subagent-detail": "" },
-    h5(
+    h6(
       "header",
       { "data-hcv-subagent-header": "" },
-      h5("button", {
+      h6("button", {
         ref: back,
         type: "button",
         "aria-label": copy6.back,
         title: copy6.back,
         "data-hcv-subagent-back": "",
         onClick: onBack
-      }, h5(Glyph, { name: "back" })),
-      h5(AgentAvatar, { agent, dark: dark2, avatarUrl: avatarUrl2 }),
-      h5("h2", { "data-hcv-subagent-name": "", title: label, dir: "auto" }, label),
-      model && h5("span", { "data-hcv-subagent-model": "", title: model }, model)
+      }, h6(Glyph, { name: "back" })),
+      h6(AgentAvatar, { agent, dark: dark2, avatarUrl: avatarUrl2 }),
+      h6("h2", { "data-hcv-subagent-name": "", title: label3, dir: "auto" }, label3),
+      model && h6("span", { "data-hcv-subagent-model": "", title: model }, model)
     ),
-    h5(
+    h6(
       "div",
       { "data-hcv-subagent-feed": "" },
-      h5(
+      h6(
         "div",
         { "data-hcv-subagent-column": "" },
-        activity.length ? h5(
+        activity.length ? h6(
           "details",
           { "data-hcv-subagent-activity-log": "" },
-          h5("summary", null, meta || copy6.activity, h5(Glyph, { name: "right" })),
-          h5("ul", null, activity.map((text, index) => h5("li", { key: index, dir: "auto" }, text)))
-        ) : meta && h5("p", { "data-hcv-subagent-meta": "" }, meta),
-        h5(
+          h6("summary", null, durationLabel || copy6.activity, h6(Glyph, { name: "right" })),
+          h6("ul", null, activity.map((text, index) => h6("li", { key: index, dir: "auto" }, text)))
+        ) : durationLabel && h6("p", { "data-hcv-subagent-meta": "" }, durationLabel),
+        h6(
           "div",
           { role: "group", "aria-label": copy6.result, "data-hcv-subagent-result": "", "data-source": source },
-          result.length ? result.map((text, index) => h5(
+          result.length ? result.map(({ text }, index) => h6(
             "div",
             { key: index, dir: "auto" },
-            h5(Streamdown, { components: markdownComponents, controls: false, mode: "static", parseIncompleteMarkdown: false }, text)
-          )) : h5("p", { role: "status", "data-hcv-subagent-empty": "" }, loading ? copy6.loading : !completed && statusLabel ? statusLabel : copy6.noResult)
+            h6(Streamdown, {
+              className: "hcv-subagent-markdown",
+              components: markdownComponents,
+              controls: false,
+              mode: "static",
+              parseIncompleteMarkdown: false
+            }, responseMarkdown(text))
+          )) : h6("p", { role: "status", "data-hcv-subagent-empty": "" }, loading ? copy6.loading : !completed && statusLabel ? statusLabel : copy6.noResult)
         ),
         actions
       )
     )
   );
 }
-function AgentPane({ agents, scope: scope2, lang, dark: dark2, avatarUrl: avatarUrl2, nativeActions: nativeActions2, openNativeAgent: openNativeAgent2 }) {
-  const copy6 = labels2[lang];
+function AgentPane({ agents, scope: scope3, lang, dark: dark2, avatarUrl: avatarUrl2, nativeActions: nativeActions2, openNativeAgent: openNativeAgent2 }) {
+  const copy6 = labels3[lang];
   const [selected, setSelected] = useState4(null);
   const pane = useRef3(null);
   const returning = useRef3(null);
   const [now, setNow] = useState4(Date.now);
   const agent = agents.find((item) => item.id === selected);
   const running = agents.some(({ status, startedAt }) => status === "running" && startedAt);
-  const clock = running ? 1e3 : agents.some(({ finishedAt }) => finishedAt) ? 6e4 : 0;
+  const clock3 = running ? 1e3 : agents.some(({ finishedAt }) => finishedAt) ? 6e4 : 0;
   useEffect3(() => {
-    if (!clock) return;
+    if (!clock3) return;
     const update = () => {
       if (document.visibilityState !== "hidden" && pane.current?.checkVisibility({ visibilityProperty: true })) setNow(Date.now());
     };
     update();
-    const timer = window.setInterval(update, clock);
+    const timer = window.setInterval(update, clock3);
     return () => window.clearInterval(timer);
-  }, [clock]);
-  useLayoutEffect(() => {
+  }, [clock3]);
+  useLayoutEffect2(() => {
     if (!agent && returning.current !== null) {
       const rows = Array.from(pane.current?.querySelectorAll("[data-hcv-subagent-row]") || []);
-      const row3 = rows.find((item) => item.dataset.hcvSubagentRow === returning.current) ?? rows[0];
+      const row4 = rows.find((item) => item.dataset.hcvSubagentRow === returning.current) ?? rows[0];
       returning.current = null;
-      row3?.focus({ preventScroll: true });
+      row4?.focus({ preventScroll: true });
     }
   }, [agent]);
   const ordered2 = [...agents].sort((first, second) => recency(second) - recency(first));
   const active2 = ordered2.filter((item) => !finished(item));
   const done = ordered2.filter(finished);
   const waiting = active2.filter(({ status }) => status === "queued").length;
-  const group = { copy: copy6, now, lang, dark: dark2, avatarUrl: avatarUrl2, select: setSelected };
-  return h5(
+  const group2 = { copy: copy6, now, lang, dark: dark2, avatarUrl: avatarUrl2, select: setSelected };
+  return h6(
     "section",
     { ref: pane, "data-hcv-subagents-pane": "", "aria-label": copy6.title },
-    h5(
+    h6(
       "div",
       { "data-hcv-subagent-list": "", hidden: Boolean(agent) },
-      h5(
+      h6(
         "div",
         { "data-hcv-subagent-column": "" },
-        h5(AgentGroup, {
-          ...group,
+        h6(AgentGroup, {
+          ...group2,
           name: "active",
           title: copy6.active,
           agents: active2,
@@ -3972,15 +5445,16 @@ function AgentPane({ agents, scope: scope2, lang, dark: dark2, avatarUrl: avatar
           empty: copy6.noActive,
           trailing: waiting ? copy6.waitingCount(waiting) : null
         }),
-        h5(AgentGroup, { ...group, name: "done", title: copy6.done, agents: done, limit: 10 })
+        h6(AgentGroup, { ...group2, name: "done", title: copy6.done, agents: done, limit: 10 })
       )
     ),
-    agent && h5(AgentDetail, {
+    agent && h6(AgentDetail, {
       key: agent.id,
       agent,
-      scope: scope2,
+      scope: scope3,
       now,
       copy: copy6,
+      lang,
       dark: dark2,
       avatarUrl: avatarUrl2,
       nativeActions: nativeActions2,
@@ -3994,6 +5468,9 @@ function AgentPane({ agents, scope: scope2, lang, dark: dark2, avatarUrl: avatar
 }
 function agentPaneStyles(active2) {
   const pane = active2 + " [data-hcv-subagents-pane]";
+  const response3 = pane + " [data-hcv-subagent-result]";
+  const prose2 = response3 + " .hcv-subagent-markdown";
+  const code = prose2 + ' [data-streamdown="code-block"]';
   return `
 ${pane} {
   display: flex; flex-direction: column; block-size: 100%; min-block-size: 0; min-inline-size: 0;
@@ -4001,7 +5478,7 @@ ${pane} {
   font-family: var(--hcv-ui-font, var(--font-sans));
   --hcv-agent-muted: var(--hcv-muted, var(--muted-foreground));
   --hcv-agent-tertiary: light-dark(rgb(26 28 31 / 50%), rgb(255 255 255 / 50%));
-  --hcv-agent-row-hover: light-dark(rgb(249 249 249 / 92%), rgb(0 0 0 / 92%));
+  --hcv-agent-row-hover: light-dark(rgb(26 28 31 / 5%), rgb(255 255 255 / 6%));
   --hcv-agent-divider: var(--hcv-hairline, var(--border));
 }
 ${pane} [hidden] { display: none !important; }
@@ -4049,27 +5526,71 @@ ${pane} [data-hcv-subagent-back] {
 }
 ${pane} [data-hcv-subagent-glyph] { display: inline-block; inline-size: 16px; block-size: 16px; flex: none; }
 ${pane} [data-hcv-subagent-back]:dir(rtl) > span { transform: scaleX(-1); }
-${pane} [data-hcv-subagent-feed] { padding: 32px 16px 20px; }
-${pane} :is([data-hcv-subagent-meta], [data-hcv-subagent-activity-log]) {
-  margin: 0 0 16px; padding-block-end: 4px; border-block-end: 1px solid var(--hcv-agent-divider);
-  color: var(--hcv-agent-muted); font-size: 14px; line-height: 22px;
+${pane} [data-hcv-subagent-feed] {
+  --codex-chat-font-size: 14px;
+  --codex-chat-code-font-size: 12px;
+  --thread-content-max-width: 48rem;
+  --hcv-agent-prose: light-dark(#1a1c1f, #dfdfdf);
+  --hcv-agent-mono: ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+  padding: 32px 20px 24px;
 }
-${pane} [data-hcv-subagent-activity-log] summary { display: flex; align-items: center; gap: 4px; list-style: none; cursor: pointer; }
+${pane} :is([data-hcv-subagent-meta], [data-hcv-subagent-activity-log]) {
+  margin: 0 0 16px; color: var(--hcv-agent-tertiary); font-size: var(--codex-chat-font-size);
+  line-height: 1.5; font-variant-numeric: tabular-nums;
+}
+${pane} [data-hcv-subagent-activity-log] summary { display: flex; inline-size: fit-content; align-items: center; gap: 4px; list-style: none; cursor: pointer; }
+${pane} [data-hcv-subagent-activity-log] summary > span { inline-size: 12px; block-size: 12px; }
 ${pane} [data-hcv-subagent-activity-log] summary::-webkit-details-marker { display: none; }
 ${pane} [data-hcv-subagent-activity-log][open] summary > span { rotate: 90deg; }
 ${pane} [data-hcv-subagent-activity-log] ul { padding-inline-start: 24px; margin: 4px 0; overflow-wrap: anywhere; }
-${pane} [data-hcv-subagent-result] { font-size: 14px; line-height: 23px; overflow-wrap: anywhere; }
-${pane} [data-hcv-subagent-result] > div + div { margin-block-start: 16px; }
-${pane} [data-hcv-subagent-result] p { margin-block: 0 16px; }
-${pane} [data-hcv-subagent-result] p:last-child { margin-block-end: 0; }
-${pane} [data-hcv-subagent-result] a { color: var(--hcv-link, var(--ui-blue)); }
-${pane} [data-hcv-subagent-actions] { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-block-start: 10px; }
+${response3} {
+  min-inline-size: 0; color: var(--hcv-agent-prose);
+  font-size: var(--codex-chat-font-size); font-weight: 430; line-height: 1.625; overflow-wrap: anywhere;
+}
+${response3} > div + div { margin-block-start: 16px; }
+${prose2} { display: flex; flex-direction: column; gap: 1em; min-inline-size: 0; }
+${prose2} > * { margin-block: 0; }
+${prose2} p { margin-block: 0; }
+${prose2} :is(strong, [data-streamdown="strong"]) { font-weight: 600; }
+${prose2} :is(h1, h2, h3, h4, h5, h6) { font-weight: 600; line-height: 1.375; }
+${prose2} h1 { font-size: 1.5em; }
+${prose2} h2 { font-size: 1.25em; }
+${prose2} h3 { font-size: 1.125em; }
+${prose2} :is(h4, h5, h6) { font-size: 1em; }
+${prose2} :is(ul, ol) { padding-inline-start: 1.5em; }
+${prose2} li + li { margin-block-start: .25em; }
+${prose2} blockquote { border-inline-start: 2px solid var(--hcv-agent-divider); padding-inline-start: .86em; }
+${prose2} a { color: light-dark(#0169cc, #8ec8f8); text-decoration: none; }
+${prose2} a:hover { text-decoration: underline; }
+${prose2} [data-streamdown="inline-code"] {
+  font-family: var(--hcv-agent-mono); font-size: .92em; font-weight: 400;
+  padding: 1px 6px; border-radius: 6px; box-decoration-break: clone;
+}
+${code} {
+  min-inline-size: 0; border: 1px solid var(--hcv-agent-divider); border-radius: 10px;
+  background: light-dark(#f6f6f6, #202020);
+}
+${code} [data-streamdown="code-block-header"] {
+  padding: 6px 12px; border-block-end: 1px solid var(--hcv-agent-divider);
+  font: 400 12px/18px var(--hcv-ui-font); color: var(--hcv-agent-tertiary);
+}
+${code} [data-streamdown="code-block-body"] {
+  border: 0; border-radius: 0; background: transparent; padding: 12px;
+  max-inline-size: 100%; overflow: auto;
+}
+${code} :is(pre, code) {
+  margin: 0; background: transparent; font: 400 var(--codex-chat-code-font-size)/1.625 var(--hcv-agent-mono);
+}
+${prose2} [data-hcv-subagent-table] { margin: 0; min-inline-size: 0; }
+${pane} [data-hcv-subagent-actions] { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-block-start: 8px; }
 ${pane} [data-hcv-subagent-actions] button {
   display: inline-grid; place-items: center; inline-size: 24px; block-size: 24px;
   padding: 0; border-radius: 8px; color: var(--hcv-agent-muted); cursor: pointer;
 }
+${pane} [data-hcv-subagent-actions] time { font-size: 12px; color: var(--hcv-agent-tertiary); font-variant-numeric: tabular-nums; }
 ${pane} :is(button, summary):focus-visible { outline: 2px solid var(--hcv-focus, Highlight); outline-offset: -2px; }
-${pane} :is(button, summary):is(:hover, :focus-visible) { background: var(--hcv-hover, var(--muted)); color: var(--hcv-text, var(--foreground)); }
+${pane} button:is(:hover, :focus-visible) { background: var(--hcv-agent-row-hover); color: var(--hcv-text, var(--foreground)); }
+${pane} summary:is(:hover, :focus-visible) { color: var(--hcv-text, var(--foreground)); }
 ${pane} :is([data-hcv-subagent-row], [data-hcv-subagent-back]):is(:hover, :focus-visible) {
   background: var(--hcv-agent-row-hover);
 }
@@ -4102,7 +5623,7 @@ var noActivity = Object.freeze([]);
 var getPrompt = (turn) => turn?.querySelector(":scope > " + prompt)?.dataset.messageId;
 var profile = (value) => tidy(value).toLowerCase() || "default";
 var scopeKey2 = (session, connection, name) => session && JSON.stringify([connection || null, profile(name), session]);
-var labels3 = {
+var labels4 = {
   ru: {
     title: "\u0421\u0443\u0431\u0430\u0433\u0435\u043D\u0442\u044B",
     fallback: "\u0421\u0443\u0431\u0430\u0433\u0435\u043D\u0442",
@@ -4178,11 +5699,21 @@ function settledStatus(value) {
   if (!status || ["ok", "success", "completed"].includes(status)) return "completed";
   return ["interrupted", "cancelled", "canceled"].includes(status) ? "interrupted" : "failed";
 }
+function dispatchIds(result) {
+  const ids = result?.subagent_ids;
+  const goals = result?.goals;
+  if (result?.status !== "dispatched" || !Array.isArray(ids) || !Array.isArray(goals)) return /* @__PURE__ */ new Map();
+  const refused = new Set(Array.isArray(result.refused) ? result.refused.map((entry) => entry?.task_index) : []);
+  const indexes = Array.from(goals.keys()).filter((index) => !refused.has(index));
+  return indexes.length === ids.length ? new Map(indexes.map((index, i) => [index, tidy(ids[i])])) : /* @__PURE__ */ new Map();
+}
 function readCard(card, cardIndex) {
   const call = committedFiber(card)?.return?.memoizedProps;
   const callId = tidy(call?.toolCallId);
   const args = resultObject(call?.args);
-  const result = resultObject(call?.result)?.results;
+  const result = resultObject(call?.result);
+  const savedIds = dispatchIds(result);
+  const results = Array.isArray(result?.results) ? result.results.map(resultObject) : [];
   const turnId = getPrompt(card.closest(pair));
   return [...card.children].flatMap((entry, index) => {
     const scaffold = entry.querySelector(":scope > [data-conversation-scaffold]");
@@ -4191,23 +5722,27 @@ function readCard(card, cardIndex) {
     if (!button4 || !glyph3) return [];
     const goal = tidy(args?.tasks?.[index]?.goal || index === 0 && args?.goal) || tidy(button4.textContent);
     const native = committedFiber(entry)?.return?.memoizedProps?.row;
-    const stored = Array.isArray(result) ? resultObject(result[index]) : null;
-    const status = stored ? settledStatus(stored.status) : native?.status || (glyph3.querySelector('[role="status"]') ? "running" : glyph3.querySelector("svg.text-destructive") ? "failed" : glyph3.querySelector("svg[aria-label]") ? "completed" : "dispatched");
+    const stored = results.find((row4) => row4?.task_index === index) ?? (results[index]?.task_index == null ? results[index] : null);
+    const refused = Array.isArray(result?.refused) && result.refused.find((row4) => row4?.task_index === index);
+    const outcome = stored || refused;
+    const status = outcome ? settledStatus(outcome.status) : native?.status || (glyph3.querySelector('[role="status"]') ? "running" : glyph3.querySelector("svg.text-destructive") ? "failed" : glyph3.querySelector("svg[aria-label]") ? "completed" : "dispatched");
     const nativeSession = tidy(native?.sessionId);
     const childSession = tidy(stored?.child_session_id || stored?.session_id) || (!stored ? nativeSession : "");
+    const subagentId = tidy(stored?.subagent_id) || savedIds.get(index);
     const seed = JSON.stringify(callId ? [callId, index] : [turnId, cardIndex, index, goal]);
     return [{
-      id: seed,
+      id: subagentId || seed,
       seed,
       nativeId: tidy(native?.id),
       nativeSession,
       goal,
       status,
       childSession,
+      subagentId,
       model: tidy(stored ? stored.model : native?.model),
       durationSeconds: duration(stored ? stored.duration_seconds : native?.durationSeconds),
       effort: tidy(stored?.reasoning_effort),
-      summary: prose(stored?.summary) || prose(stored?.error),
+      summary: prose(outcome?.summary) || prose(outcome?.error),
       activity: noActivity,
       started: status === "running" || status === "completed",
       button: button4,
@@ -4216,7 +5751,7 @@ function readCard(card, cardIndex) {
   });
 }
 function applyStoredReceipts(rowsByCard) {
-  for (const [target, heading] of [...document.querySelectorAll(surface + " " + transcript2 + " " + notice)].map((node2) => [node2, tidy(node2.querySelector("[data-conversation-scaffold] span.truncate")?.textContent)])) {
+  for (const [target, heading] of [...document.querySelectorAll(surface + " " + transcript2 + " " + notice)].map((node3) => [node3, tidy(node3.querySelector("[data-conversation-scaffold] span.truncate")?.textContent)])) {
     const match = /^Subagent (Task|Tasks) (Completed|Failed|Interrupted|Cancelled|Timed Out): (.+)$/.exec(heading);
     if (!match) continue;
     const [, kind, outcome, text] = match;
@@ -4224,17 +5759,17 @@ function applyStoredReceipts(rowsByCard) {
     if (kind === "Tasks" && !batch) continue;
     const goals = batch ? batch[1] : text;
     const count = batch ? Number(batch[2]) : 1;
-    const matches = [...rowsByCard].filter(([card, entries]) => card.closest(transcript2) === target.closest(transcript2) && Boolean(card.compareDocumentPosition(target) & Node.DOCUMENT_POSITION_FOLLOWING) && entries.length === count && entries.every((row3) => row3.status === "dispatched") && entries.map((row3) => row3.goal).join("; ") === goals);
+    const matches = [...rowsByCard].filter(([card, entries]) => card.closest(transcript2) === target.closest(transcript2) && Boolean(card.compareDocumentPosition(target) & Node.DOCUMENT_POSITION_FOLLOWING) && entries.length === count && entries.every((row4) => row4.status === "dispatched") && entries.map((row4) => row4.goal).join("; ") === goals);
     if (matches.length !== 1) continue;
     const receipt = committedFiber(target)?.return?.memoizedProps;
     const receiptButton = target.querySelector("[data-conversation-scaffold] button");
     const dateTime = target.querySelector("time[datetime]")?.dateTime;
-    for (const row3 of matches[0][1]) {
-      row3.started = true;
-      row3.status = outcome === "Completed" ? "completed" : outcome === "Cancelled" || outcome === "Interrupted" ? "interrupted" : "failed";
-      row3.finishedAt = dateTime ? timestamp(Date.parse(dateTime)) : void 0;
-      if (count === 1 && !row3.summary) row3.summary = prose(receipt?.report);
-      row3.receiptButton = receiptButton;
+    for (const row4 of matches[0][1]) {
+      row4.started = true;
+      row4.status = outcome === "Completed" ? "completed" : outcome === "Cancelled" || outcome === "Interrupted" ? "interrupted" : "failed";
+      row4.finishedAt = dateTime ? timestamp(Date.parse(dateTime)) : void 0;
+      if (count === 1 && !row4.summary) row4.summary = prose(receipt?.report);
+      row4.receiptButton = receiptButton;
     }
   }
 }
@@ -4283,16 +5818,16 @@ function renderActivity(state, agents, lang, dark2) {
   const signature = activitySignature(agents, lang, dark2);
   if (signature === state.signature) return;
   state.signature = signature;
-  const copy6 = labels3[lang];
+  const copy6 = labels4[lang];
   const format = new Intl.ListFormat(lang);
   const rows = activityRows(agents).map(([kind, list]) => {
-    const row3 = document.createElement("span");
-    row3.setAttribute("data-hcv-agent-activity", kind);
+    const row4 = document.createElement("span");
+    row4.setAttribute("data-hcv-agent-activity", kind);
     const icons2 = document.createElement("span");
     icons2.setAttribute("data-hcv-agent-icons", "");
     icons2.setAttribute("aria-hidden", "true");
     const shown = list.length <= 3 ? list : list.slice(0, 2);
-    for (const agent of shown) {
+    for (const agent of list.slice(0, 4)) {
       const image = document.createElement("img");
       image.src = avatarUrl(agent.seed, dark2);
       image.alt = "";
@@ -4304,8 +5839,8 @@ function renderActivity(state, agents, lang, dark2) {
     const sentence = document.createElement("span");
     sentence.textContent = format.format(names2) + " " + copy6[kind];
     sentence.title = format.format(list.map(({ goal }) => goal || copy6.fallback)) + " " + copy6[kind];
-    row3.append(icons2, sentence);
-    return row3;
+    row4.append(icons2, sentence);
+    return row4;
   });
   state.rows.replaceChildren(...rows);
 }
@@ -4355,25 +5890,25 @@ function styleDelegateRows(state, agents, dark2) {
   }
   state.glyphs = next;
 }
-function localWatchProfile(agent, scope2) {
-  if (!agent.lifecycleChild || !agent.childSession || !scope2 || typeof window.hermesDesktop?.openSessionWindow !== "function") return null;
-  const [connection, owner, parent] = JSON.parse(scope2);
+function localWatchProfile(agent, scope3) {
+  if (!agent.lifecycleChild || !agent.childSession || !scope3 || typeof window.hermesDesktop?.openSessionWindow !== "function") return null;
+  const [connection, owner, parent] = JSON.parse(scope3);
   return connection === "local" && agent.childSession !== parent ? owner : null;
 }
-function nativeActions(agent, scope2) {
+function nativeActions(agent, scope3) {
   return [
-    (agent.canOpen || localWatchProfile(agent, scope2)) && "native",
+    (agent.canOpen || localWatchProfile(agent, scope3)) && "native",
     agent.receiptButton && "receipt"
   ].filter(Boolean);
 }
-function openNativeAgent(agent, scope2, action = "native") {
-  if (!scope2 || scope2 !== scopeKey2(host7.state.activeSessionId.get(), host7.state.connectionId.get(), host7.state.profile.get())) return;
+function openNativeAgent(agent, scope3, action = "native") {
+  if (!scope3 || scope3 !== scopeKey2(host7.state.activeSessionId.get(), host7.state.connectionId.get(), host7.state.profile.get())) return;
   if (action === "native") {
     if (agent.canOpen && agent.button?.isConnected && !agent.button.disabled) {
       agent.button.click();
       return;
     }
-    const owner = localWatchProfile(agent, scope2);
+    const owner = localWatchProfile(agent, scope3);
     if (owner) {
       const errorTitle = language() === "ru" ? "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u043F\u043E\u0434\u0440\u043E\u0431\u043D\u043E\u0441\u0442\u0438 \u0441\u0443\u0431\u0430\u0433\u0435\u043D\u0442\u0430" : "Could not open subagent details";
       void window.hermesDesktop.openSessionWindow(agent.childSession, { profile: owner, watch: true }).then((result) => {
@@ -4393,8 +5928,8 @@ function useScopedRoster(roster) {
   const session = useValue(host7.state.activeSessionId);
   const connection = useValue(host7.state.connectionId);
   const name = useValue(host7.state.profile);
-  const scope2 = scopeKey2(session, connection, name);
-  return value.scope === scope2 ? value : { ...value, scope: scope2, agents: [] };
+  const scope3 = scopeKey2(session, connection, name);
+  return value.scope === scope3 ? value : { ...value, scope: scope3, agents: [] };
 }
 function SubagentsPane({ roster }) {
   const value = useScopedRoster(roster);
@@ -4402,65 +5937,46 @@ function SubagentsPane({ roster }) {
   useEffect4(() => {
     if (value.scope && gateway === "open") void roster.refresh(value.scope);
   }, [roster, value.scope, gateway]);
-  return h6(AgentPane, { ...value, key: value.scope ?? "draft", avatarUrl, nativeActions, openNativeAgent });
+  return h7(AgentPane, { ...value, key: value.scope ?? "draft", avatarUrl, nativeActions, openNativeAgent });
 }
-function SummarySubagents({ roster, onExpand }) {
+function SummarySubagents({ roster, onExpand, disclosure: disclosure2 }) {
   const value = useScopedRoster(roster);
   if (!value.agents.length) return null;
   const { agents, lang, dark: dark2 } = value;
-  const copy6 = labels3[lang];
+  const copy6 = labels4[lang];
   const working = agents.filter(isActive);
   const done = agents.filter(({ status }) => status === "completed");
   const other = agents.filter(({ status }) => status === "dispatched");
   const issues = agents.filter(({ status }) => status === "failed" || status === "interrupted");
-  const preview2 = (working.length ? working : done.length ? done : other.length ? other : issues).slice(0, 4);
+  const preview3 = (working.length ? working : done.length ? done : other.length ? other : issues).slice(0, 4);
   const counts = [
     [copy6.running, working],
     [copy6.status.completed, done],
     [copy6.status.dispatched, other],
     [lang === "ru" ? "\u041E\u0448\u0438\u0431\u043A\u0438 \u0438 \u043E\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438" : "Errors and interruptions", issues]
-  ].filter(([, list]) => list.length).map(([label, list]) => label + ": " + list.length);
-  const image = (agent) => h6("img", { key: agent.id, src: avatarUrl(agent.seed, dark2), alt: "", draggable: false });
+  ].filter(([, list]) => list.length).map(([label3, list]) => label3 + ": " + list.length);
+  const image = (agent) => h7("img", { key: agent.id, src: avatarUrl(agent.seed, dark2), alt: "", draggable: false });
   const previewContent = [
-    h6("span", { key: "avatars", "data-hcv-agent-icons": "", "aria-hidden": true }, preview2.map(image)),
-    h6("span", { key: "status", role: "status", "data-hcv-agent-counts": "" }, counts.join(" \xB7 "))
+    h7("span", { key: "avatars", "data-hcv-agent-icons": "", "aria-hidden": true }, preview3.map(image)),
+    h7("span", { key: "status", role: "status", "data-hcv-agent-counts": "" }, counts.join(" \xB7 "))
   ];
-  return h6(
-    "section",
-    { "data-hcv-summary-agents": "", "aria-label": copy6.title },
-    h6("div", { "data-hcv-agents-heading": "" }, copy6.title),
-    onExpand ? h6("button", {
+  return h7(
+    SummarySection,
+    { ...disclosure2, kind: "agents", title: copy6.title, "data-hcv-summary-agents": "" },
+    h7("button", {
       type: "button",
       className: "hcv-context-row",
       title: copy6.open,
       "aria-label": copy6.open,
       "data-hcv-open-subagents": "",
       onClick: onExpand
-    }, previewContent) : h6(
-      "details",
-      { key: value.scope },
-      h6("summary", { className: "hcv-context-row" }, previewContent),
-      h6("ul", null, agents.map((agent) => {
-        const name = agent.goal || copy6.fallback;
-        const info = h6(
-          "span",
-          { "data-hcv-agent-info": "" },
-          h6("span", { title: name }, name),
-          h6("small", null, copy6.status[agent.status])
-        );
-        return h6(
-          "li",
-          { key: agent.id },
-          agent.canOpen ? h6("button", { type: "button", onClick: () => openNativeAgent(agent, value.scope) }, image(agent), info) : h6("div", null, image(agent), info)
-        );
-      }))
-    )
+    }, previewContent)
   );
 }
 function css(active2) {
-  const chat2 = active2 + " " + surface;
+  const chat3 = active2 + " " + surface;
   const card = active2 + " [data-hcv-context-card] [data-hcv-summary-agents]";
-  const rows = chat2 + " " + generated;
+  const rows = chat3 + " " + generated;
   const native = rows + " + " + delegate;
   const task = native + " > div";
   const line = task + " > [data-conversation-scaffold]";
@@ -4470,15 +5986,16 @@ function css(active2) {
     rows + ":is(button) { display: grid; inline-size: fit-content; max-inline-size: 100%; gap: 4px; min-inline-size: 0; border-radius: 6px; text-align: start; cursor: pointer; }",
     rows + ":is(div) { display: grid; gap: 4px; }",
     rows + '[aria-expanded="false"] + ' + delegate + " { display: none; }",
-    rows + " [data-hcv-agent-activity] { display: flex; align-items: center; gap: 4px; min-inline-size: 0; color: var(--hcv-activity-text); font-size: var(--hcv-activity-font); line-height: 1.5; }",
-    rows + " [data-hcv-agent-activity] > span:last-child { min-inline-size: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }",
+    rows + " [data-hcv-agent-activity] { display: flex; align-items: flex-start; gap: 6px; min-inline-size: 0; color: var(--hcv-activity-text); font-size: var(--hcv-activity-font); font-weight: 430; line-height: 20px; }",
+    rows + " [data-hcv-agent-activity] > span:last-child { min-inline-size: 0; overflow-wrap: break-word; }",
     rows + ':is(button) [data-hcv-agent-activity]:last-child::after { content: ""; flex: none; inline-size: 12px; block-size: 12px; background: var(--hcv-activity-glyph); mask: ' + codexMask("right") + " center / contain no-repeat; opacity: 0; }",
     rows + ':is(:hover, :focus-visible, [aria-expanded="true"]) [data-hcv-agent-activity]:last-child::after { opacity: 1; }',
     rows + '[aria-expanded="true"] [data-hcv-agent-activity]:last-child::after { rotate: 90deg; }',
     "@media (prefers-reduced-motion: no-preference) { " + rows + " [data-hcv-agent-activity]:last-child::after { transition: rotate 300ms; } }",
     rows + ":hover [data-hcv-agent-activity], " + rows + ":focus-visible [data-hcv-agent-activity] { color: var(--hcv-text); }",
     active2 + " [data-hcv-agent-icons] { display: inline-flex; flex: none; align-items: center; align-self: flex-start; gap: 4px; min-block-size: var(--conversation-line-height, 21px); }",
-    active2 + " [data-hcv-agent-icons] img, " + card + " li img { inline-size: .875rem; block-size: .875rem; flex: none; }",
+    active2 + " [data-hcv-agent-icons] img { inline-size: .875rem; block-size: .875rem; flex: none; }",
+    rows + " [data-hcv-agent-icons] { gap: 6px; min-block-size: 20px; }",
     rows + " [data-hcv-agent-icons] img { inline-size: 16px; block-size: 16px; }",
     native + " { gap: 4px; margin-inline-start: 8px; padding-inline-start: 16px; border-inline-start: 1px solid var(--hcv-activity-border); }",
     task + " { padding: 0; border: 0; border-radius: 0; }",
@@ -4488,23 +6005,14 @@ function css(active2) {
     glyph3 + " { position: relative; inline-size: 16px; block-size: 16px; }",
     glyph3 + ':not(:has([role="status"], svg.text-destructive)) { background: var(--hcv-delegate-avatar) center / contain no-repeat; }',
     glyph3 + ':not(:has([role="status"], svg.text-destructive)) > * { position: absolute; inline-size: 1px; block-size: 1px; clip-path: inset(50%); overflow: hidden; }',
-    card + " { border-block-start: 1px solid color-mix(in srgb, var(--hcv-muted) 14%, transparent); margin-block-start: 6px; padding-block-start: 7px; color: var(--hcv-muted); }",
-    card + " [data-hcv-agents-heading] { min-block-size: 28px; display: flex; align-items: center; font-size: 12px; }",
-    card + " summary { position: relative; color: var(--hcv-muted); list-style: none; cursor: pointer; gap: 6px; }",
-    card + " summary::-webkit-details-marker { display: none; }",
+    card + " button[data-hcv-open-subagents] { position: relative; isolation: isolate; gap: 6px; color: var(--hcv-muted); padding: 0; }",
+    card + " button[data-hcv-open-subagents]:is(:hover, :focus-visible) { background: none; color: var(--hcv-text); }",
+    card + ' button[data-hcv-open-subagents]:is(:hover, :focus-visible)::before { content: ""; position: absolute; z-index: -1; inset: 0 -8px; border-radius: 8px; background: var(--hcv-summary-row-hover); }',
     card + " [data-hcv-agent-icons] { align-self: center; }",
-    card + " [data-hcv-agent-counts] { min-inline-size: 0; }",
-    card + ' summary::after { content: ""; margin-inline-start: auto; flex: none; inline-size: 12px; block-size: 12px; background: currentColor; mask: ' + codexMask("down") + " center / contain no-repeat; opacity: 0; }",
-    card + ' [data-hcv-open-subagents]::after { content: ""; margin-inline-start: auto; flex: none; inline-size: 16px; block-size: 16px; background: currentColor; mask: ' + codexMask("right") + " center / contain no-repeat; }",
-    card + " summary:is(:hover, :focus-visible)::after, " + card + " details[open] > summary::after { opacity: 1; }",
-    card + " details[open] > summary::after { rotate: 180deg; }",
-    card + " ul { max-block-size: min(30vh, 220px); overflow-y: auto; overscroll-behavior: contain; margin: 4px 0 0; }",
-    card + " li > :is(div, button) { display: flex; gap: 8px; align-items: center; inline-size: 100%; padding: 4px; border-radius: 6px; text-align: start; }",
-    card + " :is(button, summary):hover { background: var(--hcv-hover); color: var(--hcv-text); }",
-    card + " [data-hcv-agent-info] { display: grid; min-inline-size: 0; gap: 1px; }",
-    card + " [data-hcv-agent-info] > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }",
-    card + " small { font-size: 11px; }",
-    rows + ":focus-visible, " + card + " :is(button, summary):focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }",
+    card + " [data-hcv-agent-counts] { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }",
+    card + ' [data-hcv-open-subagents]::after { content: ""; margin-inline-start: auto; flex: none; inline-size: 14px; block-size: 14px; background: currentColor; mask: ' + codexMask("right") + " center / contain no-repeat; opacity: 0; }",
+    card + " [data-hcv-open-subagents]:is(:hover, :focus-visible)::after { opacity: 1; }",
+    rows + ":focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }",
     "}"
   ].join("\n") + agentPaneStyles(active2);
 }
@@ -4518,7 +6026,7 @@ function registerSubagents(ctx, active2) {
   const sheet = document.createElement("style");
   sheet.setAttribute("data-hcv-subagents-style", "");
   sheet.textContent = css(active2);
-  document.head.append(sheet);
+  mountStyle(ctx, sheet, { surface: "[data-hcv-agent-rows], [data-hcv-agent-icons], [data-hcv-summary-agents], [data-hcv-subagents-pane], [data-hcv-delegate-avatar]" });
   const cards = /* @__PURE__ */ new Map();
   const expanded = /* @__PURE__ */ new Set();
   const runtimeAgents = /* @__PURE__ */ new Map();
@@ -4532,30 +6040,34 @@ function registerSubagents(ctx, active2) {
   const queue = () => {
     if (!frame) frame = requestAnimationFrame(reconcile);
   };
-  async function refresh(scope2) {
-    if (disposed || scope2 !== getScope() || !enabled() || reading?.scope === scope2) return;
-    const request = { scope: scope2 };
+  async function refresh(scope3) {
+    if (disposed || scope3 !== getScope() || !enabled() || reading?.scope === scope3) return;
+    const request = { scope: scope3 };
     reading = request;
     try {
       const result = await host7.request("subagent.list", { session_id: host7.state.activeSessionId.get() }, 5e3);
-      if (disposed || reading !== request || scope2 !== getScope() || !Array.isArray(result?.subagents)) return;
+      if (disposed || reading !== request || scope3 !== getScope() || !Array.isArray(result?.subagents)) return;
       const agents = /* @__PURE__ */ new Map();
       for (const item of result.subagents) {
         const id2 = tidy(item?.subagent_id);
         if (!id2 || !["running", "queued"].includes(item.status)) continue;
         const tool = tidy(item.last_tool);
+        const childSession = tidy(item.child_session_id);
         agents.set(id2, {
           id: id2,
+          subagentId: id2,
           seed: id2,
           goal: tidy(item.goal),
           status: item.status,
           started: item.status === "running",
           startedAt: timestamp(item.started_at),
           model: tidy(item.model),
+          childSession,
+          lifecycleChild: Boolean(childSession),
           activity: tool ? [tool] : noActivity
         });
       }
-      snapshot = { scope: scope2, agents };
+      snapshot = { scope: scope3, agents };
       queue();
     } catch {
     } finally {
@@ -4565,26 +6077,28 @@ function registerSubagents(ctx, active2) {
   for (const type of ["subagent.spawn_requested", "subagent.start", "subagent.tool", "subagent.progress", "subagent.complete"]) {
     ctx.onEvent(type, (event) => {
       if (!event.session_id || !event.payload || !enabled()) return;
-      const scope2 = scopeKey2(
+      const scope3 = scopeKey2(
         event.session_id,
         event.connectionId || host7.state.connectionId.get(),
         event.profile || host7.state.profile.get()
       );
-      if (scope2 !== getScope() && !(event.connectionId && event.profile)) return;
+      if (scope3 !== getScope() && !(event.connectionId && event.profile)) return;
       const payload = event.payload;
       const goal = tidy(payload.goal);
-      const id2 = tidy(payload.subagent_id) || JSON.stringify([payload.delegation_id, payload.parent_id, payload.task_index, goal]);
-      if (!tidy(payload.subagent_id) && !goal) return;
-      const list = runtimeAgents.get(scope2) || /* @__PURE__ */ new Map();
+      const subagentId = tidy(payload.subagent_id);
+      if (!subagentId && !goal) return;
+      const id2 = subagentId || JSON.stringify([payload.delegation_id, payload.parent_id, payload.task_index, goal]);
+      const list = runtimeAgents.get(scope3) || /* @__PURE__ */ new Map();
       const previous = list.get(id2);
       if (previous && (final(previous.status) || event.seq != null && previous.seq >= event.seq)) return;
       const status = eventStatus(event, previous);
       if (previous?.started && status === "queued") return;
-      const turn = previous?.turn || (scope2 === getScope() ? getPrompt([...document.querySelectorAll(primary + " " + transcript2 + " " + pair)].at(-1)) : null);
+      const turn = previous?.turn || (scope3 === getScope() ? getPrompt([...document.querySelectorAll(primary + " " + transcript2 + " " + pair)].at(-1)) : null);
       const time = timestamp(event.timestamp) ?? (event.replayed ? void 0 : Date.now());
       const childSession = tidy(payload.child_session_id) || previous?.childSession;
       list.set(id2, {
         id: id2,
+        subagentId,
         goal: goal || previous?.goal || "",
         seed: id2,
         turn,
@@ -4604,8 +6118,8 @@ function registerSubagents(ctx, active2) {
         activity: eventActivity(event, previous)
       });
       if (list.size > 200) list.delete(list.keys().next().value);
-      runtimeAgents.delete(scope2);
-      runtimeAgents.set(scope2, list);
+      runtimeAgents.delete(scope3);
+      runtimeAgents.set(scope3, list);
       if (runtimeAgents.size > 32) runtimeAgents.delete(runtimeAgents.keys().next().value);
       queue();
     });
@@ -4615,9 +6129,9 @@ function registerSubagents(ctx, active2) {
     const on = enabled();
     const dark2 = root.dataset.hermesMode === "dark";
     const lang = language();
-    const scope2 = on ? getScope() : null;
-    if (snapshot?.scope !== scope2) snapshot = null;
-    const observed = runtimeAgents.get(scope2);
+    const scope3 = on ? getScope() : null;
+    if (snapshot?.scope !== scope3) snapshot = null;
+    const observed = runtimeAgents.get(scope3);
     const live = snapshot ? new Map([...snapshot.agents, ...observed || []]) : observed;
     const claimed = /* @__PURE__ */ new Set();
     const activeCards = new Set(on ? document.querySelectorAll(surface + " " + transcript2 + " " + delegate) : []);
@@ -4642,37 +6156,38 @@ function registerSubagents(ctx, active2) {
       const inPrimary = Boolean(card.closest(primary));
       const promptId = inPrimary && getPrompt(card.closest(pair));
       if (inPrimary && live) {
-        for (const row3 of entries) {
-          const available = (agent) => agent && !claimed.has(agent.id) && (agent.cardId === row3.id || !agent.cardId && (agent.turn ? agent.turn === promptId : !final(row3.status)));
-          const sameId = live.get(row3.nativeId);
-          const matched = available(sameId) ? sameId : [...live.values()].find((agent) => available(agent) && (agent.cardId === row3.id || promptId && agent.turn === promptId && agent.goal === row3.goal));
+        for (const row4 of entries) {
+          const available = (agent) => agent && !claimed.has(agent.id) && (agent.cardId === row4.seed || !agent.cardId && (agent.turn ? agent.turn === promptId : !final(row4.status)));
+          const sameId = live.get(row4.subagentId || row4.nativeId);
+          const matched = sameId && !claimed.has(sameId.id) && (!sameId.cardId || sameId.cardId === row4.seed) ? sameId : !row4.subagentId && [...live.values()].find((agent) => available(agent) && (agent.cardId === row4.seed || promptId && agent.turn === promptId && agent.goal === row4.goal));
           if (!matched) continue;
-          matched.cardId = row3.id;
+          matched.cardId = row4.seed;
           claimed.add(matched.id);
-          row3.id = matched.id;
-          row3.started ||= matched.started;
-          if (final(matched.status) || !final(row3.status)) row3.status = matched.status;
-          row3.startedAt = matched.startedAt;
-          row3.finishedAt = matched.finishedAt ?? row3.finishedAt;
-          row3.updatedAt = matched.updatedAt;
-          row3.model ||= matched.model;
-          row3.childSession = matched.childSession || row3.childSession;
-          row3.lifecycleChild = matched.lifecycleChild;
-          row3.canOpen = !row3.button.disabled && Boolean(row3.childSession && row3.nativeSession === row3.childSession);
-          row3.effort ||= matched.effort;
-          row3.durationSeconds ??= matched.durationSeconds;
-          row3.summary ||= matched.summary;
-          row3.activity = matched.activity;
+          row4.id = matched.id;
+          row4.subagentId ||= matched.subagentId;
+          row4.started ||= matched.started;
+          if (final(matched.status) || !final(row4.status)) row4.status = matched.status;
+          row4.startedAt = matched.startedAt;
+          row4.finishedAt = matched.finishedAt ?? row4.finishedAt;
+          row4.updatedAt = matched.updatedAt;
+          row4.model ||= matched.model;
+          row4.childSession = matched.childSession || row4.childSession;
+          row4.lifecycleChild = matched.lifecycleChild;
+          row4.canOpen = !row4.button.disabled && Boolean(row4.childSession && row4.nativeSession === row4.childSession);
+          row4.effort ||= matched.effort;
+          row4.durationSeconds ??= matched.durationSeconds;
+          row4.summary ||= matched.summary;
+          row4.activity = matched.activity;
         }
       }
-      if (inPrimary) for (const row3 of entries) agentsById.set(row3.id, row3);
+      if (inPrimary) for (const row4 of entries) agentsById.set(row4.id, row4);
       if (!enhance || !entries.length) {
         cards.get(card)?.remove();
         cards.delete(card);
         continue;
       }
       if (!cards.has(card)) {
-        const owner = inPrimary ? scope2 : card.closest(surface)?.dataset.composerSurfaceId;
+        const owner = inPrimary ? scope3 : card.closest(surface)?.dataset.composerSurfaceId;
         const key = JSON.stringify([owner, entries.map(({ seed }) => seed)]);
         cards.set(card, enhanceCard(card, ++nextId, expanded, key));
       }
@@ -4687,33 +6202,33 @@ function registerSubagents(ctx, active2) {
     if (enhance && withoutCard.length) {
       const turns = new Map([...document.querySelectorAll(primary + " " + transcript2 + " " + pair)].map((turn) => [getPrompt(turn), turn]));
       for (const agent of withoutCard) {
-        const group = agent.turn && turns.get(agent.turn)?.querySelector(":scope > " + response);
-        if (group) groups2.set(group, [...groups2.get(group) || [], agent]);
+        const group2 = agent.turn && turns.get(agent.turn)?.querySelector(":scope > " + response);
+        if (group2) groups2.set(group2, [...groups2.get(group2) || [], agent]);
       }
     }
-    for (const [group, state] of extra) {
-      if (!groups2.has(group)) {
+    for (const [group2, state] of extra) {
+      if (!groups2.has(group2)) {
         state.rows.remove();
-        extra.delete(group);
+        extra.delete(group2);
       }
     }
-    for (const [group, entries] of groups2) {
-      if (!extra.has(group)) {
+    for (const [group2, entries] of groups2) {
+      if (!extra.has(group2)) {
         const rows = document.createElement("div");
         rows.setAttribute("data-hcv-agent-rows", "");
-        group.append(rows);
-        extra.set(group, { rows });
+        group2.append(rows);
+        extra.set(group2, { rows });
       }
-      renderActivity(extra.get(group), entries, lang, dark2);
+      renderActivity(extra.get(group2), entries, lang, dark2);
     }
-    const signature = scope2 + activitySignature(agents, lang, dark2);
+    const signature = scope3 + activitySignature(agents, lang, dark2);
     const prior = roster.get().agents;
     if (signature !== rosterSignature || agents.some((agent, i) => {
       const old = prior[i];
-      return !old || agent.button !== old.button || agent.canOpen !== old.canOpen || agent.model !== old.model || agent.childSession !== old.childSession || agent.lifecycleChild !== old.lifecycleChild || agent.effort !== old.effort || agent.summary !== old.summary || agent.startedAt !== old.startedAt || agent.finishedAt !== old.finishedAt || agent.updatedAt !== old.updatedAt || agent.durationSeconds !== old.durationSeconds || agent.activity !== old.activity || agent.receiptButton !== old.receiptButton;
+      return !old || agent.button !== old.button || agent.canOpen !== old.canOpen || agent.model !== old.model || agent.childSession !== old.childSession || agent.subagentId !== old.subagentId || agent.lifecycleChild !== old.lifecycleChild || agent.effort !== old.effort || agent.summary !== old.summary || agent.startedAt !== old.startedAt || agent.finishedAt !== old.finishedAt || agent.updatedAt !== old.updatedAt || agent.durationSeconds !== old.durationSeconds || agent.activity !== old.activity || agent.receiptButton !== old.receiptButton;
     })) {
       rosterSignature = signature;
-      roster.set({ scope: scope2, agents, lang, dark: dark2 });
+      roster.set({ scope: scope3, agents, lang, dark: dark2 });
     }
   }
   const observer = new MutationObserver((records) => {
@@ -4721,11 +6236,11 @@ function registerSubagents(ctx, active2) {
     if (records.some(({ target, type, addedNodes, removedNodes }) => {
       if (target === root) return true;
       if (!enabled()) return false;
-      const element5 = target instanceof Element ? target : target.parentElement;
-      if (!element5 || element5.closest(generated)) return false;
-      if (element5.closest(delegate)) return true;
+      const element6 = target instanceof Element ? target : target.parentElement;
+      if (!element6 || element6.closest(generated)) return false;
+      if (element6.closest(delegate)) return true;
       if (type !== "childList") return false;
-      return [...addedNodes, ...removedNodes].some((node2) => node2 instanceof Element && !node2.matches(generated) && (node2.matches(relevant) || node2.querySelector(relevant)));
+      return [...addedNodes, ...removedNodes].some((node3) => node3 instanceof Element && !node3.matches(generated) && (node3.matches(relevant) || node3.querySelector(relevant)));
     })) queue();
   });
   observer.observe(root, {
@@ -4764,7 +6279,7 @@ import {
   useI18n as useI18n2,
   useValue as useValue2
 } from "@hermes/plugin-sdk";
-import { createElement as h7 } from "react";
+import { createElement as h8 } from "react";
 var workspacePrefix = "hermes-codex-visual-summary-";
 var panePrefix = "plugin-workspace:" + workspacePrefix;
 var names = {
@@ -4777,24 +6292,24 @@ var paneId = (kind) => panePrefix + kind;
 var paneTab = (kind) => '[data-tree-tab="' + paneId(kind) + '"]';
 function icon3(kind) {
   const glyph3 = glyphs2[kind];
-  return h7("span", { "aria-hidden": true, "data-hcv-icon": glyph3, style: codexIconStyle(glyph3) });
+  return h8("span", { "aria-hidden": true, "data-hcv-icon": glyph3, style: codexIconStyle(glyph3) });
 }
 function Picker({ state, open }) {
   const menu = useValue2(state);
   const { locale } = useI18n2();
   if (!menu) return null;
   const select = (kind) => () => open(kind);
-  return h7(
+  return h8(
     DropdownMenu3,
     { open: true, onOpenChange: (value) => {
       if (!value) state.set(null);
     } },
-    h7(DropdownMenuTrigger3, { asChild: true }, h7("span", {
+    h8(DropdownMenuTrigger3, { asChild: true }, h8("span", {
       "aria-hidden": true,
       tabIndex: -1,
       style: { position: "fixed", pointerEvents: "none", ...menu.rect }
     })),
-    h7(
+    h8(
       DropdownMenuContent3,
       {
         align: "start",
@@ -4805,14 +6320,14 @@ function Picker({ state, open }) {
           if (menu.trigger.isConnected) menu.trigger.focus({ preventScroll: true });
         }
       },
-      ...["agents", "sources"].map((kind) => h7(
+      ...["agents", "sources"].map((kind) => h8(
         DropdownMenuItem3,
         { key: kind, onSelect: select(kind) },
         icon3(kind),
         copy(locale)[kind]
       )),
-      h7(DropdownMenuSeparator2),
-      ...["changes", "files"].map((kind) => h7(
+      h8(DropdownMenuSeparator2),
+      ...["changes", "files"].map((kind) => h8(
         DropdownMenuItem3,
         { key: kind, onSelect: select(kind) },
         icon3(kind),
@@ -4842,7 +6357,7 @@ function registerSummaryPanes(ctx, active2, views) {
       dock: dock2,
       minWidth: "280px",
       title: copy(document.documentElement.lang)[kind],
-      render: () => h7("div", { "data-hcv-summary-pane": kind }, render()),
+      render: () => h8("div", { "data-hcv-summary-pane": kind }, render()),
       onClose: () => registrations.delete(kind)
     });
     registrations.set(kind, dispose);
@@ -4863,8 +6378,8 @@ function registerSummaryPanes(ctx, active2, views) {
   }
   function syncStrip() {
     frame = 0;
-    const selected = document.querySelector('[data-tree-tab^="' + panePrefix + '"][aria-selected="true"]');
-    const list = selected?.closest("[data-zone-tabstrip]")?.querySelector('[role="tablist"]');
+    const selected2 = document.querySelector('[data-tree-tab^="' + panePrefix + '"][aria-selected="true"]');
+    const list = selected2?.closest("[data-zone-tabstrip]")?.querySelector('[role="tablist"]');
     if (!list || !document.documentElement.matches(active2)) {
       plus.remove();
       return;
@@ -4872,47 +6387,72 @@ function registerSummaryPanes(ctx, active2, views) {
     plus.setAttribute("aria-label", copy(document.documentElement.lang).add);
     if (plus.parentNode !== list || plus !== list.lastElementChild) list.append(plus);
   }
-  const close = () => {
+  const close2 = () => {
     menu.set(null);
     for (const dispose of registrations.values()) dispose();
     registrations.clear();
     plus.remove();
   };
   const observer = new MutationObserver(() => {
-    if (!document.documentElement.matches(active2)) close();
+    if (!document.documentElement.matches(active2)) close2();
     else queue();
   });
   observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-hermes-theme", "lang"] });
-  const stripObserver = new MutationObserver(queue);
+  const stripObserver = new MutationObserver(() => {
+    if (registrations.size) queue();
+  });
   stripObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-selected"] });
-  const tab = active2 + ' [data-zone-tabstrip] [role="tab"][data-tree-tab^="' + panePrefix + '"][aria-selected]:has(> .pane-tab-content):not([data-vertical])';
+  const summaryTab = '[role="tab"][data-tree-tab^="' + panePrefix + '"]:not([data-vertical])';
+  const selectedTab = summaryTab + '[aria-selected="true"]';
+  const sideStrip = '[data-zone-tabstrip]:not([data-zone-tabstrip="grp-main"], [data-zone-tabstrip="grp-sessions"])';
+  const header = active2 + " [data-panel-header]:has(> " + sideStrip + " " + selectedTab + ")";
+  const singleRow = active2 + " [data-panel-header]:has(> " + sideStrip + ":not(.absolute) " + selectedTab + ")";
+  const strip2 = active2 + " " + sideStrip + ":has(" + selectedTab + ")";
+  const track = "[data-tree-split].flex-row > div:has(> [data-tree-group] > [data-panel-header] > " + sideStrip + " " + selectedTab + ")";
+  const seam = active2 + " " + track + ' > [data-sash-overlap="trailing"]';
+  const line = "light-dark(rgb(26 28 31 / 12%), #2b2b2b)";
+  const tab = active2 + " [data-zone-tabstrip] " + summaryTab + "[aria-selected]:has(> .pane-tab-content)";
+  const selected = tab + ':is([aria-selected="true"], [data-selected])';
+  const closeControl = tab + " > span > button";
   const style = document.createElement("style");
   style.dataset.hcvSummaryPanes = "";
   style.textContent = [
     "@media (forced-colors: none) {",
     active2 + " [data-hcv-summary-pane] { height: 100%; min-height: 0; min-width: 0; overflow: hidden; background: var(--hcv-chat); color: var(--hcv-text); font: 13px/20px var(--hcv-ui-font); }",
-    // App shell tab in Codex 961657.80cc563d2f.js, desktop tokens in 9ec44337a842.css.
-    tab + " { align-self: center; flex: 0 1 204px; min-inline-size: 72px; block-size: 32px; border-radius: 8px; border-inline-start-color: transparent; background-color: transparent; color: light-dark(rgb(26 28 31 / 50%), rgb(255 255 255 / 50%)); }",
+    // Right panel and close control in Codex 983280.4074749967.js. Let the
+    // host keep its extra controls row when the tab strip wraps below it.
+    header + " { background: var(--hcv-chat); }",
+    singleRow + " { min-block-size: 48px; }",
+    header + '::after { content: ""; position: absolute; inset-inline: 0; inset-block-end: 0; block-size: .5px; background: ' + line + "; pointer-events: none; }",
+    strip2 + " { background: transparent; }",
+    strip2 + ":not(.absolute) { block-size: auto; }",
+    strip2 + ' > [role="tablist"] { padding-inline-start: 7px; }',
+    seam + " > span:first-child { background: " + line + "; opacity: 1; }",
+    tab + " { align-self: center; flex: 0 1 220px; min-inline-size: 72px; max-inline-size: 220px; block-size: 30px; min-block-size: 30px; max-block-size: 30px; margin-inline: 0; padding-inline-start: 8px; border-radius: 8px; border-inline-start-color: transparent; background-color: transparent; color: var(--hcv-muted); }",
+    tab + "[data-closeable] { --pane-tab-close-width: 32px; padding-inline-end: var(--pane-tab-close-width); }",
     tab + " .pane-tab-content .truncate { color: inherit; font: 430 13px/18.5714px var(--hcv-ui-font); letter-spacing: normal; text-transform: none; }",
-    tab + " .pane-tab-content > span:first-child { margin-inline: 0; }",
+    tab + " .pane-tab-content > :first-child { padding-inline: 4px; margin-inline: 0; }",
     tab + ':not([aria-selected="true"], [data-selected]):hover { background-color: light-dark(rgb(26 28 31 / 5%), rgb(255 255 255 / 8%)); color: var(--hcv-text); box-shadow: none; }',
     tab + "[data-selected] { background-color: var(--hcv-selected); color: var(--hcv-text); }",
-    tab + '[aria-selected="true"] { background-color: light-dark(var(--hcv-chat), var(--hcv-selected)); color: var(--hcv-text); box-shadow: inset 0 0 0 .5px var(--hcv-hairline); }',
-    ...Object.keys(views).map((kind) => tab + paneTab(kind) + ' .pane-tab-content::before { content: ""; display: inline-block; inline-size: 16px; block-size: 16px; flex: none; margin-inline-start: 6px; background: currentColor; mask: ' + codexIconStyle(glyphs2[kind]).mask + "; }"),
+    tab + '[aria-selected="true"] { background-color: light-dark(var(--hcv-chat), #2a2a2a); color: light-dark(var(--hcv-text), #dfdfdf); box-shadow: inset 0 0 0 .5px light-dark(rgb(26 28 31 / 21%), #4c4c4c); }',
+    selected + " > span:has(> button), " + tab + ":focus-visible > span:has(> button) { opacity: 1; pointer-events: auto; }",
+    closeControl + " .codicon-close { display: none; }",
+    closeControl + '::before { content: ""; inline-size: 14px; block-size: 14px; background: currentColor; mask: ' + codexIconStyle("close").mask + "; }",
+    ...Object.keys(views).map((kind) => tab + paneTab(kind) + ' .pane-tab-content::before { content: ""; display: inline-block; inline-size: 16px; block-size: 16px; flex: none; background: currentColor; mask: ' + codexIconStyle(glyphs2[kind]).mask + "; }"),
     active2 + " [data-hcv-summary-picker] [data-hcv-icon] { display: inline-block; inline-size: 16px; block-size: 16px; flex: none; }",
-    active2 + " [data-hcv-summary-add-tab] { -webkit-app-region: no-drag; align-self: center; display: grid; place-items: center; flex: none; inline-size: " + codexReference.quietControl.height + "; block-size: " + codexReference.quietControl.height + "; margin-inline-start: 4px; border-radius: " + codexReference.quietControl.radius + "; color: var(--hcv-muted); }",
+    active2 + " [data-hcv-summary-add-tab] { -webkit-app-region: no-drag; align-self: center; display: grid; place-items: center; flex: none; inline-size: 28px; block-size: 28px; margin-inline-start: 7px; border-radius: " + codexReference.quietControl.radius + "; color: var(--hcv-muted); }",
     active2 + ' [data-hcv-summary-add-tab]::before { content: ""; display: block; inline-size: 16px; block-size: 16px; background: currentColor; mask: ' + codexIconStyle("plus").mask + "; }",
     active2 + " [data-hcv-summary-add-tab]:hover { background: var(--hcv-hover); color: var(--hcv-text); }",
     tab + ":focus-visible, " + active2 + " [data-hcv-summary-add-tab]:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }",
     active2 + " [data-hcv-summary-picker] { min-inline-size: 170px; }",
     "}"
   ].join("\n");
-  document.head.append(style);
+  mountStyle(ctx, style, { surface: '[data-tree-tab^="' + panePrefix + '"]' });
   ctx.onDispose(() => {
     observer.disconnect();
     stripObserver.disconnect();
     if (frame) cancelAnimationFrame(frame);
-    close();
+    close2();
     style.remove();
   });
   return {
@@ -4922,14 +6462,14 @@ function registerSummaryPanes(ctx, active2, views) {
       sources: host8.paneVisibility(paneId("sources")),
       changes: host8.paneVisibility(paneId("changes"))
     },
-    renderPicker: () => h7(Picker, { state: menu, open })
+    renderPicker: () => h8(Picker, { state: menu, open })
   };
 }
 
 // source/summary-changes.js
 import { useI18n as useI18n3 } from "@hermes/plugin-sdk";
-import { createElement as h8, useEffect as useEffect5, useId as useId2, useState as useState5 } from "react";
-var labels4 = {
+import { createElement as h9, useEffect as useEffect5, useId as useId2, useState as useState5 } from "react";
+var labels5 = {
   ru: {
     title: "\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u0431\u0435\u0437 \u043A\u043E\u043C\u043C\u0438\u0442\u0430",
     refresh: "\u041E\u0431\u043D\u043E\u0432\u0438\u0442\u044C",
@@ -4962,13 +6502,13 @@ async function readReview(route, cwd, connectionId, profile2, params) {
   });
 }
 function icon4(glyph3) {
-  return h8("span", { "aria-hidden": true, className: "hcv-changes-icon", style: codexIconStyle(glyph3) });
+  return h9("span", { "aria-hidden": true, className: "hcv-changes-icon", style: codexIconStyle(glyph3) });
 }
 function DiffText({ text }) {
-  if (text.length > 15e4) return h8("pre", { "data-hcv-change-diff": "", tabIndex: 0 }, text);
-  return h8("pre", { "data-hcv-change-diff": "", tabIndex: 0 }, text.split("\n").map((line, index, lines) => {
+  if (text.length > 15e4) return h9("pre", { "data-hcv-change-diff": "", tabIndex: 0 }, text);
+  return h9("pre", { "data-hcv-change-diff": "", tabIndex: 0 }, text.split("\n").map((line, index, lines) => {
     const type = line.startsWith("@@") ? "hunk" : line.startsWith("+") && !line.startsWith("+++ ") ? "added" : line.startsWith("-") && !line.startsWith("--- ") ? "removed" : void 0;
-    return h8("span", { key: index, "data-hcv-diff-line": type }, index < lines.length - 1 ? line + "\n" : line);
+    return h9("span", { key: index, "data-hcv-diff-line": type }, index < lines.length - 1 ? line + "\n" : line);
   }));
 }
 function FileDiff({ id: id2, cwd, connectionId, profile: profile2, path, staged, copy: copy6 }) {
@@ -4987,7 +6527,7 @@ function FileDiff({ id: id2, cwd, connectionId, profile: profile2, path, staged,
       live = false;
     };
   }, [cwd, connectionId, profile2, path, staged]);
-  return h8("div", { id: id2, className: "hcv-change-detail" }, result?.text ? h8(DiffText, { text: result.text }) : h8("p", { role: "status" }, !result ? copy6.loading : result.text === "" ? copy6.noDiff : copy6.diffError));
+  return h9("div", { id: id2, className: "hcv-change-detail" }, result?.text ? h9(DiffText, { text: result.text }) : h9("p", { role: "status" }, !result ? copy6.loading : result.text === "" ? copy6.noDiff : copy6.diffError));
 }
 function RepositoryChanges({ cwd, connectionId, profile: profile2, copy: copy6 }) {
   const diffId = useId2();
@@ -5007,14 +6547,14 @@ function RepositoryChanges({ cwd, connectionId, profile: profile2, copy: copy6 }
     };
   }, [cwd, connectionId, profile2, revision]);
   const current = result?.revision === revision ? result : null;
-  return h8(
+  return h9(
     "div",
     { className: "hcv-changes-content" },
-    h8(
+    h9(
       "header",
       { className: "hcv-changes-header" },
-      h8("span", null, copy6.title),
-      h8("button", {
+      h9("span", null, copy6.title),
+      h9("button", {
         type: "button",
         className: "hcv-changes-refresh",
         "aria-label": copy6.refresh,
@@ -5025,12 +6565,12 @@ function RepositoryChanges({ cwd, connectionId, profile: profile2, copy: copy6 }
         }
       }, icon4("refresh"))
     ),
-    current?.files?.length ? h8("ul", { "aria-label": copy6.title }, current.files.map((file) => {
+    current?.files?.length ? h9("ul", { "aria-label": copy6.title }, current.files.map((file) => {
       const open = selected === file.path;
-      return h8(
+      return h9(
         "li",
         { key: file.path, "data-hcv-changed-file": "" },
-        h8(
+        h9(
           "button",
           {
             type: "button",
@@ -5043,29 +6583,29 @@ function RepositoryChanges({ cwd, connectionId, profile: profile2, copy: copy6 }
           },
           icon4("right"),
           icon4("artifacts"),
-          h8("span", { className: "hcv-changes-path", dir: "auto" }, file.path),
-          h8(
+          h9("span", { className: "hcv-changes-path", dir: "auto" }, file.path),
+          h9(
             "span",
             { className: "hcv-changes-counts" },
-            h8("span", { "data-hcv-count": "added" }, "+" + (file.added || 0)),
-            h8("span", { "data-hcv-count": "removed" }, "\u2212" + (file.removed || 0))
+            h9("span", { "data-hcv-count": "added" }, "+" + (file.added || 0)),
+            h9("span", { "data-hcv-count": "removed" }, "\u2212" + (file.removed || 0))
           )
         ),
-        open && h8(FileDiff, { id: diffId, cwd, connectionId, profile: profile2, path: file.path, staged: file.staged === true, copy: copy6 })
+        open && h9(FileDiff, { id: diffId, cwd, connectionId, profile: profile2, path: file.path, staged: file.staged === true, copy: copy6 })
       );
-    })) : h8(
+    })) : h9(
       "p",
       { className: "hcv-changes-status", role: "status" },
       !current ? copy6.loading : current.files ? copy6.empty : copy6.unavailable
     )
   );
 }
-function ChangesPane({ cwd, scope: scope2 }) {
+function ChangesPane({ cwd, scope: scope3 }) {
   const { locale } = useI18n3();
-  const copy6 = labels4[locale] || labels4.en;
-  const connectionId = scope2?.connectionId;
-  const profile2 = scope2?.profile;
-  return h8("div", { "data-hcv-changes-pane": "" }, cwd && connectionId && profile2 ? h8(RepositoryChanges, { key: JSON.stringify([cwd, connectionId, profile2]), cwd, connectionId, profile: profile2, copy: copy6 }) : h8("p", { className: "hcv-changes-status", role: "status" }, copy6.noProject));
+  const copy6 = labels5[locale] || labels5.en;
+  const connectionId = scope3?.connectionId;
+  const profile2 = scope3?.profile;
+  return h9("div", { "data-hcv-changes-pane": "" }, cwd && connectionId && profile2 ? h9(RepositoryChanges, { key: JSON.stringify([cwd, connectionId, profile2]), cwd, connectionId, profile: profile2, copy: copy6 }) : h9("p", { className: "hcv-changes-status", role: "status" }, copy6.noProject));
 }
 function registerSummaryChanges(ctx, active2) {
   const pane = `${active2} [data-hcv-changes-pane]`;
@@ -5113,8 +6653,7 @@ function registerSummaryChanges(ctx, active2) {
       ${pane} .hcv-changes-file > .hcv-changes-icon:first-child { transition: rotate 150ms ease; }
     }
   `;
-  document.head.append(style);
-  ctx.onDispose(() => style.remove());
+  mountStyle(ctx, style, { surface: "[data-hcv-changes-pane]" });
 }
 
 // source/workspace-actions.js
@@ -5132,8 +6671,8 @@ import {
   TITLEBAR_AREAS as TITLEBAR_AREAS2,
   useValue as useValue3
 } from "@hermes/plugin-sdk";
-import { createElement as h9, useEffect as useEffect6, useRef as useRef4, useState as useState6 } from "react";
-var labels5 = {
+import { createElement as h10, useEffect as useEffect6, useRef as useRef4, useState as useState6 } from "react";
+var labels6 = {
   ru: {
     terminalFailed: "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u0442\u0435\u0440\u043C\u0438\u043D\u0430\u043B \u0432 \u043F\u0430\u043F\u043A\u0435 \u0447\u0430\u0442\u0430.",
     toTree: "\u041F\u0435\u0440\u0435\u043C\u0435\u0441\u0442\u0438\u0442\u044C \u0432 \u0440\u0430\u0431\u043E\u0447\u0435\u0435 \u0434\u0435\u0440\u0435\u0432\u043E",
@@ -5175,27 +6714,27 @@ var labels5 = {
     moved: "Chat moved"
   }
 };
-var copy2 = () => document.documentElement.matches(":lang(ru)") ? labels5.ru : labels5.en;
+var copy2 = () => document.documentElement.matches(":lang(ru)") ? labels6.ru : labels6.en;
 var workspacePathKey = (value) => {
   const path = String(value || "").replaceAll("\\", "/").replace(/\/+$/, "");
   return /^[a-z]:|^\/\//i.test(path) ? path.toLowerCase() : path;
 };
 var localOwner = (owner) => owner?.connectionId === "local" && Boolean(owner.profile);
-function gitApi(scope2, cwd, route, body) {
-  const base = { connectionId: scope2.connectionId, profile: scope2.profile, timeoutMs: body ? 3e4 : 8e3 };
+function gitApi(scope3, cwd, route, body) {
+  const base = { connectionId: scope3.connectionId, profile: scope3.profile, timeoutMs: body ? 3e4 : 8e3 };
   const path = "/api/git/" + route;
   return window.hermesDesktop.api(body ? { ...base, path, method: "POST", body: { path: cwd, ...body } } : { ...base, path: path + "?" + new URLSearchParams({ path: cwd }) });
 }
-async function readWorkspaceRepository(cwd, scope2) {
+async function readWorkspaceRepository(cwd, scope3) {
   if (!cwd) return null;
-  const native = localOwner(scope2) ? window.hermesDesktop?.git : null;
+  const native = localOwner(scope3) ? window.hermesDesktop?.git : null;
   const repo = await native?.repoStatus?.(cwd).catch(() => null);
   if (repo) return { repo, native: true };
-  const fallback = await gitApi(scope2, cwd, "status").catch(() => null);
+  const fallback = await gitApi(scope3, cwd, "status").catch(() => null);
   return fallback && { repo: fallback, native: false };
 }
-async function readWorkspaceTrees(cwd, scope2, native) {
-  const result = native ? await window.hermesDesktop.git.worktreeList(cwd) : (await gitApi(scope2, cwd, "worktrees"))?.worktrees;
+async function readWorkspaceTrees(cwd, scope3, native) {
+  const result = native ? await window.hermesDesktop.git.worktreeList(cwd) : (await gitApi(scope3, cwd, "worktrees"))?.worktrees;
   return Array.isArray(result) ? result : [];
 }
 function workspaceTreeFor(trees, cwd) {
@@ -5259,7 +6798,7 @@ function openWorkspaceReview(getChat) {
   else review.click();
   return true;
 }
-function MoveWorkspaceDialog({ target, close, refresh, localEnvironment }) {
+function MoveWorkspaceDialog({ target, close: close2, refresh, localEnvironment }) {
   const words3 = copy2();
   const [trees, setTrees] = useState6(null);
   const [choice, setChoice] = useState6("");
@@ -5327,7 +6866,7 @@ function MoveWorkspaceDialog({ target, close, refresh, localEnvironment }) {
       if (!result?.cwd) throw new Error(words3.failed);
       refresh();
       host9.notify({ kind: "success", title: words3.moved, message: result.cwd });
-      close();
+      close2();
       if (choice === "new" && setupAvailable && runSetup) {
         void localEnvironment.run({ cwd: result.cwd, id: "setup" }).catch((error2) => host9.notifyError(error2, words3.setupFailed));
       }
@@ -5338,12 +6877,12 @@ function MoveWorkspaceDialog({ target, close, refresh, localEnvironment }) {
       setPending(false);
     }
   }
-  return h9(
+  return h10(
     Dialog,
     { open: true, onOpenChange: (value) => {
-      if (!value && !running.current) close();
+      if (!value && !running.current) close2();
     } },
-    h9(
+    h10(
       DialogContent,
       {
         "data-hcv-workspace-move": "",
@@ -5355,35 +6894,35 @@ function MoveWorkspaceDialog({ target, close, refresh, localEnvironment }) {
           target.trigger.focus({ preventScroll: true });
         }
       },
-      h9(
+      h10(
         "form",
         { onSubmit: move, className: "hcv-workspace-move-form" },
-        h9(
+        h10(
           DialogHeader,
           null,
-          h9(DialogTitle, null, isMain ? words3.toTree : words3.toMain),
-          h9(DialogDescription, null, words3.detail)
+          h10(DialogTitle, null, isMain ? words3.toTree : words3.toMain),
+          h10(DialogDescription, null, words3.detail)
         ),
-        trees ? h9("label", null, words3.select, h9(
+        trees ? h10("label", null, words3.select, h10(
           "select",
           {
             value: choice,
             disabled: pending,
             onChange: (event) => setChoice(event.target.value)
           },
-          ...trees.filter((tree) => tree !== currentTree).map((tree) => h9("option", { key: tree.path, value: tree.path }, tree.isMain ? words3.main : tree.branch || tree.path)),
-          h9("option", { value: "new" }, words3.newTree)
-        )) : h9("p", { role: "status" }, error ? "" : words3.loading),
-        choice === "new" && h9("label", null, words3.branch, h9(Input, {
+          ...trees.filter((tree) => tree !== currentTree).map((tree) => h10("option", { key: tree.path, value: tree.path }, tree.isMain ? words3.main : tree.branch || tree.path)),
+          h10("option", { value: "new" }, words3.newTree)
+        )) : h10("p", { role: "status" }, error ? "" : words3.loading),
+        choice === "new" && h10("label", null, words3.branch, h10(Input, {
           value: branch,
           disabled: pending,
           placeholder: "worktree",
           onChange: (event) => setBranch(event.target.value)
         })),
-        choice === "new" && setupAvailable && h9(
+        choice === "new" && setupAvailable && h10(
           "label",
           { className: "hcv-move-setup" },
-          h9("input", {
+          h10("input", {
             type: "checkbox",
             checked: runSetup,
             disabled: pending,
@@ -5391,23 +6930,23 @@ function MoveWorkspaceDialog({ target, close, refresh, localEnvironment }) {
           }),
           words3.setup
         ),
-        (error || busy) && h9("p", { role: "status" }, error || words3.busy),
-        h9(
+        (error || busy) && h10("p", { role: "status" }, error || words3.busy),
+        h10(
           DialogFooter,
           null,
-          h9(Button, { type: "button", variant: "outline", onClick: close, disabled: pending }, words3.cancel),
-          h9(Button, { type: "submit", disabled: !trees || pending || busy || choice === "new" && !branch.trim() }, words3.move)
+          h10(Button, { type: "button", variant: "outline", onClick: close2, disabled: pending }, words3.cancel),
+          h10(Button, { type: "submit", disabled: !trees || pending || busy || choice === "new" && !branch.trim() }, words3.move)
         )
       )
     )
   );
 }
-function MoveSlot({ model, close, localEnvironment }) {
+function MoveSlot({ model, close: close2, localEnvironment }) {
   const entry = useValue3(model);
-  return entry && h9(MoveWorkspaceDialog, {
+  return entry && h10(MoveWorkspaceDialog, {
     key: entry.key,
     target: entry.target,
-    close,
+    close: close2,
     refresh: entry.refresh,
     localEnvironment
   });
@@ -5415,7 +6954,7 @@ function MoveSlot({ model, close, localEnvironment }) {
 function registerWorkspaceActions(ctx, active2, localEnvironment) {
   const model = atom3(null);
   let key = 0;
-  const close = () => model.set(null);
+  const close2 = () => model.set(null);
   const style = document.createElement("style");
   style.textContent = [
     "@media (forced-colors: none) {",
@@ -5427,19 +6966,19 @@ function registerWorkspaceActions(ctx, active2, localEnvironment) {
     active2 + ' .hcv-workspace-move-form [role="status"] { overflow-wrap: anywhere; color: var(--hcv-muted); }',
     "}"
   ].join("\n");
-  document.head.append(style);
+  mountStyle(ctx, style, { surface: "[data-hcv-workspace-move]" });
   ctx.register({
     id: "move-workspace",
     area: TITLEBAR_AREAS2.center,
-    render: () => h9(MoveSlot, { model, close, localEnvironment })
+    render: () => h10(MoveSlot, { model, close: close2, localEnvironment })
   });
   const observer = new MutationObserver(() => {
-    if (!document.documentElement.matches(active2)) close();
+    if (!document.documentElement.matches(active2)) close2();
   });
   observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-hermes-theme"] });
   ctx.onDispose(() => {
     observer.disconnect();
-    close();
+    close2();
     style.remove();
   });
   return {
@@ -5455,7 +6994,7 @@ function registerWorkspaceActions(ctx, active2, localEnvironment) {
 var primaryChat = '[data-chat-surface][data-composer-target="main"]';
 var connectionsRoute = "/capabilities?tab=connectors";
 var minimumWindowWidth = 1120;
-var labels6 = {
+var labels7 = {
   ru: {
     card: "\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u0438 \u0438\u0441\u0442\u043E\u0447\u043D\u0438\u043A\u0438",
     changes: "\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F",
@@ -5492,11 +7031,11 @@ var labels6 = {
 function icon5(name) {
   const glyph3 = name === "panel" ? "summaryToggle" : name === "all" ? "summarySources" : name;
   const style = codexIconStyle(glyph3);
-  return h10("span", { "aria-hidden": true, "data-hcv-icon": glyph3, style });
+  return h11("span", { "aria-hidden": true, "data-hcv-icon": glyph3, style });
 }
 function currentChat() {
   return [...document.querySelectorAll(primaryChat)].find(
-    (node2) => !node2.closest("[hidden], [inert], [data-pane-hidden]") && node2.getClientRects().length > 0 && getComputedStyle(node2).visibility === "visible"
+    (node3) => !node3.closest("[hidden], [inert], [data-pane-hidden]") && node3.getClientRects().length > 0 && getComputedStyle(node3).visibility === "visible"
   );
 }
 function useRoomForCard(eligible) {
@@ -5506,14 +7045,14 @@ function useRoomForCard(eligible) {
       setRoom(false);
       return;
     }
-    let chat2 = null;
+    let chat3 = null;
     let frame = 0;
     const contrast = window.matchMedia("(forced-colors: active)");
     const resize = new ResizeObserver(queue);
     const mutations = new MutationObserver((records) => {
       if (records.some(
         (record) => [...record.addedNodes, ...record.removedNodes].some(
-          (node2) => node2 instanceof Element && (node2.matches(primaryChat) || node2.querySelector(primaryChat))
+          (node3) => node3 instanceof Element && (node3.matches(primaryChat) || node3.querySelector(primaryChat))
         )
       ))
         queue();
@@ -5521,12 +7060,12 @@ function useRoomForCard(eligible) {
     function measure() {
       frame = 0;
       const visibleChat = currentChat();
-      if (visibleChat !== chat2) {
+      if (visibleChat !== chat3) {
         resize.disconnect();
-        chat2 = visibleChat;
-        if (chat2) resize.observe(chat2);
+        chat3 = visibleChat;
+        if (chat3) resize.observe(chat3);
       }
-      const bounds = chat2?.getBoundingClientRect();
+      const bounds = chat3?.getBoundingClientRect();
       const offset = parseFloat(document.documentElement.style.getPropertyValue("--hcv-sidebar-right-offset")) || 0;
       setRoom(
         Boolean(
@@ -5583,34 +7122,38 @@ function useWorkspaceData(draftCwd, enabled) {
       const request = (method, params) => route ? host10.requestProfile(route, method, params, 8e3) : host10.request(method, params, 8e3);
       let cwd = draftCwd;
       let storedBranch = "";
+      let root = "";
       if (session) {
         const params = new URLSearchParams({ profile: route?.targetProfile ?? profile2 });
-        const row3 = await window.hermesDesktop.api({ connectionId, path: `/api/sessions/${encodeURIComponent(session)}?${params}`, timeoutMs: 8e3 }).catch(() => null);
-        cwd = typeof row3?.cwd === "string" ? row3.cwd.trim() : "";
-        storedBranch = typeof row3?.git_branch === "string" ? row3.git_branch : "";
+        const row4 = await window.hermesDesktop.api({ connectionId, path: `/api/sessions/${encodeURIComponent(session)}?${params}`, timeoutMs: 8e3 }).catch(() => null);
+        cwd = typeof row4?.cwd === "string" ? row4.cwd.trim() : "";
+        storedBranch = typeof row4?.git_branch === "string" ? row4.git_branch : "";
+        root = typeof row4?.git_repo_root === "string" ? row4.git_repo_root : "";
       }
       if (!current) return;
-      const scope2 = { connectionId, profile: profile2 };
+      const scope3 = { connectionId, profile: profile2 };
       const [project2, sources, repository] = await Promise.allSettled([
         cwd ? request("projects.for_cwd", { cwd }) : Promise.resolve(null),
         request("mcp.servers.status", {}),
-        readWorkspaceRepository(cwd, scope2)
+        readWorkspaceRepository(cwd, scope3)
       ]);
       if (!current) return;
       const status = repository.status === "fulfilled" ? repository.value : null;
       const repo = status?.repo;
-      const worktrees = repo && connectionId === "local" ? await readWorkspaceTrees(cwd, scope2, status.native).catch(() => []) : [];
+      const worktrees = repo && connectionId === "local" ? await readWorkspaceTrees(cwd, scope3, status.native).catch(() => []) : [];
       if (!current) return;
-      const sourceRows = sources.status === "fulfilled" && Array.isArray(sources.value?.servers) ? sources.value.servers.filter((row3) => typeof row3?.name === "string" && row3.name && !row3.disabled) : null;
+      const sourceRows = sources.status === "fulfilled" && Array.isArray(sources.value?.servers) ? sources.value.servers.filter((row4) => typeof row4?.name === "string" && row4.name && !row4.disabled) : null;
+      const tree = workspaceTreeFor(worktrees, cwd);
       setSnapshot({
         key,
         cwd,
+        root: tree?.path || root || cwd,
         project: project2.status === "fulfilled" ? project2.value?.project?.name : null,
         sources: sourceRows,
         repo,
         nativeGit: status?.native,
         branch: repo?.branch || storedBranch,
-        isWorktree: workspaceTreeFor(worktrees, cwd)?.isMain === false
+        isWorktree: tree?.isMain === false
       });
     }
     void read().catch(() => {
@@ -5627,6 +7170,41 @@ function useWorkspaceData(draftCwd, enabled) {
     refresh: () => setRevision((value) => value + 1)
   };
 }
+function useRelatedRepositories(scope3, primaryRoot, key, rows, shown) {
+  const dirs = JSON.stringify([...new Set(rows.filter((row4) => row4.attached && row4.kind === "folder" && /^(?:[a-z]:[/\\]|\/[^/])/i.test(row4.meta || "")).map((row4) => row4.meta))]);
+  const [snapshot, setSnapshot] = useState7(null);
+  const connection = scope3?.connectionId;
+  const profile2 = scope3?.profile;
+  useEffect7(() => {
+    if (!shown || !primaryRoot || !connection || !profile2 || dirs === "[]") return;
+    let current = true;
+    const owner = { connectionId: connection, profile: profile2 };
+    const read = async (cwd) => {
+      const status = await readWorkspaceRepository(cwd, owner);
+      if (!current || !status?.repo) return null;
+      const trees = await readWorkspaceTrees(cwd, owner, status.native).catch(() => []);
+      const root = workspaceTreeFor(trees, cwd)?.path || cwd;
+      return { cwd: root, repo: status.repo, branch: status.repo.branch };
+    };
+    void Promise.allSettled(JSON.parse(dirs).map(read)).then((results) => {
+      if (!current) return;
+      const known = /* @__PURE__ */ new Set([workspacePathKey(primaryRoot)]);
+      const repos = [];
+      for (const result of results) {
+        if (result.status !== "fulfilled" || !result.value) continue;
+        const repoKey = workspacePathKey(result.value.cwd);
+        if (known.has(repoKey)) continue;
+        known.add(repoKey);
+        repos.push(result.value);
+      }
+      setSnapshot({ key, dirs, repos });
+    });
+    return () => {
+      current = false;
+    };
+  }, [connection, profile2, primaryRoot, key, dirs, shown]);
+  return snapshot?.key === key && snapshot.dirs === dirs ? snapshot.repos : [];
+}
 function useSourcesView(data, enabled) {
   const rows = useChatSources(currentChat, data.key, enabled);
   return {
@@ -5635,8 +7213,8 @@ function useSourcesView(data, enabled) {
     loading: Boolean(data.scope && !data.snapshot),
     getChat: currentChat,
     onConnectors: (server) => host10.navigate(server ? connectionsRoute + "&server=" + encodeURIComponent(server) : connectionsRoute),
-    onOpenSource: (row3) => {
-      if (row3.action?.isConnected && currentChat()?.contains(row3.action)) row3.action.click();
+    onOpenSource: (row4) => {
+      if (row4.action?.isConnected && currentChat()?.contains(row4.action)) row4.action.click();
     }
   };
 }
@@ -5650,34 +7228,52 @@ function useExpandedWorkspace() {
 }
 function ExpandedSources() {
   const { data, enabled } = useExpandedWorkspace();
-  return h10(SourcesPane, useSourcesView(enabled ? data : { key: data.key }, enabled));
+  return h11(SourcesPane, useSourcesView(enabled ? data : { key: data.key }, enabled));
 }
-function ExpandedChanges() {
+function ExpandedChanges({ selection }) {
   const { data, enabled } = useExpandedWorkspace();
-  return h10(ChangesPane, { cwd: enabled ? data.snapshot?.cwd : "", scope: enabled ? data.scope : null });
+  const choice = useValue4(selection);
+  const cwd = choice?.key === data.key ? choice.cwd : data.snapshot?.cwd;
+  return h11(ChangesPane, { cwd: enabled ? cwd : "", scope: enabled ? data.scope : null });
 }
 function DiffStats({ repo }) {
   if (!repo || !repo.added && !repo.removed && !repo.changed) return null;
-  return h10(
+  return h11(
     "span",
     { className: "hcv-context-diff" },
-    repo.added || repo.removed ? h10(
+    repo.added || repo.removed ? h11(
       Fragment2,
       null,
-      h10("span", { className: "hcv-context-added" }, "+" + repo.added),
-      h10("span", { className: "hcv-context-removed" }, "\u2212" + repo.removed)
-    ) : h10("span", null, repo.changed)
+      h11("span", { className: "hcv-context-added" }, "+" + repo.added),
+      h11("span", { className: "hcv-context-removed" }, "\u2212" + repo.removed)
+    ) : h11("span", null, repo.changed)
   );
 }
-function WorkspaceCard({ id: id2, close, copy: copy6, shown, pinned, onPin, roster, panes, actions, localEnvironment, data, projectActions }) {
-  const { scope: scope2, snapshot, refresh } = data;
+function WorkspaceCard({
+  id: id2,
+  close: close2,
+  copy: copy6,
+  shown,
+  pinned,
+  onPin,
+  roster,
+  panes,
+  actions,
+  localEnvironment,
+  data,
+  projectActions,
+  disclosure: disclosure2,
+  selection
+}) {
+  const { scope: scope3, snapshot, refresh } = data;
   const sources = useSourcesView(data, shown);
   const runtime = useValue4(host10.state.activeSessionId);
   const session = useValue4(host10.state.focusedStoredSessionId);
   const busy = useValue4(host10.state.busy);
+  const related = useRelatedRepositories(scope3, snapshot?.root, data.key, sources.rows, shown && !busy);
   const cwd = snapshot?.cwd || "";
-  const local = scope2?.connectionId === "local" && Boolean(cwd);
-  const target = { cwd, owner: scope2, runtime, session, nativeGit: snapshot?.nativeGit, branch: snapshot?.branch };
+  const local = scope3?.connectionId === "local" && Boolean(cwd);
+  const target = { cwd, owner: scope3, runtime, session, nativeGit: snapshot?.nativeGit, branch: snapshot?.branch };
   const title = snapshot?.project || cwd.split(/[/\\]/).filter(Boolean).at(-1) || copy6.project;
   const card = useRef5(null);
   const trigger = useRef5(null);
@@ -5691,119 +7287,134 @@ function WorkspaceCard({ id: id2, close, copy: copy6, shown, pinned, onPin, rost
     const anchor = trigger.current?.getBoundingClientRect();
     setMenu(frame && anchor ? { side: anchor.left - frame.left + 8, align: frame.top - anchor.top } : { side: 8, align: 0 });
   }
-  function openChanges() {
-    if (snapshot?.nativeGit && openWorkspaceReview(currentChat)) return;
-    panes.open("changes");
+  function changeRow(repo, folder, primary4) {
+    const button4 = h11(
+      "button",
+      {
+        type: "button",
+        className: "hcv-context-row hcv-context-changes",
+        disabled: !folder || !scope3,
+        "aria-label": copy6.changes,
+        "data-hcv-branch": repo?.branch || void 0,
+        onClick: () => {
+          if (primary4 && repo?.nativeGit && openWorkspaceReview(currentChat)) return;
+          selection.set(primary4 ? null : { key: data.key, cwd: folder });
+          panes.open("changes");
+        }
+      },
+      icon5("changes"),
+      h11("span", { className: "hcv-context-label" }, copy6.changes),
+      h11(
+        "span",
+        { className: "hcv-context-change-meta" },
+        h11(DiffStats, { repo: repo?.repo }),
+        repo?.branch && h11("span", { className: "hcv-context-branch-icon" }, icon5("branch"))
+      )
+    );
+    return repo?.branch ? h11(Tip, { label: repo.branch }, button4) : button4;
   }
-  const changeButton = h10(
-    "button",
-    {
-      type: "button",
-      className: "hcv-context-row hcv-context-changes",
-      onClick: openChanges,
-      disabled: !cwd || !scope2,
-      "aria-label": copy6.changes,
-      "data-hcv-branch": snapshot?.branch || void 0
-    },
-    icon5("changes"),
-    h10("span", { className: "hcv-context-label" }, copy6.changes),
-    h10(
-      "span",
-      { className: "hcv-context-change-meta" },
-      h10(DiffStats, { repo: snapshot?.repo }),
-      snapshot?.branch && h10("span", { className: "hcv-context-branch-icon" }, icon5("branch"))
-    )
-  );
-  return h10(
-    "aside",
-    { ref: card, id: id2, "data-hcv-context-card": "", "data-pinned": pinned, "aria-label": copy6.card, "aria-hidden": !shown, inert: !shown },
-    h10(
-      "header",
-      { className: "hcv-context-title" },
-      h10("span", { title }, title),
-      h10(
-        DropdownMenu4,
-        { open: Boolean(menu), onOpenChange: toggleMenu },
-        h10(
-          DropdownMenuTrigger4,
-          { asChild: true },
-          h10(
-            "button",
-            { ref: trigger, type: "button", className: "hcv-context-icon", "aria-label": copy6.actions },
-            icon5("more")
-          )
-        ),
-        h10(
-          DropdownMenuContent4,
-          {
-            side: "left",
-            align: "start",
-            sideOffset: menu?.side ?? 8,
-            alignOffset: menu?.align ?? 0,
-            "data-hcv-summary-menu": ""
-          },
-          localEnvironment && h10(DropdownMenuItem4, { disabled: !local, onSelect: () => {
-            void localEnvironment.open({ cwd, projectName: title, trigger: trigger.current });
-          } }, icon5("plus"), copy6.setup),
-          h10(
-            DropdownMenuItem4,
-            { disabled: !local, onSelect: () => openWorkspaceTerminal(target) },
-            icon5("terminal"),
-            copy6.terminal
-          ),
-          ...projectActions.map((entry) => h10(DropdownMenuItem4, {
-            key: entry.id,
-            onSelect: () => void localEnvironment.run({ cwd, id: entry.id }).catch((error) => host10.notifyError(error, copy6.actionError))
-          }, icon5(entry.icon), entry.label)),
-          snapshot?.repo && h10(
-            Fragment2,
-            null,
-            h10(DropdownMenuSeparator3),
-            h10(DropdownMenuItem4, {
-              disabled: !local || !runtime || !session || busy,
-              onSelect: () => actions.openMove({ ...target, trigger: trigger.current }, refresh)
-            }, snapshot.isWorktree ? copy6.toMain : copy6.toTree)
-          ),
-          h10(DropdownMenuSeparator3),
-          h10(DropdownMenuItem4, { onSelect: onPin }, icon5(pinned ? "unpin" : "pin"), pinned ? copy6.unpin : copy6.pin),
-          h10(DropdownMenuItem4, { onSelect: close }, icon5("close"), copy6.hide)
-        )
+  const projectMenu2 = h11(
+    DropdownMenu4,
+    { open: Boolean(menu), onOpenChange: toggleMenu },
+    h11(
+      DropdownMenuTrigger4,
+      { asChild: true },
+      h11(
+        "button",
+        { ref: trigger, type: "button", className: "hcv-context-icon", "aria-label": copy6.actions },
+        icon5("more")
       )
     ),
-    snapshot?.branch ? h10(Tip, { label: snapshot.branch }, changeButton) : changeButton,
-    h10(SummarySubagents, { roster, onExpand: () => panes.open("agents") }),
-    h10(CompactSources, { ...sources, onExpand: () => panes.open("sources") })
+    h11(
+      DropdownMenuContent4,
+      {
+        side: "left",
+        align: "start",
+        sideOffset: menu?.side ?? 8,
+        alignOffset: menu?.align ?? 0,
+        "data-hcv-summary-menu": ""
+      },
+      localEnvironment && h11(DropdownMenuItem4, { disabled: !local, onSelect: () => {
+        void localEnvironment.open({ cwd, projectName: title, trigger: trigger.current });
+      } }, icon5("plus"), copy6.setup),
+      h11(
+        DropdownMenuItem4,
+        { disabled: !local, onSelect: () => openWorkspaceTerminal(target) },
+        icon5("terminal"),
+        copy6.terminal
+      ),
+      ...projectActions.map((entry) => h11(DropdownMenuItem4, {
+        key: entry.id,
+        onSelect: () => void localEnvironment.run({ cwd, id: entry.id }).catch((error) => host10.notifyError(error, copy6.actionError))
+      }, icon5(entry.icon), entry.label)),
+      snapshot?.repo && h11(
+        Fragment2,
+        null,
+        h11(DropdownMenuSeparator3),
+        h11(DropdownMenuItem4, {
+          disabled: !local || !runtime || !session || busy,
+          onSelect: () => actions.openMove({ ...target, trigger: trigger.current }, refresh)
+        }, snapshot.isWorktree ? copy6.toMain : copy6.toTree)
+      ),
+      h11(DropdownMenuSeparator3),
+      h11(DropdownMenuItem4, { onSelect: onPin }, icon5(pinned ? "unpin" : "pin"), pinned ? copy6.unpin : copy6.pin),
+      h11(DropdownMenuItem4, { onSelect: close2 }, icon5("close"), copy6.hide)
+    )
+  );
+  return h11(
+    "aside",
+    { ref: card, id: id2, "data-hcv-context-card": "", "data-pinned": pinned, "aria-label": copy6.card, "aria-hidden": !shown, inert: !shown },
+    h11(SummarySection, { ...disclosure2("project"), kind: "project", title, action: projectMenu2 }, changeRow(snapshot, cwd, true)),
+    related.map((repo) => {
+      const key = workspacePathKey(repo.cwd);
+      const name = repo.cwd.split(/[/\\]/).filter(Boolean).at(-1);
+      return h11(SummarySection, { ...disclosure2(key), key, kind: "project", title: name }, changeRow(repo, repo.cwd, false));
+    }),
+    ["pullRequests", "outputs"].map((kind) => h11(CompactSummaryItems, {
+      key: kind,
+      kind,
+      onOpenSource: sources.onOpenSource,
+      rows: sources.rows.filter((row4) => row4.section === kind),
+      disclosure: disclosure2(kind)
+    })),
+    h11(SummarySubagents, { roster, disclosure: disclosure2("agents"), onExpand: () => panes.open("agents") }),
+    h11(CompactSources, {
+      ...sources,
+      rows: sources.rows.filter((row4) => !row4.section),
+      disclosure: disclosure2("sources"),
+      onExpand: () => panes.open("sources")
+    })
   );
 }
 function ProjectActions({ entries, cwd, localEnvironment, copy: copy6 }) {
   const named = entries.filter((entry) => entry.id !== "setup" && entry.id !== "cleanup");
   if (!named.length) return null;
-  return h10(
+  return h11(
     DropdownMenu4,
     null,
-    h10(
+    h11(
       DropdownMenuTrigger4,
       { asChild: true },
-      h10(
+      h11(
         "button",
         { type: "button", "data-hcv-project-actions": "", "aria-label": copy6.projectActions },
         icon5(named[0].icon),
         icon5("down")
       )
     ),
-    h10(
+    h11(
       DropdownMenuContent4,
       { align: "end", "data-hcv-project-actions-menu": "" },
-      ...named.map((entry) => h10(DropdownMenuItem4, {
+      ...named.map((entry) => h11(DropdownMenuItem4, {
         key: entry.id,
         onSelect: () => void localEnvironment.run({ cwd, id: entry.id }).catch((error) => host10.notifyError(error, copy6.actionError))
       }, icon5(entry.icon), entry.label))
     )
   );
 }
-function CardSlot({ storage, roster, panes, actions, localEnvironment }) {
+function CardSlot({ storage, roster, panes, actions, localEnvironment, selection }) {
   const { locale } = useI18n4();
-  const copy6 = labels6[locale] || labels6.en;
+  const copy6 = labels7[locale] || labels7.en;
   const workspace = useValue4(host10.paneVisibility("workspace"));
   const files = useValue4(host10.paneVisibility("files"));
   const review = useValue4(host10.paneVisibility("review"));
@@ -5821,6 +7432,7 @@ function CardSlot({ storage, roster, panes, actions, localEnvironment }) {
   const roomy = useRoomForCard(workspace && !files && !review && !agents && !sources && !changes2 && focused === primary4);
   const [pinned, setPinned] = useState7(() => storage.get("summary-pinned", true) !== false);
   const [open, setOpen] = useState7(() => storage.get("summary-pinned", true) !== false);
+  const [closed, setClosed] = useState7(null);
   const toggleRef = useRef5(null);
   const cardId = useId3();
   useEffect7(() => {
@@ -5854,7 +7466,7 @@ function CardSlot({ storage, roster, panes, actions, localEnvironment }) {
       document.removeEventListener("keydown", onEscape, true);
     };
   }, [roomy, open, pinned]);
-  const projectToolbar = h10(ProjectActions, { entries: projectActions, cwd, localEnvironment, copy: copy6 });
+  const projectToolbar = h11(ProjectActions, { entries: projectActions, cwd, localEnvironment, copy: copy6 });
   if (!roomy) return projectToolbar;
   function togglePin() {
     storage.set("summary-pinned", !pinned);
@@ -5864,11 +7476,22 @@ function CardSlot({ storage, roster, panes, actions, localEnvironment }) {
     setOpen(false);
     requestAnimationFrame(() => toggleRef.current?.focus({ preventScroll: true }));
   }
-  return h10(
+  function disclosure2(section2) {
+    return {
+      expanded: closed?.key !== data.key || !closed.sections.has(section2),
+      onToggle: () => setClosed((previous) => {
+        const sections = new Set(previous?.key === data.key ? previous.sections : []);
+        if (sections.has(section2)) sections.delete(section2);
+        else sections.add(section2);
+        return { key: data.key, sections };
+      })
+    };
+  }
+  return h11(
     Fragment2,
     null,
     projectToolbar,
-    h10(Tip, { label: open ? copy6.hide : copy6.show }, h10(
+    h11(Tip, { label: open ? copy6.hide : copy6.show }, h11(
       "button",
       {
         ref: toggleRef,
@@ -5881,7 +7504,7 @@ function CardSlot({ storage, roster, panes, actions, localEnvironment }) {
       },
       icon5("panel")
     )),
-    h10(WorkspaceCard, {
+    h11(WorkspaceCard, {
       id: cardId,
       copy: copy6,
       close: closeFromMenu,
@@ -5893,29 +7516,33 @@ function CardSlot({ storage, roster, panes, actions, localEnvironment }) {
       actions,
       localEnvironment,
       data,
-      projectActions
+      projectActions,
+      disclosure: disclosure2,
+      selection
     })
   );
 }
 function ThemeCardSlot({ themeName: themeName2, panes, ...props }) {
   const theme2 = useTheme2();
-  return theme2.themeName === themeName2 ? h10(Fragment2, null, h10(CardSlot, { ...props, panes }), panes.renderPicker()) : null;
+  return theme2.themeName === themeName2 ? h11(Fragment2, null, h11(CardSlot, { ...props, panes }), panes.renderPicker()) : null;
 }
 function registerWorkspaceCard(ctx, themeName2, roster, localEnvironment) {
   if (typeof host10.paneVisibility !== "function" || !host10.state.focusedSessionOwner) return;
-  const scope2 = `:root[data-hermes-codex-visual][data-hermes-theme="${CSS.escape(themeName2)}"]`;
-  const actions = registerWorkspaceActions(ctx, scope2, localEnvironment);
-  const panes = registerSummaryPanes(ctx, scope2, {
-    agents: () => h10(SubagentsPane, { roster }),
-    sources: () => h10(ExpandedSources),
-    changes: () => h10(ExpandedChanges)
+  const scope3 = `:root[data-hermes-codex-visual][data-hermes-theme="${CSS.escape(themeName2)}"]`;
+  const actions = registerWorkspaceActions(ctx, scope3, localEnvironment);
+  const selection = atom4(null);
+  const panes = registerSummaryPanes(ctx, scope3, {
+    agents: () => h11(SubagentsPane, { roster }),
+    sources: () => h11(ExpandedSources),
+    changes: () => h11(ExpandedChanges, { selection })
   });
-  registerSummarySources(ctx, scope2);
-  registerSummaryChanges(ctx, scope2);
-  const surfaces = `${scope2} [data-hcv-context-card]`;
-  const chat2 = `${scope2} ${primaryChat}`;
-  const dock2 = `${chat2} [data-slot="composer-dock"]:not([data-popped-out])`;
-  const fallback = `${chat2} [data-slot="composer-root"]:has(> .composer-fallback-surface)`;
+  registerSummarySources(ctx, scope3);
+  registerSummaryChanges(ctx, scope3);
+  const surfaces = `${scope3} [data-hcv-context-card]`;
+  const chat3 = `${scope3} ${primaryChat}`;
+  const bounds = `${chat3} > [data-slot="composer-bounds"]`;
+  const dock2 = `${chat3} [data-slot="composer-dock"]:not([data-popped-out])`;
+  const fallback = `${chat3} [data-slot="composer-root"]:has(> .composer-fallback-surface)`;
   const style = document.createElement("style");
   style.dataset.hcvWorkspaceCard = "";
   style.textContent = `
@@ -5924,21 +7551,25 @@ function registerWorkspaceCard(ctx, themeName2, roster, localEnvironment) {
   inherits: true;
   initial-value: 0;
 }
-${scope2} {
-  --hcv-summary-width: 300px;
+${scope3} {
+  /* A 300px card in Codex at 90% covers the same screen width at the owner's Hermes zoom. */
+  --hcv-summary-width: 280px;
   --hcv-summary-layout-inset: calc((var(--hcv-summary-width) + 12px) * var(--hcv-summary-progress));
 }
-${scope2}:has([data-hcv-context-card][aria-hidden="false"]) { --hcv-summary-progress: 1; }
+${scope3}:has([data-hcv-context-card][aria-hidden="false"]) { --hcv-summary-progress: 1; }
 @media (forced-colors: none) {
-  ${chat2} {
+  ${chat3} {
     --hcv-summary-composer-width: min(var(--composer-width), 100% - var(--hcv-summary-layout-inset) - 2rem);
   }
-  ${chat2} > [data-slot="composer-bounds"] { margin-right: var(--hcv-summary-layout-inset); }
+  /* Codex shifts the transcript inside the full-width scroll container. */
+  ${bounds} [data-slot="aui_thread-viewport"] { padding-right: var(--hcv-summary-layout-inset); }
+  ${bounds} > .thread-jump-button { left: calc(50% - var(--hcv-summary-layout-inset) / 2); }
+  ${bounds} [data-slot="thread-timeline"] { margin-right: max(10px, var(--hcv-summary-layout-inset)); }
   ${dock2}, ${fallback} { left: calc(50% - var(--hcv-summary-layout-inset) / 2); }
   ${dock2} { width: calc(var(--hcv-summary-composer-width) + 10px); }
   ${fallback} { width: var(--hcv-summary-composer-width); }
 }
-${scope2} [data-hcv-context-card] {
+${scope3} [data-hcv-context-card] {
   position: fixed;
   inset-block-start: var(--hcv-context-card-top, 93px);
   right: calc(8px + var(--hcv-sidebar-right-offset, 0px));
@@ -5946,11 +7577,12 @@ ${scope2} [data-hcv-context-card] {
   max-block-size: calc(100dvh - var(--hcv-context-card-top, 93px) - 8px);
   overflow: auto;
   box-sizing: border-box;
-  padding: 12px 12px 8px;
+  padding: 12px 18px;
   border: 1px solid color-mix(in srgb, var(--hcv-text) 8%, transparent);
   border-radius: 16px;
   color: var(--hcv-text);
   background: var(--hcv-menu);
+  --hcv-summary-row-hover: light-dark(rgb(26 28 31 / 5%), rgb(255 255 255 / 6%));
   text-align: start;
   font: 13px/20px var(--hcv-ui-font);
   font-weight: 400;
@@ -5959,23 +7591,23 @@ ${scope2} [data-hcv-context-card] {
   pointer-events: auto;
   -webkit-app-region: no-drag;
 }
-${scope2} [data-hcv-context-card][aria-hidden="true"] {
+${scope3} [data-hcv-context-card][aria-hidden="true"] {
   visibility: hidden;
   pointer-events: none;
 }
 /* The card sits in the titlebar layer. Its portaled menu must clear that
    layer and still sit below a modal backdrop. Radix copies the menu z-index. */
-${scope2} [data-hcv-summary-menu] {
+${scope3} [data-hcv-summary-menu] {
   z-index: calc(var(--z-modal-backdrop, 120) - 1);
   min-inline-size: min(260px, calc(100vw - 16px));
   padding: 4px;
   border-radius: 16px;
   background: var(--hcv-menu);
 }
-${scope2} [data-hcv-summary-menu] [role="menuitem"] { min-block-size: 28px; border-radius: 8px; }
+${scope3} [data-hcv-summary-menu] [role="menuitem"] { min-block-size: 28px; border-radius: 8px; }
 ${surfaces} button.hcv-context-row,
-${scope2} [data-hcv-context-card] .hcv-context-icon,
-${scope2} [data-hcv-context-toggle] {
+${scope3} [data-hcv-context-card] .hcv-context-icon,
+${scope3} [data-hcv-context-toggle] {
   appearance: none;
   margin: 0;
   border: 0;
@@ -5985,23 +7617,9 @@ ${scope2} [data-hcv-context-toggle] {
   font: inherit;
   cursor: pointer;
 }
-${scope2} [data-hcv-context-card] button:disabled { opacity: .5; cursor: default; }
+${scope3} [data-hcv-context-card] button:disabled { opacity: .5; cursor: default; }
 ${surfaces} button:focus-visible,
-${scope2} [data-hcv-context-toggle]:focus-visible { outline: 1px solid var(--hcv-focus); outline-offset: 1px; }
-${scope2} [data-hcv-context-card] .hcv-context-title {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 7px;
-  color: var(--hcv-muted);
-  min-block-size: 24px;
-  margin-block-end: 4px;
-  padding-inline: 8px 2px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-}
-${scope2} [data-hcv-context-card] .hcv-context-title > span,
+${scope3} [data-hcv-context-toggle]:focus-visible { outline: 1px solid var(--hcv-focus); outline-offset: 1px; }
 ${surfaces} .hcv-context-label {
   min-inline-size: 0;
   overflow: hidden;
@@ -6013,28 +7631,33 @@ ${surfaces} .hcv-context-row {
   align-items: center;
   inline-size: 100%;
   min-block-size: 28px;
-  padding: 4px 8px;
+  padding: 4px 0;
   gap: 12px;
   text-align: start;
 }
-${scope2} :is([data-hcv-context-card], [data-hcv-context-toggle], [data-hcv-summary-menu], [data-hcv-project-actions], [data-hcv-project-actions-menu]) [data-hcv-icon] {
+${scope3} :is([data-hcv-context-card], [data-hcv-context-toggle], [data-hcv-summary-menu], [data-hcv-project-actions], [data-hcv-project-actions-menu]) [data-hcv-icon] {
   display: inline-block;
   inline-size: 16px;
   block-size: 16px;
   flex: 0 0 auto;
 }
-${surfaces} :is([data-hcv-summary-agents], [data-hcv-sources-compact]) { margin-inline: 8px; }
+${summarySectionStyles(surfaces)}
+${surfaces} .hcv-context-changes { position: relative; isolation: isolate; }
+${surfaces} .hcv-context-changes:is(:hover, :focus-visible)::before {
+  content: ''; position: absolute; inset: 0 -8px; z-index: -1;
+  border-radius: 8px; background: var(--hcv-summary-row-hover);
+}
 ${surfaces} .hcv-context-change-meta { display: grid; align-items: center; margin-inline-start: auto; color: var(--hcv-muted); }
 ${surfaces} .hcv-context-change-meta > * { grid-area: 1/1; justify-self: end; }
 ${surfaces} .hcv-context-diff { display: flex; gap: 4px; font-variant-numeric: tabular-nums; }
-${surfaces} .hcv-context-added { color: light-dark(#008241, #40c977); }
-${surfaces} .hcv-context-removed { color: light-dark(#aa2626, #f28080); }
+${surfaces} .hcv-context-added { color: light-dark(#008241, #36c676); }
+${surfaces} .hcv-context-removed { color: light-dark(#aa2626, #ff5656); }
 ${surfaces} .hcv-context-branch-icon { display: flex; }
 ${surfaces} .hcv-context-diff + .hcv-context-branch-icon { opacity: 0; }
 ${surfaces} .hcv-context-changes:is(:hover, :focus-visible) .hcv-context-diff:has(+ .hcv-context-branch-icon) { opacity: 0; }
 ${surfaces} .hcv-context-changes:is(:hover, :focus-visible) .hcv-context-branch-icon { opacity: 1; }
-${scope2} [data-hcv-context-card] .hcv-context-icon,
-${scope2} [data-hcv-context-toggle] {
+${scope3} [data-hcv-context-card] .hcv-context-icon,
+${scope3} [data-hcv-context-toggle] {
   display: inline-grid;
   place-items: center;
   inline-size: 24px;
@@ -6043,11 +7666,11 @@ ${scope2} [data-hcv-context-toggle] {
   color: var(--hcv-muted);
   flex: 0 0 auto;
 }
-${scope2} [data-hcv-context-toggle][aria-expanded="true"] {
+${scope3} [data-hcv-context-toggle][aria-expanded="true"] {
   color: var(--hcv-text);
   background: var(--hcv-selected);
 }
-${scope2} [data-hcv-project-actions] {
+${scope3} [data-hcv-project-actions] {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -6056,36 +7679,36 @@ ${scope2} [data-hcv-project-actions] {
   border-radius: 8px;
   color: var(--hcv-muted);
 }
-${scope2} [data-hcv-project-actions] [data-hcv-icon="down"] { inline-size: 10px; block-size: 10px; }
-${scope2} [data-hcv-project-actions]:is(:hover, [data-state="open"]) {
+${scope3} [data-hcv-project-actions] [data-hcv-icon="down"] { inline-size: 10px; block-size: 10px; }
+${scope3} [data-hcv-project-actions]:is(:hover, [data-state="open"]) {
   color: var(--hcv-text);
   background: var(--hcv-hover);
 }
-${scope2} [data-hcv-project-actions-menu] { z-index: calc(var(--z-modal-backdrop, 120) - 1); }
+${scope3} [data-hcv-project-actions-menu] { z-index: calc(var(--z-modal-backdrop, 120) - 1); }
 @media (hover: hover) and (pointer: fine) {
-  ${surfaces} button:is(.hcv-context-row, .hcv-context-icon):hover:not(:disabled),
-  ${scope2} [data-hcv-context-toggle]:hover { background: var(--hcv-hover); color: var(--hcv-text); }
+  ${surfaces} button.hcv-context-row:hover:not(:disabled) { color: var(--hcv-text); }
+  ${surfaces} button.hcv-context-icon:hover:not(:disabled),
+  ${scope3} [data-hcv-context-toggle]:hover { background: var(--hcv-hover); color: var(--hcv-text); }
 }
 @media (prefers-reduced-motion: no-preference) {
   /* The Codex panel travel and the chat inset share one interpolated value. */
-  ${scope2} { transition: --hcv-summary-progress ${codexReference.summaryTime} var(--hcv-enter); }
-  ${scope2} [data-hcv-context-card] { transition: visibility 0s; }
-  ${scope2} [data-hcv-context-card][aria-hidden="true"] { transition-delay: ${codexReference.summaryTime}; }
+  ${scope3} { transition: --hcv-summary-progress ${codexReference.summaryTime} var(--hcv-enter); }
+  ${scope3} [data-hcv-context-card] { transition: visibility 0s; }
+  ${scope3} [data-hcv-context-card][aria-hidden="true"] { transition-delay: ${codexReference.summaryTime}; }
 }
 `;
-  document.head.append(style);
-  ctx.onDispose(() => style.remove());
+  mountStyle(ctx, style, { surface: "[data-hcv-context-card], [data-hcv-context-toggle], [data-hcv-project-actions]", retainAcrossChatTabs: true });
   ctx.register({
     id: "workspace-card",
     area: TITLEBAR_AREAS3.right,
-    render: () => h10(ThemeCardSlot, { themeName: themeName2, storage: ctx.storage, roster, panes, actions, localEnvironment })
+    render: () => h11(ThemeCardSlot, { themeName: themeName2, storage: ctx.storage, roster, panes, actions, localEnvironment, selection })
   });
 }
 
 // source/local-environment.js
-import { createElement as h11, useRef as useRef6, useState as useState8 } from "react";
+import { createElement as h12, useRef as useRef6, useState as useState8 } from "react";
 import {
-  atom as atom4,
+  atom as atom5,
   Button as Button2,
   Dialog as Dialog2,
   DialogContent as DialogContent2,
@@ -6367,26 +7990,26 @@ var windowsPlaceholder = {
   cleanup: "docker compose down --remove-orphans"
 };
 function icon6(name, className) {
-  return h11("span", { "aria-hidden": true, className, "data-hcv-env-icon": "", style: codexIconStyle(name) });
+  return h12("span", { "aria-hidden": true, className, "data-hcv-env-icon": "", style: codexIconStyle(name) });
 }
 function Variables({ t, copyVariable }) {
-  return h11(
+  return h12(
     Popover,
     null,
-    h11(PopoverTrigger, { asChild: true }, h11("button", { type: "button", className: "hcv-env-secondary" }, t.variables)),
-    h11(
+    h12(PopoverTrigger, { asChild: true }, h12("button", { type: "button", className: "hcv-env-secondary" }, t.variables)),
+    h12(
       PopoverContent,
       { align: "end", sideOffset: 4, "data-hcv-env-vars": "" },
-      h11("strong", null, t.variablesTitle),
-      [[sourceTreeVariable, t.sourcePath], [worktreeVariable, t.worktreePath]].map(([name, text]) => h11(
+      h12("strong", null, t.variablesTitle),
+      [[sourceTreeVariable, t.sourcePath], [worktreeVariable, t.worktreePath]].map(([name, text]) => h12(
         "div",
         { key: name },
-        h11("button", {
+        h12("button", {
           type: "button",
           title: name,
           onClick: () => void copyVariable(name)
-        }, h11("code", null, name), icon6("copy")),
-        h11("span", null, text)
+        }, h12("code", null, name), icon6("copy")),
+        h12("span", null, text)
       ))
     )
   );
@@ -6394,7 +8017,7 @@ function Variables({ t, copyVariable }) {
 function ScriptEditor({ type, scripts, setScripts, compact, t, copyVariable }) {
   const [platform, setPlatform] = useState8("default");
   const id2 = `hcv-env-${type}`;
-  const label = t[type];
+  const label3 = t[type];
   const selectWithKeys = (event) => {
     const previous = platforms.indexOf(platform);
     const next = { ArrowLeft: previous + platforms.length - 1, ArrowRight: previous + 1, Home: 0, End: platforms.length - 1 }[event.key];
@@ -6406,7 +8029,7 @@ function ScriptEditor({ type, scripts, setScripts, compact, t, copyVariable }) {
   };
   const value = scripts[platform] || "";
   const placeholder = compact ? t.compactPlaceholder : (platform === "win32" ? windowsPlaceholder : scriptPlaceholder)[type];
-  const field = h11("textarea", {
+  const field = h12("textarea", {
     id: id2,
     value,
     placeholder,
@@ -6415,27 +8038,27 @@ function ScriptEditor({ type, scripts, setScripts, compact, t, copyVariable }) {
     maxLength: 6e3,
     onChange: (event) => setScripts({ ...scripts, [platform]: event.target.value })
   });
-  return h11(
+  return h12(
     "section",
     { className: "hcv-env-script" },
-    h11(
+    h12(
       "div",
       { className: "hcv-env-section-title" },
-      h11(
+      h12(
         "div",
         null,
-        h11("label", { htmlFor: id2 }, label),
-        !compact && h11("p", null, type === "setup" ? t.setupHint : t.cleanupHint)
+        h12("label", { htmlFor: id2 }, label3),
+        !compact && h12("p", null, type === "setup" ? t.setupHint : t.cleanupHint)
       ),
-      !compact && type === "setup" && h11(Variables, { t, copyVariable })
+      !compact && type === "setup" && h12(Variables, { t, copyVariable })
     ),
-    compact ? field : h11(
+    compact ? field : h12(
       "div",
       null,
-      h11(
+      h12(
         "div",
-        { role: "tablist", "aria-label": `${label} \xB7 ${t.platform}`, onKeyDown: selectWithKeys, className: "hcv-env-platforms" },
-        platforms.map((value2) => h11("button", {
+        { role: "tablist", "aria-label": `${label3} \xB7 ${t.platform}`, onKeyDown: selectWithKeys, className: "hcv-env-platforms" },
+        platforms.map((value2) => h12("button", {
           key: value2,
           id: `${id2}-tab-${value2}`,
           type: "button",
@@ -6446,75 +8069,75 @@ function ScriptEditor({ type, scripts, setScripts, compact, t, copyVariable }) {
           onClick: () => setPlatform(value2)
         }, platformNames[value2] || t.default))
       ),
-      h11("div", { role: "tabpanel", id: `${id2}-platform`, "aria-labelledby": `${id2}-tab-${platform}` }, field)
+      h12("div", { role: "tabpanel", id: `${id2}-platform`, "aria-labelledby": `${id2}-tab-${platform}` }, field)
     )
   );
 }
 function Actions({ actions, onChange, t }) {
   const update = (id2, patch) => onChange(actions.map((action) => action.id === id2 ? { ...action, ...patch } : action));
-  return h11(
+  return h12(
     "section",
     { className: "hcv-env-actions" },
-    h11(
+    h12(
       "div",
       { className: "hcv-env-section-title" },
-      h11("h3", null, t.actions),
-      h11("button", {
+      h12("h3", null, t.actions),
+      h12("button", {
         type: "button",
         className: "hcv-env-secondary",
         onClick: () => onChange([...actions, { id: crypto.randomUUID(), name: "", command: "", platform: "default", icon: "tool" }])
       }, t.add)
     ),
-    h11("p", null, t.actionHint),
-    actions.length === 0 ? h11("div", { className: "hcv-env-empty" }, t.empty) : actions.map((action) => h11(
+    h12("p", null, t.actionHint),
+    actions.length === 0 ? h12("div", { className: "hcv-env-empty" }, t.empty) : actions.map((action) => h12(
       "div",
       { key: action.id, className: "hcv-env-card hcv-env-action", "data-hcv-env-action": "" },
-      h11(
+      h12(
         "div",
         { className: "hcv-env-action-heading" },
-        h11(
+        h12(
           "label",
           { className: "hcv-env-field hcv-env-action-icon" },
           t.icon,
-          h11(
+          h12(
             "div",
             null,
             icon6(icons[action.icon] || "tools"),
-            h11(
+            h12(
               "select",
               { value: action.icon, onChange: (event) => update(action.id, { icon: event.target.value }) },
-              buttonTypes.map((type) => h11("option", { value: type, key: type }, t[type]))
+              buttonTypes.map((type) => h12("option", { value: type, key: type }, t[type]))
             )
           )
         ),
-        h11(
+        h12(
           "label",
           { className: "hcv-env-field" },
           t.name,
-          h11("input", { value: action.name, maxLength: 100, onChange: (event) => update(action.id, { name: event.target.value }) })
+          h12("input", { value: action.name, maxLength: 100, onChange: (event) => update(action.id, { name: event.target.value }) })
         ),
-        h11("button", {
+        h12("button", {
           type: "button",
           "aria-label": t.remove,
           title: t.remove,
           onClick: () => onChange(actions.filter((item) => item.id !== action.id))
         }, icon6("trash"))
       ),
-      h11(
+      h12(
         "label",
         { className: "hcv-env-field" },
         t.platform,
-        h11(
+        h12(
           "select",
           { value: action.platform, onChange: (event) => update(action.id, { platform: event.target.value }) },
-          platforms.map((value) => h11("option", { value, key: value }, platformNames[value] || t.allPlatforms))
+          platforms.map((value) => h12("option", { value, key: value }, platformNames[value] || t.allPlatforms))
         )
       ),
-      h11(
+      h12(
         "label",
         { className: "hcv-env-field" },
         t.command,
-        h11("textarea", {
+        h12("textarea", {
           rows: 3,
           maxLength: 6e3,
           spellCheck: false,
@@ -6526,7 +8149,7 @@ function Actions({ actions, onChange, t }) {
     ))
   );
 }
-function EnvironmentDialog({ target, close, save }) {
+function EnvironmentDialog({ target, close: close2, save }) {
   const { t, original, platform, trigger, revision, copyVariable } = target;
   const [draft, setDraft] = useState8(original);
   const [advanced, setAdvanced] = useState8(false);
@@ -6545,7 +8168,7 @@ function EnvironmentDialog({ target, close, save }) {
   const requestClose = () => {
     if (savingRef.current) return;
     if (dirty) setDiscard(true);
-    else close();
+    else close2();
   };
   const submit = async (event) => {
     event.preventDefault();
@@ -6562,13 +8185,13 @@ function EnvironmentDialog({ target, close, save }) {
       setSaving(false);
     }
   };
-  const setupEditor = h11(ScriptEditor, { type: "setup", scripts: draft.setup, setScripts: (setup2) => edit3({ setup: setup2 }), compact: !advanced, t, copyVariable });
-  return h11(
+  const setupEditor = h12(ScriptEditor, { type: "setup", scripts: draft.setup, setScripts: (setup2) => edit3({ setup: setup2 }), compact: !advanced, t, copyVariable });
+  return h12(
     Dialog2,
     { open: true, onOpenChange: (open) => {
       if (!open) requestClose();
     } },
-    h11(
+    h12(
       DialogContent2,
       {
         "data-hcv-local-environment": "",
@@ -6591,95 +8214,95 @@ function EnvironmentDialog({ target, close, save }) {
           }
         }
       },
-      h11(DialogHeader2, null, h11(DialogTitle2, { ref: heading, tabIndex: -1 }, t.title), h11(DialogDescription2, null, t.subtitle)),
-      h11(
+      h12(DialogHeader2, null, h12(DialogTitle2, { ref: heading, tabIndex: -1 }, t.title), h12(DialogDescription2, null, t.subtitle)),
+      h12(
         "form",
         { onSubmit: submit, className: "hcv-env-form" },
-        h11(
+        h12(
           "fieldset",
           { disabled: saving },
           !advanced && setupEditor,
-          h11("button", {
+          h12("button", {
             type: "button",
             className: "hcv-env-disclosure",
             "aria-expanded": advanced,
             "aria-controls": "hcv-env-options",
             onClick: () => setAdvanced((previous) => !previous)
           }, t.advanced, icon6("right")),
-          advanced && h11(
+          advanced && h12(
             "div",
             { className: "hcv-env-options", id: "hcv-env-options" },
-            h11(
+            h12(
               "label",
               { className: "hcv-env-card hcv-env-field" },
               t.name,
-              h11("input", { value: draft.name, maxLength: 120, onChange: (event) => edit3({ name: event.target.value }) })
+              h12("input", { value: draft.name, maxLength: 120, onChange: (event) => edit3({ name: event.target.value }) })
             ),
             setupEditor,
-            h11(ScriptEditor, { type: "cleanup", scripts: draft.cleanup, setScripts: (cleanup) => edit3({ cleanup }), t }),
-            h11(Actions, { actions: draft.actions, onChange: (actions) => edit3({ actions }), t })
+            h12(ScriptEditor, { type: "cleanup", scripts: draft.cleanup, setScripts: (cleanup) => edit3({ cleanup }), t }),
+            h12(Actions, { actions: draft.actions, onChange: (actions) => edit3({ actions }), t })
           ),
-          error && h11("p", { role: "alert", className: "hcv-env-error" }, error),
-          h11(DialogFooter2, null, h11(Button2, { type: "submit", disabled }, runSetup || !revision && !content ? t.setupProject : t.save))
+          error && h12("p", { role: "alert", className: "hcv-env-error" }, error),
+          h12(DialogFooter2, null, h12(Button2, { type: "submit", disabled }, runSetup || !revision && !content ? t.setupProject : t.save))
         )
       ),
-      h11(
+      h12(
         Dialog2,
         { open: discard, onOpenChange: setDiscard },
-        h11(
+        h12(
           DialogContent2,
           { "data-hcv-env-confirm": "", showCloseButton: false, blurBackdrop: false },
-          h11(DialogHeader2, null, h11(DialogTitle2, null, t.discardTitle), h11(DialogDescription2, null, t.discardHint)),
-          h11(
+          h12(DialogHeader2, null, h12(DialogTitle2, null, t.discardTitle), h12(DialogDescription2, null, t.discardHint)),
+          h12(
             DialogFooter2,
             null,
-            h11(Button2, { type: "button", variant: "outline", onClick: () => setDiscard(false) }, t.keep),
-            h11(Button2, { type: "button", variant: "destructive", onClick: close }, t.discard)
+            h12(Button2, { type: "button", variant: "outline", onClick: () => setDiscard(false) }, t.keep),
+            h12(Button2, { type: "button", variant: "destructive", onClick: close2 }, t.discard)
           )
         )
       )
     )
   );
 }
-function TerminalResult({ result, stop, close }) {
+function TerminalResult({ result, stop, close: close2 }) {
   const { state, title, cwd, output, error, t } = result;
   const running = state === "running" || state === "starting";
   const status = error ? t[error] : t[state];
-  return h11(
+  return h12(
     Dialog2,
     { open: true, onOpenChange: (open) => {
-      if (!open && !running) close();
+      if (!open && !running) close2();
     } },
-    h11(
+    h12(
       DialogContent2,
       { "data-hcv-env-terminal": "", showCloseButton: !running, blurBackdrop: false },
-      h11(DialogHeader2, null, h11(DialogTitle2, null, title), h11(DialogDescription2, null, cwd)),
-      h11("div", { role: "status", "data-hcv-env-run-state": state }, status),
-      h11("pre", { tabIndex: 0 }, output || t.noOutput),
-      h11(DialogFooter2, null, h11(Button2, { type: "button", onClick: running ? stop : close }, running ? t.stop : t.close))
+      h12(DialogHeader2, null, h12(DialogTitle2, null, title), h12(DialogDescription2, null, cwd)),
+      h12("div", { role: "status", "data-hcv-env-run-state": state }, status),
+      h12("pre", { tabIndex: 0 }, output || t.noOutput),
+      h12(DialogFooter2, null, h12(Button2, { type: "button", onClick: running ? stop : close2 }, running ? t.stop : t.close))
     )
   );
 }
-function EnvironmentSlot({ model, result, close, save, stop, closeResult }) {
+function EnvironmentSlot({ model, result, close: close2, save, stop, closeResult }) {
   const target = useValue5(model);
   const run = useValue5(result);
-  if (target) return h11(EnvironmentDialog, { key: target.key, target, close, save });
-  return run ? h11(TerminalResult, { result: run, stop, close: closeResult }) : null;
+  if (target) return h12(EnvironmentDialog, { key: target.key, target, close: close2, save });
+  return run ? h12(TerminalResult, { result: run, stop, close: closeResult }) : null;
 }
 function registerLocalEnvironment(ctx, active2) {
   const root = document.documentElement;
-  const model = atom4(null);
-  const result = atom4(null);
-  const revisionSignal = atom4(0);
+  const model = atom5(null);
+  const result = atom5(null);
+  const revisionSignal = atom5(0);
   const platform = desktopPlatform();
-  const close = () => model.set(null);
+  const close2 = () => model.set(null);
   const closeResult = () => result.set(null);
-  const storageKey2 = (scope2) => `local-environment-v1:${localPathKey(scope2.source, platform)}`;
-  const read = (scope2) => ctx.storage.get(storageKey2(scope2), null);
+  const storageKey2 = (scope3) => `local-environment-v1:${localPathKey(scope3.source, platform)}`;
+  const read = (scope3) => ctx.storage.get(storageKey2(scope3), null);
   const sheet = document.createElement("style");
   sheet.dataset.hcvLocalEnvironmentStyles = "";
   sheet.textContent = styles(active2);
-  document.head.append(sheet);
+  mountStyle(ctx, sheet, { surface: "[data-hcv-local-environment]" });
   let cancelRun, disposed = false;
   let request = 0;
   const local = () => !disposed && host11.state.connectionId.get() === "local";
@@ -6718,15 +8341,15 @@ function registerLocalEnvironment(ctx, active2) {
     });
   };
   async function save(target, config, setup) {
-    const scope2 = await scopeFor(target.cwd);
-    if (!scope2 || target !== model.get() || storageKey2(scope2) !== storageKey2(target)) throw new Error("path");
-    if ((read(scope2)?.revision || "") !== target.revision) throw new Error("conflict");
+    const scope3 = await scopeFor(target.cwd);
+    if (!scope3 || target !== model.get() || storageKey2(scope3) !== storageKey2(target)) throw new Error("path");
+    if ((read(scope3)?.revision || "") !== target.revision) throw new Error("conflict");
     const revision = crypto.randomUUID();
-    ctx.storage.set(storageKey2(scope2), { revision, config });
-    if (read(scope2)?.revision !== revision) throw new Error("save");
+    ctx.storage.set(storageKey2(scope3), { revision, config });
+    if (read(scope3)?.revision !== revision) throw new Error("save");
     revisionSignal.set(revisionSignal.get() + 1);
-    close();
-    if (setup) startRun({ ...scope2, script: setup, title: target.t.setup, t: target.t });
+    close2();
+    if (setup) startRun({ ...scope3, script: setup, title: target.t.setup, t: target.t });
     else notify(target.t.saved, "success");
   }
   function commands(config, t) {
@@ -6740,12 +8363,12 @@ function registerLocalEnvironment(ctx, active2) {
   ctx.register({
     id: "local-environment-dialog",
     area: TITLEBAR_AREAS4.center,
-    render: () => h11(EnvironmentSlot, { model, result, close, save, stop: () => cancelRun?.(), closeResult })
+    render: () => h12(EnvironmentSlot, { model, result, close: close2, save, stop: () => cancelRun?.(), closeResult })
   });
   ctx.onDispose(() => {
     disposed = true;
     cancelRun?.();
-    close();
+    close2();
     closeResult();
     sheet.remove();
   });
@@ -6755,21 +8378,21 @@ function registerLocalEnvironment(ctx, active2) {
       if (!idle()) return false;
       const key = ++request;
       const t = words();
-      const scope2 = await scopeFor(cwd);
+      const scope3 = await scopeFor(cwd);
       if (key !== request || !idle() || disposed) return false;
-      if (!scope2) {
+      if (!scope3) {
         notify(t.path);
         return false;
       }
-      const saved = read(scope2);
+      const saved = read(scope3);
       model.set({
-        ...scope2,
+        ...scope3,
         key,
         t,
         trigger,
         platform,
         revision: saved?.revision || "",
-        original: saved?.config || emptyEnvironment(projectName?.trim() || folderName(scope2.source)),
+        original: saved?.config || emptyEnvironment(projectName?.trim() || folderName(scope3.source)),
         copyVariable: async (name) => {
           if (await ctx.os.writeClipboard(name)) notify(t.copied, "success");
         }
@@ -6777,25 +8400,25 @@ function registerLocalEnvironment(ctx, active2) {
       return true;
     },
     async name(cwd) {
-      const scope2 = await scopeFor(cwd);
-      return scope2 ? read(scope2)?.config.name || "" : "";
+      const scope3 = await scopeFor(cwd);
+      return scope3 ? read(scope3)?.config.name || "" : "";
     },
     async actions(cwd) {
-      const scope2 = await scopeFor(cwd);
-      return scope2 ? commands(read(scope2)?.config, words()).map(({ id: id2, label, icon: icon8 }) => ({ id: id2, label, icon: icon8 })) : [];
+      const scope3 = await scopeFor(cwd);
+      return scope3 ? commands(read(scope3)?.config, words()).map(({ id: id2, label: label3, icon: icon8 }) => ({ id: id2, label: label3, icon: icon8 })) : [];
     },
     async run({ cwd, id: id2 }) {
       if (!idle()) return false;
       const key = ++request;
       const t = words();
-      const scope2 = await scopeFor(cwd);
+      const scope3 = await scopeFor(cwd);
       if (key !== request || !idle() || disposed) return false;
-      const command = scope2 && commands(read(scope2)?.config, t).find((command2) => command2.id === id2);
+      const command = scope3 && commands(read(scope3)?.config, t).find((command2) => command2.id === id2);
       if (!command) {
         notify(t.actionError);
         return false;
       }
-      startRun({ ...scope2, script: command.script, title: command.label, t });
+      startRun({ ...scope3, script: command.script, title: command.label, t });
       return true;
     }
   };
@@ -6899,14 +8522,14 @@ var actionable = ':is([role="alert"], [data-approval-activity-only], [data-appro
 var protectedStep = `:is(${actionable}, [data-slot="aui_artifact-card"], [data-slot="aui_generated-image"], [data-delegate-card], [data-hcv-agent-rows], svg.text-destructive[aria-label])`;
 var isRussian = () => document.documentElement.lang.toLowerCase().startsWith("ru");
 function make(tag, marker3, text) {
-  const node2 = document.createElement(tag);
-  node2.setAttribute(`data-hcv-${marker3}`, "");
-  node2.setAttribute("data-hcv-generated", "");
-  if (text) node2.textContent = text;
-  return node2;
+  const node3 = document.createElement(tag);
+  node3.setAttribute(`data-hcv-${marker3}`, "");
+  node3.setAttribute("data-hcv-generated", "");
+  if (text) node3.textContent = text;
+  return node3;
 }
-function updateText(node2, text) {
-  if (node2.textContent !== text) node2.textContent = text;
+function updateText(node3, text) {
+  if (node3.textContent !== text) node3.textContent = text;
 }
 function durationSeconds(value) {
   const match = value?.match(/(\d+)(?:\:(\d{2})|s)\s*$/);
@@ -6915,51 +8538,85 @@ function durationSeconds(value) {
 }
 function formatDuration2(seconds) {
   if (seconds === null) return "";
-  const units = isRussian() ? ["\u0447", "\u043C\u0438\u043D", "\u0441"] : ["h", "min", "s"];
-  return [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60].flatMap((value, index) => value || index === 2 && seconds === 0 ? [`${value} ${units[index]}`] : []).join(" ");
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor(seconds / 60) % 60;
+  const units = hours ? [["hour", hours], ["minute", minutes]] : [["minute", minutes], ["second", seconds % 60]];
+  const language2 = document.documentElement.lang || "en";
+  return units.filter(([unit, value]) => value > 0 || seconds === 0 && unit === "second").map(([unit, value]) => new Intl.NumberFormat(language2, { style: "unit", unitDisplay: "narrow", unit }).format(value)).join(" ");
 }
-function findSteps(group, roots, final2) {
-  const canFold = (node2) => !node2.matches(protectedStep) && !node2.querySelector(protectedStep);
+function renderedMessage(element6) {
+  if (!element6) return null;
+  const root = committedFiber(element6);
+  for (let fiber = root; fiber && (fiber === root || !(fiber.stateNode instanceof Element)); fiber = fiber.return) {
+    for (let context = fiber.dependencies?.firstContext; context; context = context.next) {
+      const client = context.memoizedValue;
+      if (!client?.message?.source) continue;
+      try {
+        const message = client.message().__internal_getRuntime?.()?.getState();
+        if (message?.role === element6.dataset.role && (!element6.dataset.messageId || message.id === element6.dataset.messageId)) {
+          return message;
+        }
+      } catch {
+      }
+    }
+  }
+  return null;
+}
+function savedDuration(prompt2, message) {
+  const metadata = message?.metadata?.custom;
+  if (!metadata || message.status?.type !== "complete") return null;
+  const text = message.content.findLast((part) => part.type === "text" && part.text.trim());
+  const end = metadata.timelineCompletedAt ?? (text?.sourceRowId != null ? text.timestamp : null);
+  if (!Number.isFinite(end)) return null;
+  const start = renderedMessage(prompt2)?.metadata?.custom?.timelineTimestamp;
+  return Number.isFinite(start) && start > 0 && end > start ? Math.floor(end - start) : null;
+}
+function findSteps(group2, roots, final2) {
+  const canFold = (node3) => !node3.matches(protectedStep) && !node3.querySelector(protectedStep);
   const earlier = roots.slice(0, roots.indexOf(final2)).filter(canFold);
   const body = final2.querySelector(answer);
-  const detail = [...body?.querySelectorAll(step) || []].filter((node2) => !node2.parentElement.closest(step) && canFold(node2));
-  const prose2 = [...body?.querySelectorAll(".aui-md") || []].filter((node2) => !node2.parentElement.closest(step));
+  const detail = [...body?.querySelectorAll(step) || []].filter((node3) => !node3.parentElement.closest(step) && canFold(node3));
+  const prose2 = [...body?.querySelectorAll(".aui-md") || []].filter((node3) => !node3.parentElement.closest(step));
   const lastStep = detail.at(-1);
   const commentary = lastStep ? prose2.slice(0, -1).filter(
-    (node2) => canFold(node2) && Boolean(node2.compareDocumentPosition(lastStep) & Node.DOCUMENT_POSITION_FOLLOWING)
+    (node3) => canFold(node3) && Boolean(node3.compareDocumentPosition(lastStep) & Node.DOCUMENT_POSITION_FOLLOWING)
   ) : [];
-  return [...earlier, ...detail, ...commentary].filter((node2) => node2.closest(response2) === group);
+  return [...earlier, ...detail, ...commentary].filter((node3) => node3.closest(response2) === group2);
 }
-function clearSteps(group, state) {
-  for (const node2 of state.steps) node2.removeAttribute("data-hcv-turn-step");
+function clearSteps(group2, state) {
+  for (const node3 of state.steps) node3.removeAttribute("data-hcv-turn-step");
   state.steps.clear();
   state.bar?.remove();
   state.bar = null;
-  group.removeAttribute("data-hcv-turn-folded");
-  group.removeAttribute("data-hcv-turn-summary");
+  group2.removeAttribute("data-hcv-turn-folded");
+  group2.removeAttribute("data-hcv-turn-summary");
 }
-function showSummary(group, state, steps, elapsed) {
+function showSummary(group2, state, steps, elapsed, interrupted) {
   const hasSteps = steps.length > 0;
   if (!state.bar || state.bar.tagName === "BUTTON" !== hasSteps) {
-    clearSteps(group, state);
+    clearSteps(group2, state);
     const bar = make(hasSteps ? "button" : "div", "turn-line");
     if (hasSteps) {
       bar.type = "button";
       bar.setAttribute("aria-expanded", "false");
-      group.setAttribute("data-hcv-turn-folded", "");
+      group2.setAttribute("data-hcv-turn-folded", "");
       bar.addEventListener("click", () => {
-        const open = group.toggleAttribute("data-hcv-turn-folded") === false;
+        const open = group2.toggleAttribute("data-hcv-turn-folded") === false;
         bar.setAttribute("aria-expanded", String(open));
       });
     }
     state.bar = bar;
   }
-  if (group.firstElementChild !== state.bar) group.prepend(state.bar);
-  updateText(state.bar, elapsed ? isRussian() ? `\u0412\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u043E \u0437\u0430 ${elapsed}` : `Worked for ${elapsed}` : isRussian() ? "\u0428\u0430\u0433\u0438 \u0440\u0430\u0431\u043E\u0442\u044B" : "Activity");
-  group.toggleAttribute("data-hcv-turn-summary", Boolean(elapsed));
+  if (group2.firstElementChild !== state.bar) group2.prepend(state.bar);
+  const ru = isRussian();
+  let label3 = ru ? "\u0412\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u043E" : "Worked";
+  if (interrupted) label3 = ru ? "\u041E\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u043E" : "Stopped";
+  else if (elapsed) label3 = ru ? `\u0412\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u043E \u0437\u0430 ${elapsed}` : `Worked for ${elapsed}`;
+  updateText(state.bar, label3);
+  group2.setAttribute("data-hcv-turn-summary", "");
   const next = new Set(steps);
-  for (const node2 of state.steps) if (!next.has(node2)) node2.removeAttribute("data-hcv-turn-step");
-  for (const node2 of next) if (!state.steps.has(node2)) node2.setAttribute("data-hcv-turn-step", "");
+  for (const node3 of state.steps) if (!next.has(node3)) node3.removeAttribute("data-hcv-turn-step");
+  for (const node3 of next) if (!state.steps.has(node3)) node3.setAttribute("data-hcv-turn-step", "");
   state.steps = next;
 }
 function clearLive(state) {
@@ -6968,61 +8625,125 @@ function clearLive(state) {
 }
 function showLive(root, state, now) {
   if (!state.live) {
-    const row4 = make("div", "live-turn");
-    const time2 = make("time", "live-time");
-    row4.setAttribute("role", "status");
-    time2.setAttribute("aria-hidden", "true");
-    row4.append(time2);
-    state.live = { row: row4, time: time2 };
+    const row5 = make("div", "live-turn");
+    const time = make("time", "live-time");
+    row5.setAttribute("role", "status");
+    time.setAttribute("aria-hidden", "true");
+    row5.append(time);
+    state.live = { row: row5, time };
   }
-  const { row: row3, time } = state.live;
+  const { row: row4 } = state.live;
   const body = root.querySelector(answer);
-  if (body && body.nextElementSibling !== row3) body.after(row3);
-  const seconds = Math.max(0, Math.floor((now - state.startedAt) / 1e3));
-  updateText(time, seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`);
+  if (body && body.nextElementSibling !== row4) body.after(row4);
+  updateLiveTime(state, now);
 }
-function syncThinkingLabels(labels11, enabled) {
+function updateLiveTime(state, now) {
+  const seconds = Math.max(0, Math.floor((now - state.startedAt) / 1e3));
+  updateText(state.live.time, seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`);
+}
+function syncThinkingLabels(labels12, enabled) {
   const visible = /* @__PURE__ */ new Set();
   const text = isRussian() ? "\u0414\u0443\u043C\u0430\u044E" : "Thinking";
-  for (const row3 of enabled ? document.querySelectorAll(activeIndicators) : []) {
-    if (row3.querySelector(':scope > :not(.dither, [aria-hidden="true"], [data-hcv-thinking])')) continue;
-    visible.add(row3);
-    let label = labels11.get(row3);
-    if (!label) {
-      label = make("span", "thinking");
+  for (const row4 of enabled ? document.querySelectorAll(activeIndicators) : []) {
+    if (row4.querySelector(':scope > :not(.dither, [aria-hidden="true"], [data-hcv-thinking])')) continue;
+    visible.add(row4);
+    let label3 = labels12.get(row4);
+    if (!label3) {
+      label3 = make("span", "thinking");
       const sweep = make("span", "thinking-sweep");
       sweep.setAttribute("aria-hidden", "true");
-      label.append(document.createTextNode(""), sweep);
-      labels11.set(row3, label);
+      label3.append(document.createTextNode(""), sweep);
+      labels12.set(row4, label3);
     }
-    if (label.firstChild.data !== text) {
-      label.firstChild.data = text;
-      label.lastElementChild.dataset.hcvThinkingSweep = text;
+    if (label3.firstChild.data !== text) {
+      label3.firstChild.data = text;
+      label3.lastElementChild.dataset.hcvThinkingSweep = text;
     }
-    if (label.parentElement !== row3) row3.prepend(label);
+    if (label3.parentElement !== row4) row4.prepend(label3);
   }
-  for (const [row3, label] of labels11) {
-    if (visible.has(row3)) continue;
-    label.remove();
-    labels11.delete(row3);
+  for (const [row4, label3] of labels12) {
+    if (visible.has(row4)) continue;
+    label3.remove();
+    labels12.delete(row4);
   }
 }
 function fileNoun(count) {
   if (!isRussian()) return count === 1 ? "file" : "files";
   return { one: "\u0444\u0430\u0439\u043B", few: "\u0444\u0430\u0439\u043B\u0430", many: "\u0444\u0430\u0439\u043B\u043E\u0432" }[new Intl.PluralRules("ru").select(count)] || "\u0444\u0430\u0439\u043B\u043E\u0432";
 }
-function sumLines(rows, className) {
-  return rows.reduce((sum, row3) => {
-    const digits = row3.querySelector(`[class~="${className}"]`)?.textContent.replace(/[^0-9]/g, "");
-    return sum + (Number(digits) || 0);
-  }, 0);
+function numbers(parent) {
+  const totals = make("span", "files-totals");
+  const added = make("span", "files-added");
+  const removed = make("span", "files-removed");
+  totals.append(added, removed);
+  parent.append(totals);
+  return { totals, added, removed };
+}
+function showNumbers({ added, removed }, plus, minus, format) {
+  updateText(added, `+${format.format(plus)}`);
+  updateText(removed, `${isRussian() ? "\u2013" : "-"}${format.format(minus)}`);
+}
+function nativeCardCwd(card) {
+  for (let fiber = committedFiber(card)?.return; fiber; fiber = fiber.return) {
+    if (!Array.isArray(fiber.memoizedProps?.parts)) continue;
+    for (let context = fiber.dependencies?.firstContext; context; context = context.next) {
+      const view = context.memoizedValue;
+      if ((view?.kind === "primary" || view?.kind === "tile") && typeof view.$cwd?.get === "function") {
+        return view.$cwd.get();
+      }
+    }
+    break;
+  }
+  return card.closest(primary2) ? host12.state.cwd.get() : "";
+}
+function fileDisplayPath(row4, basename, cwd) {
+  for (let fiber = committedFiber(row4)?.return; fiber; fiber = fiber.return) {
+    const props = fiber.memoizedProps;
+    if (typeof fiber.key === "string" && typeof props?.label === "string" && props.children?.type === "button") {
+      const path = fiber.key.replaceAll("\\", "/");
+      const root = (cwd || "").replaceAll("\\", "/").replace(/\/+$/, "");
+      if (!root && !cwd) return path;
+      const prefix = root + "/";
+      const windows = /^(?:[a-z]:\/|\/\/)/i.test(prefix);
+      const within = windows ? path.toLowerCase().startsWith(prefix.toLowerCase()) : path.startsWith(prefix);
+      return within ? path.slice(prefix.length) : path;
+    }
+    if (fiber.stateNode instanceof Element) break;
+  }
+  return basename;
+}
+function paintFileRow(row4, path, added, removed, format) {
+  const index = path.lastIndexOf("/") + 1;
+  updateText(row4.accessiblePath, path);
+  updateText(row4.directory, path.slice(0, index));
+  updateText(row4.basename, path.slice(index));
+  showNumbers(row4.numbers, added, removed, format);
+}
+function makeFileRow(button4) {
+  const accessiblePath = make("span", "file-accessible-path");
+  const label3 = make("span", "file-path");
+  const directory = make("span", "file-directory");
+  const basename = make("span", "file-basename");
+  label3.setAttribute("aria-hidden", "true");
+  label3.append(directory, basename);
+  button4.append(accessiblePath, label3);
+  const counts = numbers(button4);
+  return { accessiblePath, label: label3, directory, basename, numbers: counts };
+}
+function clearFileRow(row4) {
+  row4.accessiblePath.remove();
+  row4.label.remove();
+  row4.numbers.totals.remove();
 }
 function clearFiles(state) {
   const files = state.files;
   if (!files) return;
   files.heading.remove();
+  files.open.remove();
   files.more.remove();
   files.checkpoint.remove();
+  files.review.removeEventListener("click", files.selectSingle, true);
+  for (const row4 of files.rows.values()) clearFileRow(row4);
   files.nativeTitle.removeAttribute("data-hcv-file-native-title");
   if (files.review.getAttribute("aria-label") === files.review.getAttribute("data-hcv-file-review")) {
     if (files.originalReviewLabel === null) files.review.removeAttribute("aria-label");
@@ -7030,6 +8751,7 @@ function clearFiles(state) {
   }
   files.review.removeAttribute("data-hcv-file-review");
   files.card.removeAttribute("data-hcv-file-card");
+  files.card.removeAttribute("data-hcv-file-single");
   files.card.removeAttribute("data-hcv-files-open");
   files.card.removeAttribute("data-hcv-files-foldable");
   state.files = null;
@@ -7044,13 +8766,24 @@ function showFiles(state, card) {
     clearFiles(state);
     const heading2 = make("div", "files-heading");
     const name2 = make("span", "files-title");
-    const totals = make("span", "files-totals");
-    const added2 = make("span", "files-added");
-    const removed2 = make("span", "files-removed");
-    totals.append(added2, removed2);
-    heading2.append(name2, totals);
+    const subtitle = make("span", "files-subtitle");
+    heading2.append(name2, subtitle);
+    const counts = numbers(subtitle);
+    const hover2 = make("span", "files-hover");
+    subtitle.append(hover2);
+    const open2 = make("button", "files-open");
+    open2.type = "button";
+    open2.addEventListener("click", () => (state.files?.single || review).click());
+    const selectSingle = (event) => {
+      const row4 = state.files?.single;
+      if (!row4) return;
+      event.stopPropagation();
+      row4.click();
+    };
+    review.addEventListener("click", selectSingle, true);
     const more2 = make("button", "files-more");
     more2.type = "button";
+    more2.append(make("span", "files-more-label"));
     more2.setAttribute("aria-expanded", "false");
     more2.addEventListener("click", () => {
       more2.setAttribute("aria-expanded", String(card.toggleAttribute("data-hcv-files-open")));
@@ -7059,59 +8792,106 @@ function showFiles(state, card) {
     const checkpoint2 = make("button", "files-checkpoint");
     checkpoint2.type = "button";
     checkpoint2.addEventListener("click", () => nativeCheckpoint(card)?.click());
-    state.files = { card, nativeTitle, review, originalReviewLabel: review.getAttribute("aria-label"), heading: heading2, name: name2, added: added2, removed: removed2, more: more2, checkpoint: checkpoint2, remaining: 0 };
+    state.files = {
+      card,
+      nativeTitle,
+      review,
+      originalReviewLabel: review.getAttribute("aria-label"),
+      heading: heading2,
+      name: name2,
+      counts,
+      hover: hover2,
+      open: open2,
+      selectSingle,
+      more: more2,
+      checkpoint: checkpoint2,
+      remaining: 0,
+      single: null,
+      rows: /* @__PURE__ */ new Map()
+    };
   }
-  const { heading, name, added, removed, more, checkpoint } = state.files;
+  const files = state.files;
+  const { heading, name, hover, open, more, checkpoint } = files;
   if (heading.parentElement !== header) nativeTitle.after(heading);
-  const rows = [...list.querySelectorAll(":scope > button")];
-  if (!rows.length) return clearFiles(state);
+  if (open.parentElement !== header) header.prepend(open);
+  const rows = new Set(list.querySelectorAll(":scope > button"));
+  if (!rows.size) return clearFiles(state);
+  const count = rows.size;
+  const ru = isRussian();
+  const format = new Intl.NumberFormat(document.documentElement.lang || "en");
+  const cwd = count > 1 ? nativeCardCwd(card) : "";
+  let plus = 0;
+  let minus = 0;
+  for (const [row4, display] of files.rows) {
+    if (count > 1 && rows.has(row4)) continue;
+    clearFileRow(display);
+    files.rows.delete(row4);
+  }
+  for (const row4 of rows) {
+    const added = Number(row4.querySelector('[class~="text-(--ui-green)"]')?.textContent.slice(1)) || 0;
+    const removed = Number(row4.querySelector('[class~="text-(--ui-red)"]')?.textContent.slice(1)) || 0;
+    plus += added;
+    minus += removed;
+    if (count === 1) continue;
+    const basename = row4.querySelector(":scope > span.truncate")?.textContent || "";
+    const path = fileDisplayPath(row4, basename, cwd);
+    if (!files.rows.has(row4)) files.rows.set(row4, makeFileRow(row4));
+    paintFileRow(files.rows.get(row4), path, added, removed, format);
+  }
+  files.single = count === 1 ? rows.values().next().value : null;
+  card.toggleAttribute("data-hcv-file-single", Boolean(files.single));
   card.setAttribute("data-hcv-file-card", "");
   nativeTitle.setAttribute("data-hcv-file-native-title", "");
-  const reviewLabel = isRussian() ? "\u041F\u0440\u043E\u0441\u043C\u043E\u0442\u0440\u0435\u0442\u044C \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F" : "View changes";
+  open.setAttribute("aria-label", ru ? "\u041F\u043E\u0441\u043C\u043E\u0442\u0440\u0435\u0442\u044C \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u043D\u044B\u0435 \u0444\u0430\u0439\u043B\u044B" : "View changed files");
+  updateText(hover, ru ? "\u041F\u0440\u043E\u0441\u043C\u043E\u0442\u0440 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439" : "View changes");
+  const reviewLabel = ru ? "\u041F\u0440\u043E\u0441\u043C\u043E\u0442\u0440\u0435\u0442\u044C \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F" : "View changes";
   review.setAttribute("data-hcv-file-review", reviewLabel);
   review.setAttribute("aria-label", reviewLabel);
   const restore = nativeCheckpoint(card);
   if (restore) {
-    updateText(checkpoint, isRussian() ? "\u0427\u0435\u043A\u043F\u043E\u0438\u043D\u0442" : "Checkpoint");
+    updateText(checkpoint, ru ? "\u041E\u0442\u043C\u0435\u043D\u0438\u0442\u044C" : "Undo");
     checkpoint.title = restore.getAttribute("aria-label");
     if (checkpoint.parentElement !== header) review.before(checkpoint);
   } else {
     checkpoint.remove();
   }
-  const count = rows.length;
-  updateText(name, isRussian() ? `\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u043E ${count} ${fileNoun(count)}` : `${count} ${fileNoun(count)} changed`);
-  const plus = sumLines(rows, "text-(--ui-green)");
-  const minus = sumLines(rows, "text-(--ui-red)");
-  updateText(added, plus ? `+${plus}` : "");
-  updateText(removed, minus ? `\u2212${minus}` : "");
+  if (files.single) {
+    const basename = files.single.querySelector(":scope > span.truncate")?.textContent || "";
+    updateText(name, ru ? `\u0418\u0437\u043C\u0435\u043D\u0451\u043D ${basename}` : `Edited ${basename}`);
+  } else {
+    updateText(name, ru ? `\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u043E ${format.format(count)} ${fileNoun(count)}` : `Edited ${format.format(count)} files`);
+  }
+  showNumbers(files.counts, plus, minus, format);
   if (card.toggleAttribute("data-hcv-files-foldable", count > 3)) {
     if (more.parentElement !== card) card.append(more);
-    state.files.remaining = count - 3;
-    updateMoreLabel(state.files);
+    files.remaining = count - 3;
+    updateMoreLabel(files);
   } else {
+    card.removeAttribute("data-hcv-files-open");
+    more.setAttribute("aria-expanded", "false");
     more.remove();
   }
 }
 function nativeCheckpoint(card) {
-  const label = isRussian() ? "\u0412\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u044C \u0447\u0435\u043A\u043F\u043E\u0438\u043D\u0442" : "Restore checkpoint";
+  const label3 = isRussian() ? "\u0412\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u044C \u0447\u0435\u043A\u043F\u043E\u0438\u043D\u0442" : "Restore checkpoint";
   const turn = card.closest('[data-slot="aui_turn-pair"]');
   const prompt2 = turn?.querySelector('[data-slot="aui_user-message-root"]');
-  return prompt2?.querySelector(`button[aria-label="${label}"]:not(:disabled)`);
+  return prompt2?.querySelector(`button[aria-label="${label3}"]:not(:disabled)`);
 }
 function updateMoreLabel({ card, more, remaining }) {
   const expanded = card.hasAttribute("data-hcv-files-open");
-  updateText(more, expanded ? isRussian() ? "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0441\u043F\u0438\u0441\u043E\u043A" : "Show fewer files" : isRussian() ? `\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0435\u0449\u0451 ${remaining} ${fileNoun(remaining)}` : `Show ${remaining} more ${fileNoun(remaining)}`);
+  updateText(more.firstElementChild, expanded ? isRussian() ? "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0444\u0430\u0439\u043B\u044B" : "Collapse files" : isRussian() ? `\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0435\u0449\u0435 ${remaining} ${fileNoun(remaining)}` : `Show ${remaining} more ${fileNoun(remaining)}`);
 }
-function synchronize(group, state, now, tail, completedSeconds, startedAt) {
-  const roots = [...group.querySelectorAll(`:scope > ${assistant}`)];
+function synchronize(group2, state, now, tail, ownPrompt, completedSeconds, startedAt) {
+  const roots = [...group2.querySelectorAll(`:scope > ${assistant}`)];
   const last = roots.at(-1);
   if (!last) {
-    clearSteps(group, state);
+    clearSteps(group2, state);
     clearLive(state);
     clearFiles(state);
     return;
   }
-  const working = Boolean(group.querySelector(`${streaming}, ${nativeActivity}`));
+  const working = Boolean(group2.querySelector(`${streaming}, ${nativeActivity}`));
   const blocked = roots.some((root) => root.matches(actionable) || root.querySelector(actionable));
   const final2 = roots.findLast((root) => root.querySelector('[data-slot="aui_msg-actions"]'));
   if (working && tail) {
@@ -7124,15 +8904,17 @@ function synchronize(group, state, now, tail, completedSeconds, startedAt) {
   } else {
     clearLive(state);
   }
-  const elapsed = formatDuration2(durationSeconds(final2?.querySelector(duration2)?.textContent) ?? completedSeconds);
   if (!working && !blocked && final2) {
-    const steps = findSteps(group, roots, final2);
-    if (elapsed || steps.length) showSummary(group, state, steps, elapsed);
-    else clearSteps(group, state);
+    const message = renderedMessage(final2);
+    const interrupted = Boolean(message?.metadata?.custom?.interrupted);
+    const elapsed = interrupted ? "" : formatDuration2(durationSeconds(final2.querySelector(duration2)?.textContent) ?? completedSeconds ?? savedDuration(ownPrompt, message));
+    const steps = findSteps(group2, roots, final2);
+    if (elapsed || steps.length) showSummary(group2, state, steps, elapsed, interrupted);
+    else clearSteps(group2, state);
   } else {
-    clearSteps(group, state);
+    clearSteps(group2, state);
   }
-  showFiles(state, group.querySelector(changes));
+  showFiles(state, group2.querySelector(changes));
 }
 function registerTurnExperience(ctx, active2) {
   const states = /* @__PURE__ */ new Map();
@@ -7141,7 +8923,15 @@ function registerTurnExperience(ctx, active2) {
   const durations = /* @__PURE__ */ new Map();
   const lastBySession = /* @__PURE__ */ new Map();
   const contrast = window.matchMedia("(forced-colors: none)");
+  const dirty = /* @__PURE__ */ new Set();
+  const live = /* @__PURE__ */ new Set();
+  const tails = /* @__PURE__ */ new Set();
+  const allGroups = `[data-chat-surface] ${response2}`;
+  const user = '[data-slot="aui_user-message-root"]';
+  const turnStructure = `${response2}, ${user}`;
+  let full = true;
   let frame = 0;
+  let clockFrame = 0;
   let timer = 0;
   const sessionKey = (id2) => JSON.stringify([host12.state.connectionId.get(), host12.state.profile.get(), id2]);
   const keyFor = (event) => event.session_id && !event.replayed && document.documentElement.matches(active2) && (!event.connectionId || event.connectionId === host12.state.connectionId.get()) && (!event.profile || event.profile === host12.state.profile.get()) ? sessionKey(event.session_id) : null;
@@ -7175,66 +8965,107 @@ function registerTurnExperience(ctx, active2) {
     if (lastBySession.size > 64) lastBySession.delete(lastBySession.keys().next().value);
     queue();
   });
-  function remove(group, state) {
-    clearSteps(group, state);
+  function remove(group2, state) {
+    clearSteps(group2, state);
     clearLive(state);
     clearFiles(state);
-    states.delete(group);
+    live.delete(state);
+    states.delete(group2);
   }
   function render() {
     frame = 0;
     const enabled = contrast.matches && document.documentElement.matches(active2);
-    for (const [group, state] of states) if (!enabled || !group.isConnected) remove(group, state);
+    if (full || !enabled) {
+      const groups2 = enabled ? [...document.querySelectorAll(allGroups)] : [];
+      const present = new Set(groups2);
+      for (const [group2, state] of states) if (!present.has(group2)) remove(group2, state);
+      dirty.clear();
+      tails.clear();
+      const tailByTranscript = new Map(groups2.map((group2) => [group2.closest(transcript3), group2]));
+      for (const [container, group2] of tailByTranscript) {
+        const prompt2 = [...container?.querySelectorAll(user) || []].at(-1);
+        if (!prompt2 || !(group2.compareDocumentPosition(prompt2) & Node.DOCUMENT_POSITION_FOLLOWING)) tails.add(group2);
+      }
+      for (const group2 of groups2) dirty.add(group2);
+    }
+    full = false;
     if (enabled) {
       const now = Date.now();
-      const groups2 = [...document.querySelectorAll(`[data-chat-surface] ${response2}`)];
-      const tailByTranscript = new Map(groups2.map((group) => [group.closest(transcript3), group]));
-      const latestPrompt = new Map([...tailByTranscript.keys()].map((container) => [
-        container,
-        [...container?.querySelectorAll('[data-slot="aui_user-message-root"]') || []].at(-1)
-      ]));
-      for (const group of groups2) {
-        let state = states.get(group);
+      const runtime = host12.state.activeSessionId.get();
+      const key = runtime && sessionKey(runtime);
+      const last = runtime && lastBySession.get(storedKey(runtime));
+      const liveStart = key && started.get(key);
+      for (const group2 of dirty) {
+        if (!group2.isConnected || !group2.matches(allGroups)) continue;
+        let state = states.get(group2);
         if (!state) {
           state = { steps: /* @__PURE__ */ new Set(), bar: null, live: null, files: null, startedAt: null };
-          states.set(group, state);
+          states.set(group2, state);
         }
-        const container = group.closest(transcript3);
-        const prompt2 = latestPrompt.get(container);
-        const tail = tailByTranscript.get(container) === group && (!prompt2 || !(group.compareDocumentPosition(prompt2) & Node.DOCUMENT_POSITION_FOLLOWING));
-        const ownPrompt = group.closest('[data-slot="aui_turn-pair"]')?.querySelector('[data-slot="aui_user-message-root"][data-message-id]');
-        const runtime = group.closest(primary2) && host12.state.activeSessionId.get();
-        const key = runtime && sessionKey(runtime);
-        const timeKey = key && ownPrompt && JSON.stringify([key, ownPrompt.dataset.messageId]);
-        const last = tail && runtime && lastBySession.get(storedKey(runtime));
-        const recorded = timeKey && durations.get(timeKey) || last && last.text === promptText(ownPrompt) && last.seconds;
-        const liveStart = key && started.get(key);
-        synchronize(group, state, now, tail, recorded || null, liveStart?.at);
+        const tail = tails.has(group2);
+        const main = key && group2.closest(primary2);
+        const ownPrompt = group2.closest('[data-slot="aui_turn-pair"]')?.querySelector(`:scope > ${user}[data-message-id]`);
+        const timeKey = main && ownPrompt && JSON.stringify([key, ownPrompt.dataset.messageId]);
+        const recorded = timeKey && durations.get(timeKey) || main && tail && last && last.text === promptText(ownPrompt) && last.seconds;
+        synchronize(group2, state, now, tail, ownPrompt, recorded || null, main ? liveStart?.at : void 0);
+        if (state.live) live.add(state);
+        else live.delete(state);
       }
     }
+    dirty.clear();
     syncThinkingLabels(thinkingLabels, enabled);
-    if ([...states.values()].some((state) => state.live)) {
-      if (!timer) timer = window.setInterval(queue, 1e3);
+    if (live.size) {
+      if (!timer) timer = window.setInterval(() => {
+        if (!clockFrame) clockFrame = requestAnimationFrame(() => {
+          clockFrame = 0;
+          const now = Date.now();
+          if (!contrast.matches || !document.documentElement.matches(active2)) return;
+          for (const state of live) if (state.live.row.isConnected) updateLiveTime(state, now);
+        });
+      }, 1e3);
     } else if (timer) {
       window.clearInterval(timer);
       timer = 0;
     }
   }
-  function queue() {
+  function schedule() {
     if (!frame) frame = requestAnimationFrame(render);
   }
+  function queue() {
+    full = true;
+    schedule();
+  }
   const observer = new MutationObserver((records) => {
-    if (records.some(({ target, type, addedNodes, removedNodes }) => {
-      if (target === document.documentElement) return true;
-      if (!document.documentElement.matches(active2)) return false;
-      const element5 = target instanceof Element ? target : target.parentElement;
-      if (!element5 || element5.closest("[data-hcv-generated]")) return false;
-      if (type === "characterData") return Boolean(element5.closest(`${changes}, ${duration2}`));
-      if (type === "attributes") return Boolean(target.closest(response2));
-      const nodes = [...addedNodes, ...removedNodes];
-      if (nodes.some((node2) => node2.nodeType === Node.TEXT_NODE) && element5.closest(`${changes}, ${duration2}`)) return true;
-      return nodes.some((node2) => node2 instanceof Element && !node2.hasAttribute("data-hcv-generated") && (target.closest(response2) || node2.matches(`${response2}, [data-slot="aui_user-message-root"]`) || node2.querySelector(response2)));
-    })) queue();
+    const root = document.documentElement;
+    if (records.some(({ target }) => target === root)) return queue();
+    if (!root.matches(active2)) return;
+    for (const { target, type, addedNodes, removedNodes } of records) {
+      const element6 = target instanceof Element ? target : target.parentElement;
+      if (!element6 || element6.closest("[data-hcv-generated]")) continue;
+      const group2 = element6.closest(response2);
+      if (type === "characterData") {
+        if (group2 && element6.closest(`${changes}, ${duration2}`)) dirty.add(group2);
+      } else if (type === "attributes") {
+        if (group2) dirty.add(group2);
+      } else {
+        for (const nodes of [addedNodes, removedNodes]) {
+          for (const node3 of nodes) {
+            if (node3 instanceof Element && !node3.hasAttribute("data-hcv-generated")) {
+              if (node3.matches(turnStructure) || node3.querySelector(turnStructure)) return queue();
+              if (group2) dirty.add(group2);
+            } else if (group2 && node3.nodeType === Node.TEXT_NODE && element6.closest(`${changes}, ${duration2}`)) {
+              dirty.add(group2);
+            }
+          }
+        }
+      }
+      if (group2 && dirty.has(group2)) {
+        for (let parent = group2.parentElement?.closest(response2); parent; parent = parent.parentElement?.closest(response2)) {
+          dirty.add(parent);
+        }
+      }
+    }
+    if (dirty.size) schedule();
   });
   observer.observe(document.documentElement, {
     childList: true,
@@ -7244,13 +9075,22 @@ function registerTurnExperience(ctx, active2) {
     attributeFilter: ["data-state", "data-message-streaming", "data-hermes-theme", "data-hermes-codex-visual", "lang"]
   });
   contrast.addEventListener("change", queue);
+  const unsubscribe = [
+    host12.state.activeSessionId,
+    host12.state.focusedSessionId,
+    host12.state.focusedStoredSessionId,
+    host12.state.connectionId,
+    host12.state.profile
+  ].map((atom7) => atom7.listen(queue));
   queue();
   ctx.onDispose(() => {
     observer.disconnect();
     contrast.removeEventListener("change", queue);
+    for (const stop of unsubscribe) stop();
     if (frame) cancelAnimationFrame(frame);
+    if (clockFrame) cancelAnimationFrame(clockFrame);
     if (timer) window.clearInterval(timer);
-    for (const [group, state] of states) remove(group, state);
+    for (const [group2, state] of states) remove(group2, state);
     syncThinkingLabels(thinkingLabels, false);
   });
 }
@@ -7263,13 +9103,22 @@ var restoreButton = "button:has(> .codicon-discard)";
 var rowSelector = "[data-hcv-message-actions]";
 var menuSelector = "[data-hcv-message-menu]";
 var nativeTimestamp = '[data-slot="timeline-timestamp"]';
-var labels7 = {
-  ru: { copyMessage: "\u0421\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435", messageCopied: "\u0421\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u043D\u043E", copyMessageError: "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0441\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435" },
-  en: { copyMessage: "Copy message", messageCopied: "Copied", copyMessageError: "Could not copy the message" }
+var replyRoot = '[data-slot="aui_assistant-message-root"]';
+var replyActions = '[data-slot="aui_msg-actions"]';
+var replyLane = ":is(.aui-message-actions-desktop, .aui-message-actions-touch)";
+var replyCopy = 'button[data-size="icon"]:not(button[data-size="icon"] ~ button[data-size="icon"])';
+var replyTip = "[data-hcv-reply-copy-tip]";
+var copyIcon = ":is(.tabler-icon-copy, .lucide-copy)";
+var labels8 = {
+  ru: { copyMessage: "\u0421\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435", copyResponse: "\u0421\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u043E\u0442\u0432\u0435\u0442", messageCopied: "\u0421\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u043D\u043E", copyMessageError: "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0441\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435" },
+  en: { copyMessage: "Copy message", copyResponse: "Copy response", messageCopied: "Copied", copyMessageError: "Could not copy the message" }
 };
-function userMessage(bubble, id2) {
-  for (let node2 = committedFiber(bubble); node2; node2 = node2.return) {
-    const client = node2.memoizedProps?.value;
+function replyActionLanes(bar) {
+  return `:is(${bar}, ${bar} > ${replyLane})`;
+}
+function userMessage2(bubble, id2) {
+  for (let node3 = committedFiber(bubble); node3; node3 = node3.return) {
+    const client = node3.memoizedProps?.value;
     if (client?.message?.source !== "thread" || typeof client.subscribe !== "function") continue;
     try {
       const message = client.message();
@@ -7291,14 +9140,20 @@ function dateLabel(date) {
   return new Intl.DateTimeFormat(locale, options).format(date);
 }
 function styles2(active2, transcript4) {
-  const enhanced = `${active2} ${transcript4} ${actionBar}:has(${rowSelector})`;
-  const row3 = `${enhanced} ${rowSelector}`;
+  const enhanced2 = `${active2} ${transcript4} ${actionBar}:has(${rowSelector})`;
+  const row4 = `${enhanced2} ${rowSelector}`;
   const menu = `${active2} ${menuSelector}`;
+  const reply = `${active2} ${transcript4} ${replyRoot}`;
+  const footer = `${reply} div:has(> ${replyActions})`;
+  const replyBar = `${reply} ${replyActions}`;
+  const lane = replyActionLanes(replyBar);
+  const replyButton = `${lane} > ${replyCopy}`;
+  const tip2 = `${active2} ${replyTip}`;
   return `
 @media (forced-colors: none) {
   /* Codex vHM0 and .bubble-vBnidZ (fce177e1b845.css). */
-  ${enhanced} { min-inline-size: 0; }
-  ${enhanced} ${bubbleSelector} {
+  ${enhanced2} { min-inline-size: 0; }
+  ${enhanced2} ${bubbleSelector} {
     inline-size: fit-content;
     margin-inline-start: auto;
     padding: 10px 16px;
@@ -7306,11 +9161,11 @@ function styles2(active2, transcript4) {
     border-radius: 22px;
     corner-shape: superellipse(1.5);
   }
-  ${enhanced} ${restoreButton},
-  ${enhanced} .human-message-with-todos-wrapper:has(> ${rowSelector} > time:not([hidden])) > ${nativeTimestamp} { display: none; }
+  ${enhanced2} ${restoreButton},
+  ${enhanced2} .human-message-with-todos-wrapper:has(> ${rowSelector} > time:not([hidden])) > ${nativeTimestamp} { display: none; }
 
   /* Codex y5H2 keeps the action row in flow at opacity zero. */
-  ${row3} {
+  ${row4} {
     display: flex;
     align-items: center;
     justify-content: flex-end;
@@ -7322,8 +9177,8 @@ function styles2(active2, transcript4) {
     pointer-events: none;
   }
   ${active2}[data-hermes-mode="dark"] ${rowSelector} { color: #8f8f8f; }
-  ${enhanced}:is(:hover, :focus-within) ${rowSelector} { opacity: 1; pointer-events: auto; }
-  ${row3} time {
+  ${enhanced2}:is(:hover, :focus-within) ${rowSelector} { opacity: 1; pointer-events: auto; }
+  ${row4} time {
     margin-inline-end: 6px;
     min-inline-size: 0;
     overflow: hidden;
@@ -7332,7 +9187,7 @@ function styles2(active2, transcript4) {
     font-size: .75rem;
     line-height: 1rem;
   }
-  ${row3} button {
+  ${row4} button {
     display: grid;
     place-items: center;
     flex: 0 0 26px;
@@ -7341,18 +9196,93 @@ function styles2(active2, transcript4) {
     color: inherit;
     cursor: pointer;
   }
-  ${row3} [hidden] { display: none; }
-  ${row3} button:focus-visible { outline: 2px solid var(--hcv-focus); }
-  ${row3} button::before {
+  ${row4} [hidden] { display: none; }
+  ${row4} button:focus-visible { outline: 2px solid var(--hcv-focus); }
+  ${row4} button::before {
     content: "";
     inline-size: 16px;
     block-size: 16px;
     background: currentColor;
     mask: var(--hcv-message-icon) center / contain no-repeat;
   }
-  ${row3} [data-hcv-copy-message] { --hcv-message-icon: ${codexMask("messageCopy")}; }
-  ${row3} [data-hcv-copy-message][data-copied] { --hcv-message-icon: ${codexMask("messageCopied")}; }
-  ${row3} [data-hcv-edit-message] { --hcv-message-icon: ${codexMask("messageEdit")}; }
+  ${row4} [data-hcv-copy-message] { --hcv-message-icon: ${codexMask("messageCopy")}; }
+  ${row4} [data-hcv-copy-message][data-copied] { --hcv-message-icon: ${codexMask("messageCopied")}; }
+  ${row4} [data-hcv-edit-message] { --hcv-message-icon: ${codexMask("messageEdit")}; }
+
+  /* Codex 26.1111.2228.0: no() in 461952.bb4069593d.js, actionRow-nqqZbm
+     and the icon, radius and color tokens in 3b01e25a342d.css / 66582da7ee6b.css. */
+  ${footer} { justify-content: flex-start; }
+  ${footer} > [data-slot="aui_msg-reactions"]:not([data-reacted]),
+  ${lane} > button:not(${replyCopy}) { display: none; }
+  ${replyBar} {
+    align-items: center;
+    justify-content: flex-start;
+    min-block-size: 26px;
+    margin-block-start: 6px;
+    gap: 2px;
+    padding-block: 0;
+    opacity: 0;
+    pointer-events: none;
+  }
+  ${reply}:is(:hover, :focus-within) ${replyActions} { opacity: 1; pointer-events: auto; }
+  ${replyBar} > ${replyLane} { justify-content: flex-start; gap: 2px; }
+  ${lane} > time {
+    margin-inline: 0 6px;
+    padding: 0;
+    color: #8f8f8f;
+    font: 400 12px/16px var(--hcv-ui-font);
+    pointer-events: none;
+  }
+  ${replyButton} {
+    display: grid;
+    place-items: center;
+    box-sizing: border-box;
+    inline-size: 26px;
+    block-size: 26px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    corner-shape: superellipse(1.5);
+    opacity: 1;
+    color: #8f8f8f;
+    background: transparent;
+    transition: none;
+  }
+  ${replyButton}:hover:not(:disabled) {
+    color: #8f8f8f;
+    background: light-dark(rgb(26 28 31 / 5%), rgb(255 255 255 / 8%));
+  }
+  ${replyButton}:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }
+  ${replyButton} > svg { inline-size: 14px; block-size: 14px; }
+  ${codexIconRules(`${replyButton} > ${copyIcon}`, "messageCopy")}
+  ${codexIconRules(`${replyButton} > :is(.tabler-icon-check, .lucide-check)`, "messageCopied")}
+  /* Tooltip-FE0nMY in 2e662a5288e2.css and the Electron tooltip tokens. */
+  ${tip2} {
+    position: fixed;
+    z-index: 9999;
+    inline-size: max-content;
+    max-inline-size: min(320px, calc(100vw - 30px));
+    padding: ${codexReference.tooltip.padding};
+    border: 1px solid color-mix(in oklab, currentColor 5%, transparent);
+    border-radius: ${codexReference.tooltip.radius};
+    corner-shape: superellipse(1.5);
+    background: light-dark(#1a1c1f, #2d2d2d);
+    color: #dfdfdf;
+    box-shadow: 0 8px 18px #0f172a33;
+    font: 430 13px/18px var(--hcv-ui-font);
+    letter-spacing: -.15px;
+    text-align: center;
+    overflow-wrap: break-word;
+    transform: translate(-50%, -100%);
+    pointer-events: none;
+    user-select: none;
+  }
+  ${tip2}[hidden] { display: none; }
+  @supports (corner-shape: superellipse(1.5)) {
+    ${replyButton} { border-radius: 10px; }
+    ${tip2} { border-radius: 20px; }
+  }
+
   ${menu} {
     position: fixed;
     inset: auto;
@@ -7376,22 +9306,133 @@ function styles2(active2, transcript4) {
     cursor: pointer;
   }
   @media (hover: hover) {
-    ${row3} button:hover { background: var(--hcv-hover-menu); }
+    ${row4} button:hover { background: var(--hcv-hover-menu); }
   }
   @media (hover: none) {
-    ${row3} { opacity: 1; pointer-events: auto; }
-    ${row3} time { opacity: 0; }
-    ${enhanced}:focus-within ${rowSelector} time { opacity: 1; }
+    ${row4} { opacity: 1; pointer-events: auto; }
+    ${row4} time { opacity: 0; }
+    ${enhanced2}:focus-within ${rowSelector} time { opacity: 1; }
+    ${replyBar} { opacity: 1; pointer-events: auto; }
   }
 }
 `;
 }
+function registerReplyCopyTip(ctx, active2, transcript4) {
+  const tip2 = document.createElement("div");
+  tip2.dataset.hcvReplyCopyTip = "";
+  tip2.setAttribute("aria-hidden", "true");
+  tip2.hidden = true;
+  document.body.append(tip2);
+  const root = document.documentElement;
+  const contrast = matchMedia("(forced-colors: active)");
+  const selector = `${replyActionLanes(`${transcript4} ${replyRoot} ${replyActions}`)} > ${replyCopy}`;
+  const capture = { capture: true };
+  let pointerButton;
+  let button4;
+  let timer;
+  let triggerType;
+  let skipDelayUntil = 0;
+  const trigger = (target) => root.matches(active2) && !contrast.matches && target instanceof Element ? target.closest('button[data-size="icon"]')?.closest(selector) : null;
+  function paint() {
+    if (!button4?.isConnected || !button4.checkVisibility({ opacityProperty: true, visibilityProperty: true })) return hide();
+    const anchor = button4.getBoundingClientRect();
+    const label3 = button4.querySelector(copyIcon) ? ctx.i18n.t("copyResponse") : button4.getAttribute("aria-label");
+    if (!label3 || anchor.top < 35 || anchor.bottom > innerHeight) return hide();
+    if (tip2.textContent !== label3) tip2.textContent = label3;
+    tip2.style.top = `${anchor.top - 5}px`;
+    tip2.hidden = false;
+    const half = tip2.offsetWidth / 2;
+    tip2.style.left = `${Math.min(innerWidth - half - 15, Math.max(half + 15, anchor.left + anchor.width / 2))}px`;
+  }
+  const copyStatus = new MutationObserver(paint);
+  function hide() {
+    clearTimeout(timer);
+    copyStatus.disconnect();
+    button4 = null;
+    if (!tip2.hidden) skipDelayUntil = performance.now() + 300;
+    tip2.hidden = true;
+  }
+  function show(target, type, delay) {
+    hide();
+    button4 = target;
+    triggerType = type;
+    const open = () => {
+      paint();
+      if (button4) copyStatus.observe(button4, { attributes: true, attributeFilter: ["aria-label"] });
+    };
+    if (type === "focus") timer = setTimeout(open, 0);
+    else if (delay && performance.now() >= skipDelayUntil) timer = setTimeout(open, delay);
+    else open();
+  }
+  function skipNativeTip(event) {
+    if (event.pointerType !== "touch" && !event.buttons && event.cancelable) event.preventDefault();
+  }
+  function clearPointer() {
+    pointerButton?.removeEventListener("pointermove", skipNativeTip);
+    pointerButton = null;
+  }
+  ctx.addEventListener(document, "pointerover", (event) => {
+    if (event.pointerType === "touch" || event.buttons) return;
+    const target = trigger(event.target);
+    if (!target || target === pointerButton) return;
+    clearPointer();
+    pointerButton = target;
+    target.addEventListener("pointermove", skipNativeTip, { passive: false });
+    show(target, "pointer", 150);
+  }, capture);
+  ctx.addEventListener(document, "pointerout", (event) => {
+    if (!pointerButton?.contains(event.target) || pointerButton.contains(event.relatedTarget)) return;
+    if (triggerType === "pointer") hide();
+    clearPointer();
+  }, capture);
+  ctx.addEventListener(document, "focusin", (event) => {
+    const target = trigger(event.target);
+    if (!target?.matches(":focus-visible")) return;
+    event.stopPropagation();
+    show(target, "focus", 0);
+  }, capture);
+  ctx.addEventListener(document, "focusout", (event) => {
+    if (triggerType === "focus" && event.target === button4) hide();
+  }, capture);
+  ctx.addEventListener(document, "keydown", (event) => {
+    if (event.key !== "Escape" || tip2.hidden) return;
+    event.preventDefault();
+    event.stopPropagation();
+    hide();
+  }, capture);
+  ctx.addEventListener(document, "pointerdown", (event) => {
+    if (button4 && !button4.contains(event.target)) hide();
+  }, capture);
+  ctx.addEventListener(document, "scroll", () => {
+    if (button4 && (triggerType === "pointer" || !tip2.hidden)) hide();
+  }, capture);
+  ctx.addEventListener(window, "blur", hide);
+  ctx.addEventListener(window, "resize", hide);
+  function reset() {
+    hide();
+    clearPointer();
+    skipDelayUntil = 0;
+  }
+  ctx.addEventListener(contrast, "change", reset);
+  ctx.i18n.onLocaleChange(() => {
+    if (!tip2.hidden) paint();
+  });
+  ctx.onDispose(() => {
+    reset();
+    tip2.remove();
+  });
+  return (enabled) => {
+    if (!enabled || pointerButton && !pointerButton.isConnected) reset();
+    else if (button4 && !button4.checkVisibility()) hide();
+  };
+}
 function registerMessageActions(ctx, active2, transcript4, promptSelector2) {
-  ctx.i18n.register(labels7);
+  ctx.i18n.register(labels8);
   const sheet = document.createElement("style");
   sheet.dataset.hcvMessageActionStyle = "";
   sheet.textContent = styles2(active2, transcript4);
-  document.head.append(sheet);
+  mountStyle(ctx, sheet, { surface: actionBar + ", " + menuSelector });
+  const reconcileReplyTip = registerReplyCopyTip(ctx, active2, transcript4);
   const rows = /* @__PURE__ */ new Map();
   const menu = document.createElement("div");
   menu.popover = "auto";
@@ -7418,9 +9459,9 @@ function registerMessageActions(ctx, active2, transcript4, promptSelector2) {
   });
   function addRow(bar, bubble, prompt2, messageId) {
     const holder = bubble.closest("[data-context-menu-skip]");
-    const row3 = document.createElement("div");
-    row3.dataset.hcvMessageActions = "";
-    row3.setAttribute("data-context-menu-skip", "");
+    const row4 = document.createElement("div");
+    row4.dataset.hcvMessageActions = "";
+    row4.setAttribute("data-context-menu-skip", "");
     const stamp = document.createElement("time");
     const copy6 = document.createElement("button");
     copy6.type = "button";
@@ -7428,21 +9469,21 @@ function registerMessageActions(ctx, active2, transcript4, promptSelector2) {
     const edit3 = document.createElement("button");
     edit3.type = "button";
     edit3.dataset.hcvEditMessage = "";
-    row3.append(stamp, copy6);
-    if (bubble.hasAttribute("aria-label")) row3.append(edit3);
+    row4.append(stamp, copy6);
+    if (bubble.hasAttribute("aria-label")) row4.append(edit3);
     const updateCopy = () => {
       copy6.title = ctx.i18n.t(copy6.hasAttribute("data-copied") ? "messageCopied" : "copyMessage");
       copy6.setAttribute("aria-label", copy6.title);
     };
     const update = () => {
-      const data = userMessage(bubble, messageId);
+      const data = userMessage2(bubble, messageId);
       const seconds = data?.state.metadata?.custom?.timelineTimestamp;
       const nativeDate = bar.querySelector(`${nativeTimestamp} time`)?.dateTime;
       const date = typeof seconds === "number" && seconds > 0 ? new Date(seconds * 1e3) : new Date(nativeDate);
       stamp.hidden = !Number.isFinite(date.getTime());
       if (!stamp.hidden) {
-        const label = dateLabel(date);
-        if (stamp.textContent !== label) stamp.textContent = label;
+        const label3 = dateLabel(date);
+        if (stamp.textContent !== label3) stamp.textContent = label3;
         stamp.dateTime = date.toISOString();
         stamp.title = date.toLocaleString(document.documentElement.lang || void 0);
       }
@@ -7458,12 +9499,12 @@ function registerMessageActions(ctx, active2, transcript4, promptSelector2) {
     let clearCopied;
     copy6.addEventListener("click", async () => {
       if (copying || copy6.hasAttribute("data-copied")) return;
-      const text = userMessage(bubble, messageId)?.message.getCopyText();
+      const text = userMessage2(bubble, messageId)?.message.getCopyText();
       if (!text?.trim()) return;
       copying = true;
       try {
         const success = await ctx.os.writeClipboard(text);
-        if (!row3.isConnected) return;
+        if (!row4.isConnected) return;
         if (!success) {
           host13.notify({ kind: "error", message: ctx.i18n.t("copyMessageError") });
           return;
@@ -7490,7 +9531,7 @@ function registerMessageActions(ctx, active2, transcript4, promptSelector2) {
     bar.addEventListener("focusin", update, options);
     bar.addEventListener("contextmenu", (event) => {
       const native = holder.querySelector(restoreButton);
-      const inActions = row3.contains(event.target);
+      const inActions = row4.contains(event.target);
       const inBubble = bubble.contains(event.target) && !committedFiber(holder)?.memoizedProps?.onContextMenu;
       if (!native || event.defaultPrevented || !inActions && !inBubble || window.getSelection()?.isCollapsed === false) return;
       event.preventDefault();
@@ -7506,13 +9547,13 @@ function registerMessageActions(ctx, active2, transcript4, promptSelector2) {
       menu.style.top = Math.max(8, Math.min(y, window.innerHeight - menu.offsetHeight - 8)) + "px";
       restoreItem.focus({ preventScroll: true });
     }, options);
-    holder.after(row3);
+    holder.after(row4);
     update();
-    return { row: row3, prompt: prompt2, messageId, bubble, update, remove() {
+    return { row: row4, prompt: prompt2, messageId, bubble, update, remove() {
       clearCopied?.();
       listeners.abort();
       if (bar.contains(restoreFocus ?? null) || bar.contains(restoreTarget ?? null)) menu.hidePopover();
-      row3.remove();
+      row4.remove();
     } };
   }
   ctx.i18n.onLocaleChange(() => rows.forEach((state) => state.update()));
@@ -7523,6 +9564,7 @@ function registerMessageActions(ctx, active2, transcript4, promptSelector2) {
     sheet.remove();
   });
   return function reconcile(enabled) {
+    reconcileReplyTip(enabled);
     const current = new Set(enabled ? document.querySelectorAll(`${transcript4} ${promptSelector2} ${actionBar}`) : []);
     for (const [bar, state] of rows) {
       if (!current.has(bar) || !bar.contains(state.row) || !bar.contains(state.bubble) || state.prompt.dataset.messageId !== state.messageId) {
@@ -7535,7 +9577,7 @@ function registerMessageActions(ctx, active2, transcript4, promptSelector2) {
       const bubble = bar.querySelector(bubbleSelector);
       const prompt2 = bar.closest(promptSelector2);
       const messageId = prompt2.dataset.messageId;
-      if (bubble?.closest("[data-context-menu-skip]") && userMessage(bubble, messageId)) {
+      if (bubble?.closest("[data-context-menu-skip]") && userMessage2(bubble, messageId)) {
         rows.set(bar, addRow(bar, bubble, prompt2, messageId));
       }
     }
@@ -7557,19 +9599,21 @@ var lineCount = 20;
 var relaxed = 1.625;
 var transitionMs = 200;
 var fadeDistance = "1rem";
-var labels8 = {
+var labels9 = {
   en: { messageShowMore: "Show more", messageShowLess: "Show less", cancelEdit: "Cancel", sendEdit: "Send" },
   ru: { messageShowMore: "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0435\u0449\u0451", messageShowLess: "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C", cancelEdit: "\u041E\u0442\u043C\u0435\u043D\u0430", sendEdit: "\u041E\u0442\u043F\u0440\u0430\u0432\u0438\u0442\u044C" }
 };
-function displayStyles(active2, chat2) {
-  const viewport = `${active2} ${chat2} ${viewportSelector}`;
+function displayStyles(active2, chat3) {
+  const viewport = `${active2} ${chat3} ${viewportSelector}`;
   const bubble = `${viewport} ${promptSelector} ${bubbleSelector2}:has(> ${clampSelector})`;
   const body = `${bubble} > ${clampSelector}`;
   const toggle2 = `${viewport} ${toggleSelector}`;
   const ellipsis = `${bubble} > [data-hcv-message-ellipsis]`;
   const frame = `${viewport} ${editSelector} [data-hcv-edit-controls]`;
-  const docked2 = `${active2} ${chat2}:has([data-slot="composer-dock"]:not([data-popped-out]))`;
-  const replyError = `${active2} ${chat2} [data-slot="aui_assistant-message-content"] > [role="alert"]:has(> div > .aui-error-action)`;
+  const docked2 = `${active2} ${chat3}:has([data-slot="composer-dock"]:not([data-popped-out]))`;
+  const scrollJump = `${active2} ${chat3} [data-slot="composer-bounds"] > button.thread-jump-button:not([class~="border-primary/40"])`;
+  const scrollJumpIcon = `${scrollJump} > .codicon-arrow-down`;
+  const replyError = `${active2} ${chat3} [data-slot="aui_assistant-message-content"] > [role="alert"]:has(> div > .aui-error-action)`;
   const errorHeader = `${replyError} > div:first-child`;
   const errorHeadline = `${errorHeader} > div:first-child`;
   const errorClose = `${errorHeader} > button`;
@@ -7668,8 +9712,48 @@ function displayStyles(active2, chat2) {
     ${errorControls}:hover:not(:disabled) { background: var(--hcv-hover-menu); color: var(--hcv-text); }
   }
 
+  /* Codex 26.1111.2228.0: 344734.3322725bda.js uses native thin gutters.
+     The overflow-y-auto rules in 66582da7ee6b.css use the border tokens. */
   ${viewport} {
     mask-image: linear-gradient(to bottom, transparent 0, black ${fadeDistance}, black 100%);
+    scrollbar-width: thin;
+    scrollbar-gutter: stable both-edges;
+      scrollbar-color: light-dark(rgb(26 28 31 / 7.8%), rgb(255 255 255 / 8.4%)) transparent;
+  }
+  ${viewport}:is(:hover, :active) {
+      scrollbar-color: light-dark(rgb(26 28 31 / 11.7%), rgb(255 255 255 / 15.6%)) transparent;
+  }
+  /* wqAy.R and vFsk.w in Codex 344734.3322725bda.js. Keep Hermes's
+     measured dock height so the gap also clears its status stack. */
+  ${scrollJump} {
+    bottom: calc(var(--composer-measured-height) + 1.5rem) !important;
+    inline-size: 2rem;
+    block-size: 2rem;
+    justify-content: center;
+    gap: 0;
+    padding: 0;
+    border: 1px solid light-dark(rgb(26 28 31 / 8%), rgb(255 255 255 / 8%));
+    border-radius: 50%;
+    background: var(--hcv-chat) padding-box;
+    color: light-dark(#1a1c1f, #dfdfdf);
+    box-shadow: 0px 2px 4px -1px #00000014;
+    backdrop-filter: none;
+    cursor: default;
+    opacity: 0;
+    transform: translateX(-50%);
+    animation: none;
+    transition: opacity 120ms cubic-bezier(0, 0, .2, 1);
+  }
+  ${scrollJump}[aria-hidden="false"] { opacity: 1; }
+  ${scrollJump}:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: 2px; }
+  ${scrollJump} > span { display: none; }
+  ${scrollJumpIcon} { flex: none; inline-size: 20px; block-size: 20px; }
+  ${codexIconRules(scrollJumpIcon, "scrollToBottom")}
+  @media (prefers-reduced-motion: reduce) {
+    ${scrollJump} { transition: none; }
+  }
+  @media (prefers-contrast: more) {
+    ${viewport}, ${viewport}:is(:hover, :active) { scrollbar-color: CanvasText Canvas; }
   }
   /* Codex scrolls the user turn with the transcript. Hermes's clip observer
      can still see the old overlap for a frame on theme changes. */
@@ -7841,20 +9925,20 @@ function previewHeight(body, lineHeight) {
   return limit;
 }
 function syncPreviewFocus(state) {
-  for (const node2 of state.inert) node2.removeAttribute("inert");
+  for (const node3 of state.inert) node3.removeAttribute("inert");
   state.inert.clear();
   if (state.expanded) return;
-  const controls = state.body.querySelectorAll(focusable);
-  if (!controls.length) return;
+  const controls2 = state.body.querySelectorAll(focusable);
+  if (!controls2.length) return;
   const bounds = state.body.getBoundingClientRect();
   const scale = bounds.height / state.body.offsetHeight || 1;
   const bottom = bounds.top + state.previewHeight * scale;
-  for (const node2 of controls) {
-    if (node2.closest("[inert]")) continue;
-    const rect = node2.getBoundingClientRect();
-    if (node2.matches("a[href]") ? rect.top >= bottom : rect.bottom > bottom) {
-      node2.setAttribute("inert", "");
-      state.inert.add(node2);
+  for (const node3 of controls2) {
+    if (node3.closest("[inert]")) continue;
+    const rect = node3.getBoundingClientRect();
+    if (node3.matches("a[href]") ? rect.top >= bottom : rect.bottom > bottom) {
+      node3.setAttribute("inert", "");
+      state.inert.add(node3);
     }
   }
 }
@@ -7867,10 +9951,10 @@ function keepToggleVisible(state) {
   else if (toggle2.bottom > view.bottom) state.viewport.scrollTop += toggle2.bottom - view.bottom;
 }
 function registerChatDisplay(ctx, active2) {
-  const chat2 = "[data-chat-surface]:not([data-hud-shell] *)";
-  const messageActions = registerMessageActions(ctx, active2, `${chat2} ${viewportSelector}`, promptSelector);
-  const innerSelector = `${chat2} ${viewportSelector} ${promptSelector} ${bubbleSelector2} > ${clampSelector} > div`;
-  const editorSelector2 = `${chat2} ${viewportSelector} ${editSelector} ${editFrame}`;
+  const chat3 = "[data-chat-surface]:not([data-hud-shell] *)";
+  const messageActions = registerMessageActions(ctx, active2, `${chat3} ${viewportSelector}`, promptSelector);
+  const innerSelector = `${chat3} ${viewportSelector} ${promptSelector} ${bubbleSelector2} > ${clampSelector} > div`;
+  const editorSelector2 = `${chat3} ${viewportSelector} ${editSelector} ${editFrame}`;
   const root = document.documentElement;
   const forcedColors = matchMedia("(forced-colors: active)");
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
@@ -7880,10 +9964,10 @@ function registerChatDisplay(ctx, active2) {
   let frame = 0;
   const stylesheet = document.createElement("style");
   stylesheet.setAttribute("data-hcv-chat-display", "");
-  stylesheet.textContent = displayStyles(active2, chat2);
-  document.head.append(stylesheet);
-  ctx.i18n.register(labels8);
-  function label(state) {
+  stylesheet.textContent = displayStyles(active2, chat3);
+  mountStyle(ctx, stylesheet, chatStyles);
+  ctx.i18n.register(labels9);
+  function label3(state) {
     if (!state.toggle) return;
     const text = ctx.i18n.t(state.expanded ? "messageShowLess" : "messageShowMore");
     if (state.toggle.textContent !== text) state.toggle.textContent = text;
@@ -7896,7 +9980,7 @@ function registerChatDisplay(ctx, active2) {
       `${state.expanded ? state.fullHeight : state.previewHeight}px`
     );
     state.toggle.setAttribute("aria-expanded", String(state.expanded));
-    label(state);
+    label3(state);
     syncPreviewFocus(state);
   }
   function removeDisclosure(state) {
@@ -7907,7 +9991,7 @@ function registerChatDisplay(ctx, active2) {
     if (state.clamp.id === state.assignedId) state.clamp.removeAttribute("id");
     state.clamp.removeAttribute("data-hcv-message-preview");
     state.clamp.style.removeProperty("--hcv-message-height");
-    for (const node2 of state.inert) node2.removeAttribute("inert");
+    for (const node3 of state.inert) node3.removeAttribute("inert");
     state.inert.clear();
     state.expanded = false;
   }
@@ -7971,9 +10055,9 @@ function registerChatDisplay(ctx, active2) {
     const cancel = document.createElement("button");
     cancel.type = "button";
     cancel.setAttribute("data-hcv-edit-cancel", "");
-    const group = container.closest('[data-slot="aui_message-group"]');
-    const thread = group?.parentElement;
-    const groupIndex = thread ? [...thread.children].indexOf(group) : -1;
+    const group2 = container.closest('[data-slot="aui_message-group"]');
+    const thread = group2?.parentElement;
+    const groupIndex = thread ? [...thread.children].indexOf(group2) : -1;
     let pending = 0;
     cancel.addEventListener("click", () => {
       if (pending) return;
@@ -7992,7 +10076,7 @@ function registerChatDisplay(ctx, active2) {
       function restoreFocus() {
         pending = 0;
         if (input.isConnected || !thread?.isConnected) return;
-        const replacement = group.isConnected ? group : thread.children.item(groupIndex);
+        const replacement = group2.isConnected ? group2 : thread.children.item(groupIndex);
         replacement?.querySelector(bubbleSelector2)?.focus({ preventScroll: true });
       }
     });
@@ -8057,7 +10141,7 @@ function registerChatDisplay(ctx, active2) {
       }
       if (record.target.closest?.(promptSelector) && !record.target.closest(toggleSelector)) return true;
       return [...record.addedNodes, ...record.removedNodes].some(
-        (node2) => node2.nodeType === Node.ELEMENT_NODE && (node2.matches(`${promptSelector}, ${viewportSelector}, ${editSelector}`) || node2.querySelector(`${promptSelector}, ${viewportSelector}, ${editSelector}`))
+        (node3) => node3.nodeType === Node.ELEMENT_NODE && (node3.matches(`${promptSelector}, ${viewportSelector}, ${editSelector}`) || node3.querySelector(`${promptSelector}, ${viewportSelector}, ${editSelector}`))
       );
     })) schedule();
   });
@@ -8069,7 +10153,7 @@ function registerChatDisplay(ctx, active2) {
   });
   forcedColors.addEventListener("change", schedule);
   ctx.i18n.onLocaleChange(() => {
-    for (const state of states.values()) label(state);
+    for (const state of states.values()) label3(state);
     for (const state of editors.values()) updateEditLabels(state);
   });
   ctx.onDispose(() => {
@@ -8085,12 +10169,734 @@ function registerChatDisplay(ctx, active2) {
   schedule();
 }
 
+// source/chat-images.js
+var chat = "[data-chat-surface]:not([data-hud-shell] *)";
+var attachments = '[data-slot="composer-attachments"]';
+var nativePill = 'div[class~="group/attachment"]';
+var picture = "> button:first-child > span:first-child > :is(img, svg.tabler-icon-photo)";
+var pill = `${nativePill}:has(${picture})`;
+var row2 = '[data-tool-row][data-slot="tool-block"]';
+var group = '[data-tool-group][data-slot="tool-block"]';
+var summary = "[data-tool-summary]";
+var analysis = "[data-hcv-viewed-image]";
+var analysisGroup = "[data-hcv-viewed-image-group]";
+var strip = "[data-hcv-image-strip]";
+var label = "[data-hcv-viewed-image-label]";
+var stepTitle = '[class~="text-(--conversation-scaffold-text)"]';
+var nativeDialog = '[data-slot="dialog-content"][data-variant="media-lightbox"]';
+var enhanced = "[data-hcv-image-viewer]";
+var lightboxImage = 'div[class~="group/lightbox"] > img';
+var zoom = 'div[class~="fixed"][class~="bottom-4"]';
+var close = "[data-hcv-image-close]";
+var pager = "[data-hcv-image-page]";
+var scrim = '[data-slot="dialog-overlay"]';
+var dialogFocusRestored = "focusScope.autoFocusOnUnmount";
+function mask(name, fallback) {
+  const original = localAssets?.icons[name];
+  if (original) return svgMask(original);
+  return fallback === "minus" ? svgMask('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M5 12h14" stroke="white" stroke-width="1.8" stroke-linecap="round"/></svg>') : codexMask(fallback);
+}
+var viewedLabel = (count, ru) => {
+  if (!ru) return count === 1 ? "Viewed an image" : `Viewed ${count} images`;
+  if (count === 1) return "\u041F\u0440\u043E\u0441\u043C\u043E\u0442\u0440\u0435\u043D\u043E \u0438\u0437\u043E\u0431\u0440\u0430\u0436\u0435\u043D\u0438\u0435";
+  const plural = new Intl.PluralRules("ru").select(count);
+  return `\u041F\u0440\u043E\u0441\u043C\u043E\u0442\u0440\u0435\u043D\u043E ${count} ${{ one: "\u0438\u0437\u043E\u0431\u0440\u0430\u0436\u0435\u043D\u0438\u0435", few: "\u0438\u0437\u043E\u0431\u0440\u0430\u0436\u0435\u043D\u0438\u044F", many: "\u0438\u0437\u043E\u0431\u0440\u0430\u0436\u0435\u043D\u0438\u0439" }[plural]}`;
+};
+var disclosureButton = (step2) => step2.querySelector(":scope > :first-child button[aria-expanded]");
+var successfulVision = (entry) => {
+  const part = committedFiber(entry)?.return?.memoizedProps?.part;
+  const toggle2 = disclosureButton(entry);
+  return part?.toolName === "vision_analyze" && part.result !== void 0 && !part.isError && !part.interrupted && toggle2 && !toggle2.querySelector('svg[aria-label], [role="status"]');
+};
+function hasPhotoOnly(entry) {
+  const output = entry.children[1];
+  return output?.querySelector(':scope > div > [data-slot="aui_markdown-image"]') && Array.from(output.children).every((child) => child.matches("button") || child.querySelector(':scope > [data-slot="aui_markdown-image"]'));
+}
+function viewerOwner(dialog2) {
+  let changeOpen, kind;
+  for (let fiber = committedFiber(dialog2); fiber; fiber = fiber.return) {
+    const props = fiber.memoizedProps;
+    if (!changeOpen && props?.copy?.resetZoom && typeof props.onOpenChange === "function") changeOpen = props.onOpenChange;
+    if (!changeOpen) continue;
+    if (props?.attachment?.kind === "image") kind = "draft";
+    if (props?.part?.toolName === "vision_analyze") kind = "activity";
+    if (kind && fiber.stateNode instanceof Element && fiber.stateNode.matches(kind === "draft" ? '[data-slot="composer-surface"]:not([data-hud-shell] *)' : chat)) {
+      return { kind, changeOpen };
+    }
+  }
+  return null;
+}
+function registerChatImages(ctx, active2) {
+  const root = document.documentElement;
+  const composer2 = `${active2} [data-slot="composer-surface"]:not([data-hud-shell] *)`;
+  const rail = `${composer2} ${attachments}:has(> ${nativePill} ${picture})`;
+  const card = `${composer2} ${attachments} > ${pill}`;
+  const open = `${card} > button:first-child`;
+  const remove = `${card} > button:nth-child(2)`;
+  const step2 = `${active2} ${chat} ${row2}${analysis}`;
+  const run = `${active2} ${chat} ${group}${analysisGroup}`;
+  const header = `:is(${step2} > div:first-child, ${run} > ${summary})`;
+  const toggle2 = `${header} > div > button[aria-expanded]`;
+  const caret = `${toggle2} > span:nth-child(2) > .codicon-chevron-right`;
+  const stepLabel = `${header} ${label}`;
+  const rowIcon = `${step2} > div:first-child span.self-center > :is(svg, .codicon)`;
+  const body = `${step2}[data-tool-open] > div:nth-child(2)`;
+  const thumb2 = `${body} > div > [data-slot="aui_markdown-image"]`;
+  const gallery = `${run} > ${summary}:has(button[aria-expanded="true"]) + ${strip}`;
+  const dialog2 = `${active2} ${nativeDialog}${enhanced}`;
+  const save = `${dialog2} div[class~="group/lightbox"] > button`;
+  const exit = `${dialog2} > ${close}`;
+  const turnPage = `${dialog2} > ${pager}`;
+  const zoomBar = `${dialog2} > ${zoom}`;
+  const draft = `${dialog2}[data-hcv-image-viewer="draft"]`;
+  const activity = `${dialog2}[data-hcv-image-viewer="activity"]`;
+  const buttons = `${dialog2} :where(div[class~="group/lightbox"] > button, ${close}, ${pager})`;
+  const symbol = (selector, glyph3, fallback, size) => `
+    ${selector}::before {
+      content: ""; display: block; inline-size: ${size}px; block-size: ${size}px;
+      background: currentColor; mask: ${mask(glyph3, fallback)} center / contain no-repeat;
+    }`;
+  mountCSS(ctx, "data-hcv-chat-images", `
+    ${close}, ${pager}, ${label} { display: none; }
+    @media (forced-colors: none) {
+      ${rail} {
+        flex-wrap: nowrap; align-items: end; gap: 8px; padding: 4px;
+        overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+      }
+      ${card} { inline-size: 122px; block-size: 122px; border-radius: 10px; }
+      ${open} {
+        display: block; position: relative; inline-size: 100%; block-size: 100%;
+        border: 0; padding: 0; border-radius: inherit; overflow: hidden;
+        background: var(--hcv-hover); box-shadow: none;
+      }
+      ${open} > span:first-child {
+        inline-size: 100%; block-size: 100%; border: 0; border-radius: inherit; background: transparent;
+      }
+      ${open} > span:nth-child(2) { display: none; }
+      ${open} > span:first-child > img { display: block; inline-size: 100%; block-size: 100%; object-fit: cover; }
+      ${open}::after {
+        content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+        box-shadow: inset 0 0 0 1px light-dark(#0d0d0d1a, #ffffff1a);
+      }
+      ${card}:is(:hover, :focus-within) > button:first-child::after {
+        background: color-mix(in srgb, var(--hcv-text) 5%, transparent);
+        box-shadow: inset 0 0 0 1px light-dark(#0d0d0d26, #fff3);
+      }
+      ${remove} {
+        inset: -2px -2px auto auto; inline-size: 16px; block-size: 16px;
+        border: 0; background: var(--hcv-text); color: var(--hcv-composer);
+        box-shadow: 0 0 0 2px var(--hcv-bg, var(--hcv-composer)), 0 1px 2px -1px #00000014;
+        opacity: 0; pointer-events: none; transition: none;
+      }
+      ${remove}:hover { background: color-mix(in srgb, var(--hcv-text) 80%, transparent); color: var(--hcv-composer); }
+      ${card}:hover > button:nth-child(2), ${card}:has(:focus-visible) > button:nth-child(2) {
+        opacity: 1; pointer-events: auto;
+      }
+      ${remove} > * { display: none; }
+      ${symbol(remove, "composerRemoveImage", "close", 12)}
+      ${open}:focus-visible, ${remove}:focus-visible {
+        outline: 2px solid var(--hcv-focus); outline-offset: -2px;
+      }
+      @media (hover: none) { ${remove} { opacity: 1; pointer-events: auto; } }
+      ${active2} [data-hcv-image-path-tip] { visibility: hidden; }
+
+      ${header} { --conversation-scaffold-text: light-dark(#6c6c6c, #8b8b8b); opacity: 1; }
+      ${toggle2} { align-items: center; gap: 4px; border-radius: 8px; }
+      ${toggle2} > span:first-child > span:first-child { gap: 8px; }
+      ${stepLabel} {
+        display: block; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        color: var(--conversation-scaffold-text);
+      }
+      ${stepLabel} ~ ${stepTitle} { display: none; }
+      ${rowIcon} {
+        mask: ${mask("viewedImages", "image")} center / contain no-repeat;
+        color: light-dark(#6c6c6c, #8b8b8b);
+      }
+      ${run} > ${summary} ${label} { position: relative; padding-inline-start: 24px; }
+      ${symbol(`${run} > ${summary} ${label}`, "viewedImages", "image", 16)}
+      ${run} > ${summary} ${label}::before {
+        position: absolute; inset-inline-start: 0; inset-block-start: 50%; translate: 0 -50%;
+        color: light-dark(#6c6c6c, #8b8b8b);
+      }
+      ${caret} {
+        inline-size: 14px !important; block-size: 14px !important;
+        color: var(--conversation-scaffold-text);
+        mask: ${mask("viewedImageChevron", "right")} center / contain no-repeat;
+        rotate: none; transform: rotate(0deg);
+        transition: transform 300ms var(--hcv-ease);
+      }
+      ${toggle2}[aria-expanded="true"] > span:nth-child(2) > .codicon-chevron-right { transform: rotate(90deg); }
+      ${toggle2}[aria-expanded="false"]:not(:hover, :focus-visible) > span:nth-child(2) { opacity: 0; }
+      ${toggle2}[aria-expanded="true"] > span:nth-child(2) { opacity: 1; }
+      ${body} { margin-block-start: 8px; padding-block-end: 4px; }
+      ${thumb2} {
+        inline-size: 80px !important; block-size: 80px; margin: 0;
+        border: 1px solid light-dark(#0d0d0d26, #fff3); border-radius: 10px; overflow: hidden;
+      }
+      ${thumb2} > span, ${thumb2} [data-slot="aui_zoomable-image"] > button:first-child { inline-size: 100%; block-size: 100%; }
+      ${thumb2} img { inline-size: 100%; block-size: 100%; object-fit: cover; border-radius: 8px; box-shadow: none; }
+      ${thumb2} [data-slot="aui_zoomable-image"] > button:nth-child(2) { display: none; }
+      ${gallery} {
+        display: flex; align-items: start; gap: 8px; overflow: auto hidden; scrollbar-width: none;
+        margin: 0; padding: 4px 0; border: 0;
+      }
+      ${gallery} > ${analysis} { flex: 0 0 80px; }
+      ${gallery} > ${analysis} > div:first-child { display: none; }
+      ${gallery} > ${analysis} > div:nth-child(2) { margin: 0; padding: 0; }
+      ${gallery} > ${analysis} > div:nth-child(2) > button { display: none; }
+      @keyframes hcv-image-details-in { from { opacity: 0; block-size: 0; } to { block-size: auto; } }
+      ${step2}:not(${strip} *)[data-tool-open] > div:nth-child(2),
+      ${gallery} { interpolate-size: allow-keywords; animation: hcv-image-details-in 300ms ${codexReference.enter} both; }
+
+      ${active2} ${scrim}:has(+ ${nativeDialog}[data-hcv-image-viewer="activity"]) { background: rgb(0 0 0 / .9); backdrop-filter: none; }
+      ${active2} ${scrim}:has(+ ${nativeDialog}[data-hcv-image-viewer="draft"]) { background: rgb(0 0 0 / .62); backdrop-filter: blur(2px); }
+      ${dialog2} {
+        --hcv-image-control-fill: light-dark(#ededed, #282828);
+        --hcv-image-control-ink: light-dark(#0d0d0d, #dfdfdf);
+        --hcv-image-side: clamp(16px, 4vw, 32px);
+        --hcv-image-top: 96px;
+        --hcv-image-bottom: 32px;
+        --hcv-image-controls-space: 64px;
+        display: grid; position: fixed; inset: 0; translate: none; transform: none;
+        inline-size: 100%; max-inline-size: none; block-size: 100%; max-block-size: none;
+        grid-template-rows: minmax(0, 1fr) auto; gap: 20px;
+        padding: var(--hcv-image-top) var(--hcv-image-side) var(--hcv-image-bottom);
+        border: 0; border-radius: 0; overflow: hidden; pointer-events: none !important;
+      }
+      ${draft} {
+        --hcv-image-top: 48px; --hcv-image-bottom: 72px; --hcv-image-controls-space: 0px;
+        --hcv-image-control-fill: light-dark(#ededed, #2d2d2d); grid-template-rows: minmax(0, 1fr);
+        --hcv-image-controls-edge: max(12px, calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 8px));
+      }
+      @media (max-height: 500px) {
+        ${activity} { --hcv-image-top: 76px; --hcv-image-bottom: 12px; --hcv-image-controls-space: 52px; gap: 8px; }
+        ${draft} { --hcv-image-bottom: 30px; }
+      }
+      ${dialog2} > div:first-child {
+        display: grid; place-items: center; overflow: clip; padding: 0; border-radius: 0;
+      }
+      ${dialog2} ${lightboxImage} {
+        max-inline-size: calc(100vw - 2 * var(--hcv-image-side));
+        max-block-size: calc(100dvh - var(--hcv-image-top) - var(--hcv-image-bottom) - var(--hcv-image-controls-space));
+        border-radius: 10px; box-shadow: none; pointer-events: auto;
+      }
+      ${dialog2} div[class~="group/lightbox"] { display: grid; place-items: center; min-block-size: 0; max-block-size: 100%; position: static; }
+      ${buttons}, ${zoomBar} {
+        color: var(--hcv-image-control-ink); background: var(--hcv-image-control-fill);
+        border: 0; border-radius: 999px; pointer-events: auto; backdrop-filter: none;
+        box-shadow: 0 2px 4px -1px #00000014, 0 0 0 1px #0000000d;
+        -webkit-app-region: no-drag;
+      }
+      ${buttons} {
+        display: grid; place-items: center; position: fixed; z-index: 2;
+        inset-block-start: 48px; inset-inline-end: 12px;
+        block-size: 40px; inline-size: 40px; padding: 0; opacity: 1;
+        transition: transform 150ms ease; cursor: pointer;
+      }
+      ${save} { inset-inline-end: 60px; }
+      ${dialog2}:has(> ${pager}) { --hcv-image-side: clamp(44px, 6vw, 72px); }
+      ${turnPage} { inset-block: 50% auto; inset-inline: auto 12px; translate: 0 -50%; }
+      ${turnPage}[data-hcv-image-page="previous"] { inset-inline: 12px auto; }
+      ${turnPage}[data-hcv-image-page="previous"]::before { scale: -1 1; }
+      ${draft} :is(${close}, div[class~="group/lightbox"] > button) { inset-block-start: 7px; block-size: 34px; inline-size: 34px; }
+      ${draft} > ${close} { inset-inline-end: var(--hcv-image-controls-edge); }
+      ${draft} div[class~="group/lightbox"] > button { inset-inline-end: calc(var(--hcv-image-controls-edge) + 42px); }
+      ${buttons}:hover { background: light-dark(#fff, #353535); outline: 1px solid var(--hcv-focus); }
+      ${buttons}:active { transform: scale(.95); }
+      ${save} > svg, ${zoomBar} > button:is(:first-child, :last-child) > svg { display: none; }
+      ${symbol(save, "imagePreviewDownload", "download", 16)}
+      ${symbol(exit, "imagePreviewClose", "close", 18)}
+      ${symbol(turnPage, "viewedImageChevron", "right", 18)}
+      ${zoomBar} { position: static; translate: none; justify-self: center; gap: 4px; padding: 4px; }
+      ${zoomBar} > button:is(:first-child, :last-child) {
+        display: grid; place-items: center; inline-size: 36px; block-size: 36px;
+        border-radius: 50%; background: color-mix(in srgb, currentColor 10%, transparent); color: inherit;
+      }
+      ${zoomBar} > button:nth-child(2) { min-inline-size: 64px; font: 400 14px / 20px ${codexReference.font}; font-variant-numeric: tabular-nums; color: inherit; }
+      ${draft} > ${zoom} { position: fixed; inset: 7px calc(var(--hcv-image-controls-edge) + 82px) auto auto; z-index: 2; }
+      @media (max-width: 520px) {
+        ${draft} > ${zoom} { inset: auto auto 12px 50%; translate: -50% 0; }
+      }
+      ${draft} > ${zoom} > button:is(:first-child, :last-child) { inline-size: 26px; block-size: 26px; }
+      ${draft} > ${zoom} > button:nth-child(2) { min-inline-size: 48px; }
+      ${symbol(`${zoomBar} > button:first-child`, "imagePreviewMinus", "minus", 16)}
+      ${symbol(`${zoomBar} > button:last-child`, "imagePreviewPlus", "plus", 16)}
+      :is(${buttons}, ${zoomBar} > button):focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }
+      @keyframes hcv-image-fade { from { opacity: 0; } }
+      @keyframes hcv-image-fade-out { to { opacity: 0; } }
+      ${dialog2}[data-state="open"] { animation: hcv-image-fade ${codexReference.enterTime} ${codexReference.enter} both; }
+      ${dialog2}[data-state="closed"] { animation: hcv-image-fade-out ${codexReference.exitTime} ${codexReference.exit} both; }
+      @media (prefers-reduced-motion: reduce) {
+        ${caret}, ${buttons} { transition: none; }
+        ${gallery}, ${body}, ${dialog2}[data-state], ${active2} ${scrim}:has(+ ${nativeDialog}${enhanced}) { animation: none; }
+      }
+    }
+  `, chatStyles);
+  const marked2 = /* @__PURE__ */ new Set();
+  const pending = /* @__PURE__ */ new Set();
+  const selectors = `${row2}, ${group}, ${nativeDialog}, ${attachments} > ${pill}`;
+  const colors = matchMedia("(forced-colors: active)");
+  let frame = 0;
+  let opener = null;
+  let nextImage = null;
+  const dialogKeys = /* @__PURE__ */ new WeakMap();
+  const dialogFocus = /* @__PURE__ */ new WeakMap();
+  function mark2(node3, attribute, value = "") {
+    if (node3.getAttribute(attribute) !== value) node3.setAttribute(attribute, value);
+    marked2.add(node3);
+  }
+  function decorate(button4, count) {
+    const original = button4?.querySelector(stepTitle);
+    if (!original) return false;
+    let text = original.previousElementSibling;
+    if (!text?.matches(label)) {
+      text = document.createElement("span");
+      text.setAttribute("data-hcv-viewed-image-label", "");
+      original.before(text);
+      marked2.add(text);
+    }
+    const content = viewedLabel(count, root.matches(":lang(ru)"));
+    if (text.textContent !== content) text.textContent = content;
+    return true;
+  }
+  function addViewerControls(node3, owner) {
+    mark2(node3, "data-hcv-image-viewer", owner.kind);
+    const ru = root.matches(":lang(ru)");
+    if (!node3.hasAttribute("aria-label")) {
+      node3.setAttribute("aria-label", ru ? "\u041F\u0440\u043E\u0441\u043C\u043E\u0442\u0440 \u0438\u0437\u043E\u0431\u0440\u0430\u0436\u0435\u043D\u0438\u044F" : "Image preview");
+      mark2(node3, "data-hcv-image-dialog-label");
+    }
+    const closeViewer = () => (viewerOwner(node3) ?? owner).changeOpen(false);
+    const add = (attribute, value, description, action) => {
+      const button4 = document.createElement("button");
+      button4.type = "button";
+      button4.setAttribute("aria-label", description);
+      button4.setAttribute(attribute, value);
+      button4.addEventListener("click", (event) => {
+        event.stopPropagation();
+        action();
+      });
+      node3.append(button4);
+      marked2.add(button4);
+      return button4;
+    };
+    add("data-hcv-image-close", "", ru ? "\u0417\u0430\u043A\u0440\u044B\u0442\u044C" : "Close", closeViewer);
+    const trigger = opener;
+    opener = null;
+    if (trigger) {
+      const onRestore = () => {
+        if (nextImage?.from !== node3) return;
+        const { target } = nextImage;
+        nextImage = null;
+        queueMicrotask(() => {
+          if (!root.matches(active2) || colors.matches || !target.isConnected || !target.getClientRects().length || document.querySelector('[role="dialog"][data-state="open"]')) return;
+          target.focus({ preventScroll: true });
+          target.click();
+        });
+      };
+      dialogFocus.set(node3, onRestore);
+      node3.addEventListener(dialogFocusRestored, onRestore, { once: true });
+    }
+    const container = owner.kind === "draft" ? trigger?.closest(attachments) : trigger?.closest(strip);
+    const candidates2 = container && [...container.querySelectorAll(owner.kind === "draft" ? `:scope > ${pill} > button:first-child:not(:disabled)` : '[data-slot="aui_zoomable-image"] > button:first-child:not(:disabled)')];
+    const index = candidates2?.indexOf(trigger) ?? -1;
+    if (index < 0) return;
+    const pairs = [
+      [candidates2[index - 1], "previous", "ArrowLeft", ru ? "\u041F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0435\u0435 \u0438\u0437\u043E\u0431\u0440\u0430\u0436\u0435\u043D\u0438\u0435" : "Previous image"],
+      [candidates2[index + 1], "next", "ArrowRight", ru ? "\u0421\u043B\u0435\u0434\u0443\u044E\u0449\u0435\u0435 \u0438\u0437\u043E\u0431\u0440\u0430\u0436\u0435\u043D\u0438\u0435" : "Next image"]
+    ];
+    const arrowKeys = /* @__PURE__ */ new Map();
+    for (const [target, direction, key, description] of pairs) {
+      if (!target) continue;
+      const pageImage = () => {
+        if (nextImage || node3.dataset.state !== "open") return;
+        nextImage = { from: node3, target };
+        closeViewer();
+      };
+      add("data-hcv-image-page", direction, description, pageImage);
+      arrowKeys.set(key, pageImage);
+    }
+    if (arrowKeys.size) {
+      const onKey = (event) => {
+        const pageImage = arrowKeys.get(event.key);
+        if (!pageImage || event.defaultPrevented || event.altKey || event.ctrlKey || event.shiftKey || event.metaKey) return;
+        event.preventDefault();
+        pageImage();
+      };
+      dialogKeys.set(node3, onKey);
+      node3.addEventListener("keydown", onKey);
+    }
+  }
+  function flush() {
+    frame = 0;
+    for (const node3 of pending) {
+      if (!node3.isConnected) continue;
+      if (node3.matches(row2) && node3.closest(chat)) {
+        if (successfulVision(node3) && decorate(disclosureButton(node3), 1)) mark2(node3, "data-hcv-viewed-image");
+        else {
+          node3.removeAttribute("data-hcv-viewed-image");
+          node3.querySelector(label)?.remove();
+        }
+      } else if (node3.matches(group) && node3.closest(chat)) {
+        const heading = node3.querySelector(`:scope > ${summary}`);
+        const button4 = heading?.querySelector("button[aria-expanded]");
+        const count = Number(button4?.querySelector(stepTitle)?.textContent.match(/^Analyzed (\d+) images$/)?.[1]);
+        const details = heading?.nextElementSibling;
+        if (count > 1 && decorate(button4, count)) mark2(node3, "data-hcv-viewed-image-group");
+        else {
+          node3.removeAttribute("data-hcv-viewed-image-group");
+          heading?.querySelector(label)?.remove();
+          details?.removeAttribute("data-hcv-image-strip");
+          continue;
+        }
+        const rows = details && !details.hasAttribute("data-tool-ticker") ? Array.from(details.children) : [];
+        const eligible = count > 1 && rows.length === count && rows.every((item) => item.matches(row2) && successfulVision(item));
+        if (eligible && rows.every(hasPhotoOnly)) {
+          mark2(details, "data-hcv-image-strip");
+        } else {
+          details?.removeAttribute("data-hcv-image-strip");
+          if (eligible) {
+            for (const item of rows) {
+              const inner = disclosureButton(item);
+              if (inner?.getAttribute("aria-expanded") === "false") inner.click();
+            }
+          }
+        }
+      } else if (node3.matches(nativeDialog) && !node3.matches(enhanced)) {
+        const owner = viewerOwner(node3);
+        if (owner && node3.querySelector(lightboxImage)) addViewerControls(node3, owner);
+      } else if (node3.matches(pill) && node3.closest(attachments)) {
+        const tooltip = document.getElementById(node3.getAttribute("aria-describedby"));
+        const container = tooltip?.closest('[data-slot="tooltip-content"]');
+        if (container) mark2(container, "data-hcv-image-path-tip");
+      }
+    }
+    pending.clear();
+    for (const node3 of marked2) if (!node3.isConnected) marked2.delete(node3);
+  }
+  function collect(node3) {
+    if (!(node3 instanceof Element)) return;
+    if (node3.matches(selectors)) pending.add(node3);
+    for (const child of node3.querySelectorAll(selectors)) pending.add(child);
+  }
+  function queue() {
+    if (!frame && pending.size) frame = requestAnimationFrame(flush);
+  }
+  const changes2 = new MutationObserver((records) => {
+    for (const { target, addedNodes, type } of records) {
+      const element6 = target instanceof Element ? target : target.parentElement;
+      const parent = element6?.closest(selectors);
+      if (parent) pending.add(parent);
+      const toolRun = parent?.matches(row2) && parent.closest(group);
+      if (toolRun) pending.add(toolRun);
+      if (type === "childList") for (const child of addedNodes) collect(child);
+    }
+    queue();
+  });
+  function clear() {
+    changes2.disconnect();
+    cancelAnimationFrame(frame);
+    frame = 0;
+    opener = nextImage = null;
+    pending.clear();
+    for (const node3 of marked2) {
+      if (node3.matches(`${label}, ${close}, ${pager}`)) node3.remove();
+      else {
+        if (dialogKeys.has(node3)) node3.removeEventListener("keydown", dialogKeys.get(node3));
+        if (dialogFocus.has(node3)) node3.removeEventListener(dialogFocusRestored, dialogFocus.get(node3));
+        if (node3.hasAttribute("data-hcv-image-dialog-label")) node3.removeAttribute("aria-label");
+        for (const attribute of [
+          "data-hcv-viewed-image",
+          "data-hcv-viewed-image-group",
+          "data-hcv-image-strip",
+          "data-hcv-image-viewer",
+          "data-hcv-image-dialog-label",
+          "data-hcv-image-path-tip"
+        ]) node3.removeAttribute(attribute);
+      }
+    }
+    marked2.clear();
+  }
+  function sync() {
+    clear();
+    if (!root.matches(active2) || colors.matches) return;
+    changes2.observe(document.body, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ["aria-expanded", "aria-describedby"]
+    });
+    collect(document.body);
+    flush();
+  }
+  const theme2 = new MutationObserver(sync);
+  theme2.observe(root, { attributes: true, attributeFilter: ["lang", "data-hermes-theme"] });
+  colors.addEventListener("change", sync);
+  ctx.addEventListener(document, "click", (event) => {
+    if (!root.matches(active2) || colors.matches) return;
+    const button4 = event.target instanceof Element ? event.target.closest("button") : null;
+    opener = button4?.matches(`${card} > button:first-child, ${gallery} [data-slot="aui_zoomable-image"] > button:first-child`) ? button4 : null;
+  }, { capture: true });
+  sync();
+  ctx.onDispose(() => {
+    theme2.disconnect();
+    colors.removeEventListener("change", sync);
+    clear();
+  });
+}
+
+// source/chat-skills.js
+var scope2 = '[data-chat-surface]:not([data-hud-shell] *) [data-slot="aui_assistant-message-content"]';
+var candidate = 'div:has(> span[title$="SKILL.md" i]):has(> button:last-child)';
+var marked = "[data-hcv-skill-card]";
+var link = "[data-hcv-skill-link]";
+var label2 = "[data-hcv-skill-label]";
+var preview2 = (card) => card.querySelector(":scope > button:last-child");
+function plainText(value, depth = 0) {
+  if (typeof value === "string") return value;
+  if (depth > 4) return "";
+  if (Array.isArray(value)) return value.map((child) => plainText(child, depth + 1)).join("");
+  return plainText(value?.props?.children, depth + 1);
+}
+function displayName(value) {
+  const text = plainText(value).trim();
+  if (!text.startsWith("$")) return text;
+  const question = text.indexOf("?");
+  if (question < 0) return text.slice(1);
+  const fields2 = new URLSearchParams(text.slice(question + 1));
+  return fields2.get("label")?.trim() || (fields2.has("label") || fields2.has("icon") ? text.slice(1, question) : text.slice(1));
+}
+function skillLinkInfo(card) {
+  let target = "";
+  for (let node3 = committedFiber(card)?.return; node3 && !(node3.stateNode instanceof Element); node3 = node3.return) {
+    const props = node3.memoizedProps;
+    if (typeof props?.target === "string") target ||= props.target;
+    if (target && typeof props?.href === "string") {
+      const leaf = /(?:^|[\\/])SKILL\.md$/i.test(target);
+      const file = /^(?:file:\/\/\/|[a-z]:[\\/]|\/(?!\/)|~[\\/]|\.{1,2}[\\/])/i.test(target);
+      if (!leaf || !file || !preview2(card)) return null;
+      const name = displayName(props.children) || target.split(/[\\/]/).at(-2) || "SKILL.md";
+      return { name, target };
+    }
+  }
+  return null;
+}
+function registerChatSkills(ctx, active2) {
+  const cardCSS = `${active2} ${scope2} ${marked}`;
+  const linkCSS = `${cardCSS} > ${link}`;
+  mountCSS(ctx, "data-hcv-chat-skill-style", `
+    ${cardCSS} { display: contents; }
+    ${cardCSS} > :not(${link}) { display: none !important; }
+    ${linkCSS} {
+      display: inline; padding: 0; color: light-dark(#0169cc, #99ceff) !important;
+      font-weight: 500; white-space: nowrap; cursor: pointer; text-decoration: none !important;
+    }
+    ${linkCSS} > ${label2} { white-space: normal; overflow-wrap: break-word; }
+    ${linkCSS} > [aria-hidden] {
+      box-sizing: content-box; vertical-align: middle; align-items: center; display: inline-flex;
+      block-size: 1em; padding-inline-end: 3px; transform: translateY(calc(.5ex - .5cap));
+    }
+    ${linkCSS} > [aria-hidden]::before {
+      content: ""; inline-size: 16px; block-size: 16px; background: currentColor;
+      mask: ${codexMask("chatSkill")} center / contain no-repeat;
+    }
+    ${linkCSS}:is(:hover, :focus-visible) > ${label2} { text-decoration: underline; text-underline-offset: 2px; }
+    ${linkCSS}:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: 2px; border-radius: 2px; }
+    @media (forced-colors: active) { ${linkCSS} > [aria-hidden]::before { background: LinkText; forced-color-adjust: none; } }
+  `, chatStyles);
+  const pending = /* @__PURE__ */ new Set();
+  let frame = 0;
+  function clear(card) {
+    card.querySelector(`:scope > ${link}`)?.remove();
+    card.removeAttribute("data-hcv-skill-card");
+  }
+  function update(card) {
+    const info = skillLinkInfo(card);
+    if (!info) return clear(card);
+    let anchor = card.querySelector(`:scope > ${link}`);
+    if (!anchor) {
+      anchor = document.createElement("a");
+      anchor.setAttribute("data-hcv-skill-link", "");
+      const icon8 = document.createElement("span");
+      icon8.setAttribute("aria-hidden", "true");
+      const text = document.createElement("span");
+      text.setAttribute("data-hcv-skill-label", "");
+      anchor.append(icon8, text);
+      const open = (event) => {
+        event.preventDefault();
+        preview2(card)?.click();
+      };
+      anchor.addEventListener("click", open);
+      anchor.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && !event.repeat) open(event);
+      });
+      card.prepend(anchor);
+    }
+    const href = "#preview/" + encodeURIComponent(info.target);
+    if (anchor.getAttribute("href") !== href) {
+      anchor.setAttribute("href", href);
+      anchor.title = info.target;
+    }
+    if (anchor.lastChild.textContent !== info.name) anchor.lastChild.textContent = info.name;
+    card.setAttribute("data-hcv-skill-card", "");
+  }
+  function collect(node3) {
+    if (!(node3 instanceof Element) || node3.closest(link)) return;
+    const card = node3.closest(`:is(${candidate}, ${marked})`);
+    if (card?.closest(scope2)) pending.add(card);
+    if (node3.closest(scope2) || node3.querySelector(scope2)) {
+      for (const entry of node3.querySelectorAll(candidate)) if (entry.closest(scope2)) pending.add(entry);
+    }
+  }
+  function flush() {
+    frame = 0;
+    for (const card of pending) if (card.isConnected && card.closest(scope2)) update(card);
+    pending.clear();
+  }
+  const schedule = () => {
+    if (pending.size && !frame) frame = requestAnimationFrame(flush);
+  };
+  const enabled = () => document.documentElement.matches(active2);
+  const observer = new MutationObserver((records) => {
+    for (const record of records) {
+      if (record.type === "attributes") collect(record.target);
+      else for (const node3 of record.addedNodes) collect(node3);
+    }
+    schedule();
+  });
+  function sync() {
+    observer.disconnect();
+    cancelAnimationFrame(frame);
+    frame = 0;
+    pending.clear();
+    if (enabled()) {
+      collect(document.body);
+      schedule();
+      observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["title"] });
+    } else {
+      for (const card of document.querySelectorAll(marked)) clear(card);
+    }
+  }
+  const theme2 = new MutationObserver(sync);
+  theme2.observe(document.documentElement, { attributes: true, attributeFilter: ["data-hermes-theme"] });
+  sync();
+  ctx.onDispose(() => {
+    observer.disconnect();
+    theme2.disconnect();
+    cancelAnimationFrame(frame);
+    pending.clear();
+    for (const card of document.querySelectorAll(marked)) clear(card);
+  });
+}
+
+// source/chat-activity-labels.js
+var commandTools = /* @__PURE__ */ new Set(["terminal", "execute_code"]);
+var skillTools = /* @__PURE__ */ new Set(["skill_view", "skills_list"]);
+var chromeTool = /^mcp_(?:chrome(?:_devtools|_extension|_internal|_dev|devtools)?|chrome-devtools)_/;
+var browserTool = /^mcp_browser(?:_use)?_/;
+var shortTitle = (value) => {
+  if (typeof value !== "string") return "";
+  const title = value.trim().replace(/\s+/g, " ");
+  return title.length <= 80 ? title : title.slice(0, 79).trimEnd() + "\u2026";
+};
+function object(value) {
+  if (typeof value === "string" && value.length <= 256 * 1024 && value.trimStart().startsWith("{")) {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return {};
+    }
+  }
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+function siteOrigin(value) {
+  if (typeof value !== "string" || value.length > 4096) return "";
+  try {
+    const url = new URL(value);
+    if (/^https?:$/.test(url.protocol) && !url.username && !url.password && !url.port && /\.[a-z]{2,63}$/i.test(url.hostname) && !/\.(?:local|localhost|internal|invalid|test|example|onion|lan|arpa)$/i.test(url.hostname)) {
+      return url.origin;
+    }
+  } catch {
+  }
+  return "";
+}
+function describe(part) {
+  const name = part.toolName;
+  if (typeof name !== "string" || !commandTools.has(name) && !skillTools.has(name) && !name.startsWith("browser_") && !name.startsWith("mcp_")) return null;
+  const result = object(part.result);
+  const args = object(part.args);
+  const meta = object(result._meta);
+  const surface3 = object(meta["codex/toolSurface"]);
+  const failed = part.isError || part.interrupted || part.status?.type === "incomplete" || result.isError === true || Boolean(result.error) || result.success === false || commandTools.has(name) && typeof result.exit_code === "number" && result.exit_code !== 0;
+  const blocked = part.status?.type === "requires-action";
+  const pending = part.result === void 0 && part.completedAt == null;
+  const chrome = chromeTool.test(name) || surface3.kind === "browserUse" && surface3.backend === "chrome";
+  const web = chrome || name.startsWith("browser_") || browserTool.test(name) || surface3.kind === "browserUse";
+  if (web) {
+    const target = surface3.kind === "browserUse" ? meta.browser_use?.url ?? surface3.screenshot?.pageUrl : void 0;
+    const navigation = name === "browser_navigate" || chrome && /_(?:new_page|navigate_page)$/.test(name);
+    const origin = !failed && !pending ? siteOrigin(target ?? (navigation ? result.url ?? args.url : void 0)) : "";
+    const title = /(?:^|_)(?:js|run_code)$/.test(name) ? shortTitle(args.title) : "";
+    return { kind: chrome ? "chrome" : "browser", icon: "activityBrowser", failed, blocked, pending, origin, title };
+  }
+  if (commandTools.has(name)) return { kind: "command", icon: "activityTerminal", failed, blocked, pending };
+  if (skillTools.has(name)) return { kind: "skill", icon: "chatSkill", failed, blocked, pending };
+  if (name.startsWith("mcp_")) {
+    const title = /^mcp_(?:cua_repl|unified_computer_use)_js$/.test(name) ? shortTitle(args.title) : "";
+    return { kind: "integration", icon: "activityIntegration", failed, blocked, pending, title };
+  }
+  return null;
+}
+function activityPresentation(parts, live, russian) {
+  const items2 = parts.map(describe);
+  const known = items2.filter(Boolean);
+  if (!known.length || known.some((item) => item.failed || item.blocked)) return null;
+  const primary4 = known.find((item) => item.kind === "browser" || item.kind === "chrome") ?? items2[0];
+  if (!primary4) return null;
+  const site = known.find((item) => item.kind === primary4.kind && item.origin)?.origin;
+  const fallback = { icon: primary4.icon, site };
+  if (known.length !== items2.length || known.some((item) => item.kind === "skill")) return fallback;
+  const latest = known.at(-1);
+  const title = live ? latest.title : known.length === 1 ? primary4.title : "";
+  if (title) return { ...fallback, label: title };
+  const has = (kind) => known.some((item) => item.kind === kind);
+  const commandCount = known.filter((item) => item.kind === "command").length;
+  const sourceCount = known.filter((item) => item.kind === "integration").length;
+  const one = (count) => russian ? new Intl.PluralRules("ru").select(count) === "one" : count === 1;
+  const segments = [];
+  if (live) {
+    const working = {
+      chrome: russian ? "Chrome \u0432\u044B\u043F\u043E\u043B\u043D\u044F\u0435\u0442 \u043A\u043E\u043C\u0430\u043D\u0434\u044B" : "Using Chrome",
+      browser: russian ? "\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442 \u0431\u0440\u0430\u0443\u0437\u0435\u0440" : "Using the browser",
+      command: russian ? "\u0412\u044B\u043F\u043E\u043B\u043D\u044F\u0435\u0442\u0441\u044F \u043A\u043E\u043C\u0430\u043D\u0434\u0430" : "Running command",
+      integration: russian ? "\u0412\u044B\u0437\u044B\u0432\u0430\u0435\u0442 \u0438\u043D\u0441\u0442\u0440\u0443\u043C\u0435\u043D\u0442" : "Calling a tool"
+    };
+    return { ...fallback, label: working[latest.kind] };
+  }
+  if (has("browser")) {
+    segments.push(russian ? "\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u043B \u0431\u0440\u0430\u0443\u0437\u0435\u0440" : "Used the browser");
+    if (has("chrome")) segments.push(russian ? "Chrome \u0432\u044B\u043F\u043E\u043B\u043D\u0438\u043B \u043A\u043E\u043C\u0430\u043D\u0434\u044B" : "used Chrome");
+  } else if (has("chrome")) {
+    segments.push(russian ? "\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u043D\u0430 \u0438\u043D\u0442\u0435\u0433\u0440\u0430\u0446\u0438\u044F Chrome" : "Used the Chrome integration");
+  }
+  if (sourceCount) segments.push(russian ? sourceCount === 1 ? "\u0412\u044B\u0437\u0432\u0430\u043B \u0438\u043D\u0441\u0442\u0440\u0443\u043C\u0435\u043D\u0442" : "\u0412\u044B\u0437\u0432\u0430\u043B \u0438\u043D\u0441\u0442\u0440\u0443\u043C\u0435\u043D\u0442\u044B" : sourceCount === 1 ? "Called a tool" : "Called tools");
+  if (commandCount) segments.push(russian ? one(commandCount) ? "\u0412\u044B\u043F\u043E\u043B\u043D\u0438\u043B \u043A\u043E\u043C\u0430\u043D\u0434\u0443" : "\u0412\u044B\u043F\u043E\u043B\u043D\u0438\u043B \u043A\u043E\u043C\u0430\u043D\u0434\u044B" : one(commandCount) ? "Ran a command" : "Ran commands");
+  const label3 = segments.map(
+    (text, index) => index && !text.startsWith("Chrome") ? text[0].toLowerCase() + text.slice(1) : text
+  ).join(russian ? " \u0438 " : " and ");
+  return { ...fallback, label: label3 };
+}
+
 // source/chat-activity.js
 var surface2 = "[data-chat-surface]:not([data-hud-shell] *)";
 var rowSelector2 = '[data-tool-row][data-slot="tool-block"]';
 var summarySelector = "[data-tool-group] > [data-tool-summary]";
 var activitySelector = `${rowSelector2}, ${summarySelector}`;
 var iconAttribute = "data-hcv-activity-icon";
+var nativeLabel = "data-hcv-activity-native-label";
+var customLabel = "data-hcv-activity-label";
+var favicon = "data-hcv-activity-favicon";
 var toolIcons = /* @__PURE__ */ new Map([
   ["terminal", "activityTerminal"],
   ["execute_code", "activityTerminal"],
@@ -8105,7 +10911,7 @@ var toolIcons = /* @__PURE__ */ new Map([
   ["vision_analyze", "activityImage"],
   ["image_generate", "activityImage"]
 ]);
-function iconFor(entry) {
+function nativeIcon(entry, part) {
   if (entry.hasAttribute("data-tool-summary")) {
     const verb = entry.querySelector("button")?.textContent.trim().split(/\s/, 1)[0];
     if (["Edited", "Editing"].includes(verb)) return "activityEdit";
@@ -8114,52 +10920,75 @@ function iconFor(entry) {
     if (["Used", "Using"].includes(verb)) return "activityIntegration";
     return null;
   }
-  const name = committedFiber(entry)?.return?.memoizedProps?.part?.toolName;
+  const name = part?.toolName;
   return toolIcons.get(name) ?? (name?.startsWith("mcp_") ? "activityIntegration" : null);
 }
+function runParts(summary2) {
+  let first, last;
+  for (let fiber = committedFiber(summary2.parentElement); fiber; fiber = fiber.return) {
+    if (fiber.stateNode instanceof Element && fiber.stateNode.hasAttribute("data-role")) break;
+    const props = fiber.memoizedProps;
+    if (first === void 0 && Number.isInteger(props?.startIndex) && Number.isInteger(props?.endIndex)) {
+      first = Math.max(0, props.startIndex);
+      last = props.endIndex;
+    }
+    if (first === void 0) continue;
+    for (let context = fiber.dependencies?.firstContext; context; context = context.next) {
+      const client = context.memoizedValue;
+      if (!client?.message?.source) continue;
+      try {
+        const { content } = client.message().__internal_getRuntime()?.getState() || {};
+        if (Array.isArray(content)) return content.slice(first, last + 1).filter((part) => part.type === "tool-call");
+      } catch {
+      }
+    }
+  }
+  return [];
+}
+var findTitle = (entry, summary2) => (summary2 ? entry : entry.firstElementChild)?.querySelector(":scope > div > button > span:first-child > span:first-child");
 function registerChatActivity(ctx, active2) {
-  const chat2 = `${active2} ${surface2}`;
-  const row3 = `${chat2} ${rowSelector2}`;
-  const summary = `${chat2} ${summarySelector}`;
-  const group = `${chat2} [data-tool-group][data-slot="tool-block"]`;
-  const toggle2 = `:is(${row3} > :first-child, ${summary}) > div > button`;
+  const chat3 = `${active2} ${surface2}`;
+  const row4 = `${chat3} ${rowSelector2}`;
+  const summary2 = `${chat3} ${summarySelector}`;
+  const group2 = `${chat3} [data-tool-group][data-slot="tool-block"]`;
+  const toggle2 = `:is(${row4} > :first-child, ${summary2}) > div > button`;
   const title = `${toggle2} > span:first-child > span:first-child`;
   const glyph3 = `${title} > span:first-child:has(> :is(svg, .codicon, [role="status"]))`;
   const caret = `${toggle2}[aria-expanded] > span:nth-child(2) > .codicon-chevron-right`;
-  const output = `${row3}[data-tool-open]:not([data-file-edit]) > :nth-child(2)`;
-  const preview2 = `${output} > div:has(> [data-slot="aui_markdown-image"])`;
-  const thumb2 = `${preview2} [data-slot="aui_markdown-image"]:has(img)`;
+  const output = `${row4}[data-tool-open]:not([data-file-edit]) > :nth-child(2)`;
+  const preview3 = `${output} > div:has(> [data-slot="aui_markdown-image"])`;
+  const thumb2 = `${preview3} [data-slot="aui_markdown-image"]:has(img)`;
   const copy6 = `${output} > button[class~="group-hover/tool-block:opacity-100"]`;
-  const icons2 = [.../* @__PURE__ */ new Set([...toolIcons.values(), "activityIntegration"])];
+  const icons2 = [.../* @__PURE__ */ new Set([...toolIcons.values(), "activityIntegration", "activityBrowser", "chatSkill"])];
   const style = document.createElement("style");
   style.setAttribute("data-hcv-chat-activity-style", "");
   style.textContent = `
 @media (forced-colors: none) {
-  ${chat2} {
-    --hcv-activity-text: light-dark(#5d5d5d, #afafaf);
+  ${chat3} {
+    --hcv-activity-text: light-dark(#5d5d5d, #8b8b8b);
     --hcv-activity-glyph: color-mix(in oklab, var(--hcv-text) 60%, transparent);
     --hcv-activity-border: light-dark(#0d0d0d1a, #ffffff1f);
     --hcv-activity-font: var(--codex-chat-font-size, 14px);
     --hcv-activity-mono: ui-monospace, "SFMono-Regular", "SF Mono", menlo, consolas, "Liberation Mono", monospace;
   }
-  :is(${row3}, ${summary}) {
+  :is(${row4}, ${summary2}) {
     --conversation-tool-font-size: var(--hcv-activity-font);
     --conversation-scaffold-text: var(--hcv-activity-text);
     --conversation-scaffold-meta: var(--hcv-activity-text);
     --ui-text-tertiary: var(--hcv-activity-text);
     opacity: 1;
     font-family: ${codexReference.font};
-    font-weight: 400;
+    font-weight: 430;
     line-height: 1.5;
   }
-  ${row3}:not([data-file-edit]), ${row3}:not([data-file-edit]) > :first-child {
+  ${row4}:not([data-file-edit]), ${row4}:not([data-file-edit]) > :first-child {
     border: 0;
     border-radius: 0;
     background: transparent;
     padding: 0;
   }
-  ${group}, ${group} > div:has(> ${rowSelector2}) { --tool-row-gap: 4px; }
-  ${summary}:has(button[aria-expanded="true"]) + div:not([data-tool-ticker]) {
+  ${group2}, ${group2} > div:has(> ${rowSelector2}) { --tool-row-gap: 4px; }
+  ${summary2}:has(button[aria-expanded="true"]) + div:not([data-tool-ticker]) {
     margin-block-start: 4px;
     margin-inline-start: 8px;
     padding-inline-start: 16px;
@@ -8168,24 +10997,36 @@ function registerChatActivity(ctx, active2) {
   ${toggle2} { align-items: start; gap: 4px; padding: 0; border-radius: 6px; }
   ${toggle2}:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }
   ${toggle2}:not(:disabled):is(:hover, :focus-visible) { --conversation-scaffold-text: var(--hcv-text); }
-  ${title} { gap: 4px; }
+  ${title} { gap: 8px; }
   ${glyph3} { inline-size: 16px; block-size: 16px; color: var(--hcv-activity-glyph); }
+  ${title} > [${nativeLabel}] { display: none; }
+  ${title} > [${customLabel}] {
+    display: block; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: var(--hcv-activity-font); line-height: 1.5; color: var(--conversation-scaffold-text);
+  }
+  ${title} > img[${favicon}] {
+    inline-size: 16px; block-size: 16px; flex: none; border-radius: 4px; object-fit: contain;
+  }
+  ${title}:has(> img[${favicon}]) > span:first-of-type:has(> :is(svg[aria-hidden="true"], .codicon)) { display: none; }
   ${glyph3} > :is(svg, .codicon):not([aria-label]) { color: inherit; }
   ${caret} { inline-size: 12px !important; block-size: 12px !important; color: var(--hcv-activity-glyph); }
   ${codexIconRules(caret, "right")}
   ${toggle2}[aria-expanded="true"] > span:nth-child(2) { opacity: 1; }
   ${icons2.map((icon8) => `
-    ${chat2} [${iconAttribute}="${icon8}"] { --hcv-activity-icon: ${codexMask(icon8)}; }
+    ${chat3} [${iconAttribute}="${icon8}"] { --hcv-activity-icon: ${codexMask(icon8)}; }
   `).join("")}
-  ${glyph3}:is(${row3}[${iconAttribute}] *) > :is(svg[aria-hidden="true"], .codicon):not([aria-label]) {
+  ${glyph3}:is(${row4}[${iconAttribute}] *) > :is(svg[aria-hidden="true"], .codicon):not([aria-label]) {
     inline-size: 16px !important;
     block-size: 16px !important;
     background-color: currentColor;
     mask: var(--hcv-activity-icon) center / contain no-repeat;
   }
-  ${glyph3}:is(${row3}[${iconAttribute}] *) > svg[aria-hidden="true"] > *,
-  ${glyph3}:is(${row3}[${iconAttribute}] *) > .codicon:not([aria-label])::before { visibility: hidden; }
-  ${title}:is(${summary}[${iconAttribute}] *)::before {
+  ${glyph3}:is(${row4}[${iconAttribute}] *) > svg[aria-hidden="true"] > *,
+  ${glyph3}:is(${row4}[${iconAttribute}] *) > .codicon:not([aria-label])::before { visibility: hidden; }
+  :is(
+    ${title}:is(${summary2}[${iconAttribute}] *),
+    ${title}:is(${row4}[${iconAttribute}] *):not(:has(> span:first-child > :is(svg, .codicon, [role="status"])))
+  ):not(:has(> img[${favicon}]))::before {
     content: "";
     flex: none;
     inline-size: 16px;
@@ -8215,7 +11056,7 @@ function registerChatActivity(ctx, active2) {
     ${copy6} { transition: opacity 150ms var(--hcv-ease); }
     ${caret} { transition: transform 300ms var(--hcv-ease); }
   }
-  ${preview2} { border: 0; border-radius: 0; }
+  ${preview3} { border: 0; border-radius: 0; }
   ${thumb2} {
     inline-size: 80px !important;
     block-size: 80px;
@@ -8226,7 +11067,7 @@ function registerChatActivity(ctx, active2) {
   }
   ${thumb2} > span { inline-size: 100%; block-size: 100%; }
   ${thumb2} img { inline-size: 100%; block-size: 100%; object-fit: cover; border-radius: 8px; box-shadow: none; }
-  ${thumb2} [data-slot="aui_zoomable-image"] > button:not(.contents) {
+  ${thumb2} [data-slot="aui_zoomable-image"] > button:has(> svg.tabler-icon-download) {
     inset-inline-end: 4px;
     inset-block-start: 4px;
     inline-size: 24px;
@@ -8236,63 +11077,168 @@ function registerChatActivity(ctx, active2) {
   @media (prefers-reduced-motion: reduce) { :is(${caret}, ${copy6}) { transition: none; } }
 }
 `;
-  document.head.append(style);
+  mountStyle(ctx, style, { surface: '[data-slot="tool-block"]' });
   const pending = /* @__PURE__ */ new Set();
+  const siteEntries = /* @__PURE__ */ new WeakMap();
+  const siteIcons = /* @__PURE__ */ new Map();
+  const forcedColors = window.matchMedia("(forced-colors: active)");
+  const enabled = () => document.documentElement.matches(active2) && !forcedColors.matches;
   let frame = 0;
-  function collect(node2) {
-    if (!(node2 instanceof Element)) return;
-    const parent = node2.closest(activitySelector);
+  let disposed = false;
+  let connected;
+  function clearLabel(title2) {
+    title2?.querySelector(`:scope > [${nativeLabel}]`)?.removeAttribute(nativeLabel);
+    title2?.querySelector(`:scope > [${customLabel}]`)?.remove();
+  }
+  function setLabel(title2, value) {
+    const native = title2?.querySelector(':scope > span[class~="whitespace-nowrap"][class~="max-w-full"]');
+    if (!native || !value || native.classList.contains("text-destructive") || native.classList.contains("text-amber-700")) return clearLabel(title2);
+    let label3 = title2.querySelector(`:scope > [${customLabel}]`);
+    if (!label3) {
+      label3 = document.createElement("span");
+      label3.setAttribute(customLabel, "");
+      native.after(label3);
+    }
+    if (label3.textContent !== value) label3.textContent = value;
+    native.setAttribute(nativeLabel, "");
+  }
+  function showSite(title2, data) {
+    const current = title2.querySelector(`:scope > img[${favicon}]`);
+    if (!data) return current?.remove();
+    if (current?.getAttribute("src") === data) return;
+    const img = current || document.createElement("img");
+    img.setAttribute(favicon, "");
+    img.setAttribute("aria-hidden", "true");
+    img.alt = "";
+    img.draggable = false;
+    img.src = data;
+    if (!current) title2.prepend(img);
+  }
+  const sites = new IntersectionObserver((records) => {
+    for (const { target: entry, isIntersecting } of records) {
+      if (!isIntersecting || !enabled()) continue;
+      sites.unobserve(entry);
+      const state = siteEntries.get(entry);
+      const resolve = window.hermesDesktop?.resolveFavicon;
+      if (!state || !resolve) continue;
+      let task = siteIcons.get(state.site);
+      if (!task) {
+        if (siteIcons.size >= 64) siteIcons.delete(siteIcons.keys().next().value);
+        task = Promise.resolve().then(() => resolve(state.site)).then(
+          (src) => /^data:image\/(?:png|gif|jpe?g|webp|svg\+xml|x-icon|vnd\.microsoft\.icon|avif);base64,/i.test(src || "") ? src : ""
+        ).catch(() => "");
+        siteIcons.set(state.site, task);
+      }
+      void task.then((src) => {
+        if (!disposed && enabled() && entry.isConnected && siteEntries.get(entry) === state) showSite(state.title, src);
+      });
+    }
+  });
+  function setSite(entry, title2, site) {
+    const previous = siteEntries.get(entry);
+    if (previous?.site === site && previous?.title === title2) return;
+    if (previous) {
+      showSite(previous.title, "");
+      sites.unobserve(entry);
+      siteEntries.delete(entry);
+    }
+    if (site && title2) {
+      siteEntries.set(entry, { site, title: title2 });
+      sites.observe(entry);
+    }
+  }
+  function collect(node3) {
+    if (!(node3 instanceof Element)) return;
+    const parent = node3.closest(activitySelector);
     if (parent) pending.add(parent);
-    else for (const entry of node2.querySelectorAll(activitySelector)) pending.add(entry);
+    else for (const entry of node3.querySelectorAll(activitySelector)) pending.add(entry);
   }
   function flush() {
     frame = 0;
     for (const entry of pending) {
       if (!entry.isConnected || !entry.closest(surface2)) continue;
-      const icon8 = iconFor(entry);
+      const summary3 = entry.hasAttribute("data-tool-summary");
+      const props = committedFiber(entry)?.return?.memoizedProps;
+      const part = props?.part;
+      const live = summary3 ? props?.live : Boolean(part && part.result === void 0 && part.completedAt == null && entry.closest('[data-message-streaming="true"]'));
+      const parts = summary3 ? runParts(entry) : part?.toolName ? [part] : [];
+      const view = activityPresentation(parts, live, document.documentElement.lang.toLowerCase().startsWith("ru"));
+      const icon8 = view?.icon ?? nativeIcon(entry, part);
       if (icon8) entry.setAttribute(iconAttribute, icon8);
       else entry.removeAttribute(iconAttribute);
+      const title2 = findTitle(entry, summary3);
+      setLabel(title2, view?.label);
+      setSite(entry, title2, view?.site);
     }
     pending.clear();
   }
   const observer = new MutationObserver((records) => {
-    if (!document.documentElement.matches(active2)) return;
-    for (const { target, addedNodes } of records) {
+    for (const { target, addedNodes, removedNodes } of records) {
       const entry = (target instanceof Element ? target : target.parentElement)?.closest(activitySelector);
       if (entry) pending.add(entry);
-      else for (const node2 of addedNodes) collect(node2);
+      else for (const node3 of addedNodes) collect(node3);
+      for (const node3 of removedNodes) {
+        if (!(node3 instanceof Element) || node3.isConnected) continue;
+        if (siteEntries.has(node3)) setSite(node3);
+        for (const entry2 of node3.querySelectorAll(activitySelector)) if (siteEntries.has(entry2)) setSite(entry2);
+      }
     }
     if (pending.size && !frame) frame = requestAnimationFrame(flush);
   });
-  observer.observe(document.body, { childList: true, characterData: true, subtree: true });
-  const theme2 = new MutationObserver(() => {
-    if (!document.documentElement.matches(active2)) return;
-    collect(document.body);
-    if (pending.size && !frame) frame = requestAnimationFrame(flush);
-  });
+  function clearActivity() {
+    for (const entry of document.querySelectorAll(`[${iconAttribute}]`)) {
+      siteEntries.delete(entry);
+      entry.removeAttribute(iconAttribute);
+    }
+    for (const node3 of document.querySelectorAll(`[${nativeLabel}]`)) node3.removeAttribute(nativeLabel);
+    for (const node3 of document.querySelectorAll(`[${customLabel}], img[${favicon}]`)) node3.remove();
+  }
+  function sync() {
+    const next = enabled();
+    if (connected === next) return;
+    connected = next;
+    observer.disconnect();
+    sites.disconnect();
+    cancelAnimationFrame(frame);
+    frame = 0;
+    pending.clear();
+    if (next) {
+      collect(document.body);
+      flush();
+      observer.observe(document.body, { childList: true, characterData: true, subtree: true });
+    } else clearActivity();
+  }
+  const theme2 = new MutationObserver(sync);
   theme2.observe(document.documentElement, { attributes: true, attributeFilter: ["data-hermes-theme"] });
-  collect(document.body);
-  flush();
+  ctx.addEventListener(forcedColors, "change", sync);
+  sync();
   ctx.onDispose(() => {
+    disposed = true;
     observer.disconnect();
     theme2.disconnect();
+    sites.disconnect();
     cancelAnimationFrame(frame);
-    for (const entry of document.querySelectorAll(`[${iconAttribute}]`)) entry.removeAttribute(iconAttribute);
+    clearActivity();
     style.remove();
   });
+  registerChatImages(ctx, active2);
+  registerChatSkills(ctx, active2);
 }
 
 // source/chat-tables.js
 import { host as host14 } from "@hermes/plugin-sdk";
-var nativeTable = '[data-chat-surface]:not([data-hud-shell] *) [data-slot="aui_assistant-message-content"] .aui-md-table > table';
+var nativeTable = [
+  '[data-chat-surface]:not([data-hud-shell] *) [data-slot="aui_assistant-message-content"] .aui-md-table > table',
+  "[data-hcv-subagent-result] [data-hcv-subagent-table] > table"
+].join(", ");
 var tableMark = "data-hcv-markdown-table";
 var wrapMark = "data-hcv-table-scroll";
 var toolbarMark = "data-hcv-table-toolbar";
 var dialogMark = "data-hcv-table-dialog";
 var columnMark = "data-hcv-table-column";
-var control = "[data-md-col-handle], [data-hcv-table-toolbar]";
+var control2 = "[data-md-col-handle], [data-hcv-table-toolbar]";
 var interactive = 'a[href], button, [role="button"]';
-var labels9 = {
+var labels10 = {
   ru: {
     copy: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0442\u0430\u0431\u043B\u0438\u0446\u0443",
     copied: "\u0421\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u043D\u043E",
@@ -8310,56 +11256,60 @@ var labels9 = {
     scroll: "Scrollable table"
   }
 };
-var strings = () => document.documentElement.lang.toLowerCase().startsWith("ru") ? labels9.ru : labels9.en;
+var strings = () => document.documentElement.lang.toLowerCase().startsWith("ru") ? labels10.ru : labels10.en;
 function make2(tag, marker3, value = "") {
-  const element5 = document.createElement(tag);
-  element5.setAttribute(marker3, value);
-  return element5;
+  const element6 = document.createElement(tag);
+  element6.setAttribute(marker3, value);
+  return element6;
 }
-function button(action, label) {
-  const element5 = make2("button", "data-hcv-table-action", action);
-  element5.type = "button";
-  element5.setAttribute("aria-label", label);
-  return element5;
+function button(action, label3) {
+  const element6 = make2("button", "data-hcv-table-action", action);
+  element6.type = "button";
+  element6.setAttribute("aria-label", label3);
+  return element6;
 }
 function copyOf(table) {
   const clone = table.cloneNode(true);
-  for (const node2 of clone.querySelectorAll(control)) node2.remove();
-  for (const node2 of clone.querySelectorAll("[id]")) node2.removeAttribute("id");
+  for (const node3 of clone.querySelectorAll(control2)) node3.remove();
+  for (const node3 of clone.querySelectorAll("[id]")) node3.removeAttribute("id");
   clone.removeAttribute("id");
   return clone;
 }
 function markColumns(table) {
   const rows = [...table.rows];
   const longest = [];
-  for (const row3 of rows) {
-    for (const cell of row3.cells) {
+  for (const row4 of rows) {
+    for (const cell of row4.cells) {
       const index = cell.cellIndex;
       longest[index] = Math.max(longest[index] || 0, cell.textContent.length);
       if (cell.tagName === "TD") cell.toggleAttribute("data-hcv-table-number", /^\d+$/.test(cell.textContent));
     }
   }
   const sizes = longest.map((length) => length <= 40 ? "sm" : length <= 100 ? "md" : length <= 160 ? "lg" : "xl");
-  for (const row3 of rows) for (const cell of row3.cells) cell.setAttribute(columnMark, sizes[cell.cellIndex]);
+  for (const row4 of rows) for (const cell of row4.cells) {
+    const size = sizes[cell.cellIndex];
+    if (cell.getAttribute(columnMark) !== size) cell.setAttribute(columnMark, size);
+  }
 }
 function markdownSource(table) {
   let fiber = committedFiber(table);
   while (fiber && fiber.memoizedProps?.node?.tagName !== "table") fiber = fiber.return;
-  const node2 = fiber?.memoizedProps?.node;
-  if (node2?.tagName !== "table") return null;
-  const start = node2.position?.start?.offset;
-  const end = node2.position?.end?.offset;
+  const node3 = fiber?.memoizedProps?.node;
+  if (node3?.tagName !== "table") return null;
+  const start = node3.position?.start?.offset;
+  const end = node3.position?.end?.offset;
   if (!Number.isInteger(start) || !Number.isInteger(end)) return null;
   for (; fiber; fiber = fiber.return) {
     const props = fiber.memoizedProps;
-    if (typeof props?.content !== "string" || !Number.isInteger(props.index) || end > props.content.length) continue;
-    const source = props.content.slice(start, end);
+    const markdown = Number.isInteger(props?.index) ? props.content : props?.mode === "static" ? props.children : null;
+    if (typeof markdown !== "string" || end > markdown.length) continue;
+    const source = markdown.slice(start, end);
     if (source.includes("|") || /^<table[\s>]/i.test(source)) return source;
   }
   return null;
 }
 function renderedMarkdown(table) {
-  const rows = Array.from(table.rows, (row3) => Array.from(row3.cells));
+  const rows = Array.from(table.rows, (row4) => Array.from(row4.cells));
   if (!rows.length) return "";
   const pipeRow = (cells) => "| " + cells.join(" | ") + " |";
   const cellText = (cell) => cell.textContent.trim().replaceAll("\\", "\\\\").replaceAll("|", "\\|").replace(/\s+/g, " ");
@@ -8367,17 +11317,17 @@ function renderedMarkdown(table) {
   return [
     pipeRow(rows[0].map(cellText)),
     pipeRow(rows[0].map((cell) => alignment[cell.style.textAlign || cell.getAttribute("align")] || "---")),
-    ...rows.slice(1).map((row3) => pipeRow(row3.map(cellText)))
+    ...rows.slice(1).map((row4) => pipeRow(row4.map(cellText)))
   ].join("\n");
 }
 function clipboardHtml(table) {
-  for (const node2 of table.querySelectorAll('span[data-streamdown="strong"], span[data-streamdown="em"]')) {
-    const emphasis = document.createElement(node2.dataset.streamdown);
-    emphasis.append(...node2.childNodes);
-    node2.replaceWith(emphasis);
+  for (const node3 of table.querySelectorAll('span[data-streamdown="strong"], span[data-streamdown="em"]')) {
+    const emphasis = document.createElement(node3.dataset.streamdown);
+    emphasis.append(...node3.childNodes);
+    node3.replaceWith(emphasis);
   }
-  for (const element5 of [table, ...table.querySelectorAll("*")]) {
-    for (const name of ["node", tableMark, columnMark, "data-hcv-table-number"]) element5.removeAttribute(name);
+  for (const element6 of [table, ...table.querySelectorAll("*")]) {
+    for (const name of ["node", tableMark, columnMark, "data-hcv-table-number"]) element6.removeAttribute(name);
   }
   return table.outerHTML;
 }
@@ -8657,12 +11607,12 @@ function registerChatTables(ctx, active2) {
   const states = /* @__PURE__ */ new Map();
   const pending = /* @__PURE__ */ new Set();
   let frame = 0;
-  let preview2;
+  let preview3;
   let tipTimer;
   let tipButton;
   const style = make2("style", "data-hcv-chat-tables-style");
   style.textContent = tableCss(active2);
-  document.head.append(style);
+  mountStyle(ctx, style, { surface: ".aui-md-table, [data-hcv-subagent-table], [data-hcv-table-dialog]", retainAcrossChatTabs: true });
   const tip2 = make2("div", "data-hcv-table-tip");
   tip2.hidden = true;
   tip2.setAttribute("aria-hidden", "true");
@@ -8672,41 +11622,41 @@ function registerChatTables(ctx, active2) {
     tipButton = null;
     tip2.hidden = true;
   }
-  function showTip(element5) {
+  function showTip(element6) {
     hideTip();
-    tipButton = element5;
+    tipButton = element6;
     tipTimer = setTimeout(() => {
-      if (!element5.isConnected || tipButton !== element5) return;
-      tip2.textContent = element5.getAttribute("aria-label");
+      if (!element6.isConnected || tipButton !== element6) return;
+      tip2.textContent = element6.getAttribute("aria-label");
       tip2.hidden = false;
-      const anchor = element5.getBoundingClientRect();
+      const anchor = element6.getBoundingClientRect();
       const half = tip2.offsetWidth / 2;
       tip2.style.left = Math.min(innerWidth - half - 6, Math.max(half + 6, anchor.x + anchor.width / 2)) + "px";
       tip2.style.top = anchor.top - 3 + "px";
     }, 250);
   }
   function refreshPreview() {
-    const { state, content } = preview2;
+    const { state, content } = preview3;
     const clone = copyOf(state.table);
     const before = [...content.querySelectorAll(interactive)];
     const focusIndex = before.indexOf(document.activeElement);
     const nodes = [...clone.querySelectorAll(interactive)];
     const originals = state.table.querySelectorAll(interactive);
-    preview2.actions = new Map(nodes.map((node2, i) => [node2, originals[i]]));
+    preview3.actions = new Map(nodes.map((node3, i) => [node3, originals[i]]));
     content.replaceChildren(clone);
     nodes[focusIndex]?.focus({ preventScroll: true });
   }
   function closePreview(restoreFocus = true) {
-    if (!preview2) return;
-    const { modal, state } = preview2;
-    preview2 = null;
+    if (!preview3) return;
+    const { modal, state } = preview3;
+    preview3 = null;
     state.expand.setAttribute("aria-expanded", "false");
     modal.close();
     modal.remove();
     if (restoreFocus && root.matches(active2) && state.expand.isConnected) state.expand.focus({ preventScroll: true });
   }
   function openPreview(state) {
-    if (preview2) closePreview();
+    if (preview3) closePreview();
     hideTip();
     const copy6 = strings();
     const modal = make2("dialog", dialogMark);
@@ -8714,8 +11664,8 @@ function registerChatTables(ctx, active2) {
     const panel2 = make2("div", "data-hcv-table-panel");
     const region = document.createElement("div");
     const content = make2("div", "data-hcv-table-content");
-    const close = button("close", copy6.close);
-    close.autofocus = true;
+    const close2 = button("close", copy6.close);
+    close2.autofocus = true;
     modal.setAttribute("aria-label", copy6.preview);
     modal.setAttribute("role", "dialog");
     region.setAttribute("role", "region");
@@ -8724,12 +11674,12 @@ function registerChatTables(ctx, active2) {
     region.append(content);
     panel2.append(region);
     stage.append(panel2);
-    modal.append(stage, close);
+    modal.append(stage, close2);
     document.body.append(modal);
-    preview2 = { modal, state, content };
+    preview3 = { modal, state, content };
     refreshPreview();
     state.expand.setAttribute("aria-expanded", "true");
-    close.addEventListener("click", () => closePreview());
+    close2.addEventListener("click", () => closePreview());
     modal.addEventListener("keydown", (event) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
@@ -8746,7 +11696,7 @@ function registerChatTables(ctx, active2) {
       closePreview();
     });
     content.addEventListener("click", (event) => {
-      const origin = preview2?.actions.get(event.target.closest(interactive));
+      const origin = preview3?.actions.get(event.target.closest(interactive));
       if (!origin?.isConnected) return;
       event.preventDefault();
       closePreview(false);
@@ -8754,10 +11704,16 @@ function registerChatTables(ctx, active2) {
     });
     modal.showModal();
   }
-  function updateOverflow(state) {
+  function measureOverflow(state) {
     const { wrapper, table } = state;
     const width = wrapper.clientWidth;
     const wide = width > 0 && wrapper.scrollWidth > width + 1;
+    if (!wide) return { state, wide };
+    const left = Math.max(0, wrapper.getBoundingClientRect().left - table.getBoundingClientRect().left);
+    return { state, wide, width, left, tableWidth: table.offsetWidth };
+  }
+  function applyOverflow({ state, wide, width, left, tableWidth }) {
+    const { wrapper } = state;
     if (wide !== wrapper.hasAttribute("data-hcv-table-overflow")) {
       wrapper.toggleAttribute("data-hcv-table-overflow", wide);
       for (const [name, value] of Object.entries(wide ? {
@@ -8770,19 +11726,35 @@ function registerChatTables(ctx, active2) {
       }
     }
     if (!wide) return;
-    const left = Math.max(0, wrapper.getBoundingClientRect().left - table.getBoundingClientRect().left);
     const right = left + width;
     const fade = Math.min(96, width / 3);
-    wrapper.style.setProperty("--hcv-table-left", left + "px");
-    wrapper.style.setProperty("--hcv-table-right", right + "px");
-    wrapper.style.setProperty("--hcv-table-fade-left", (left > 2 ? fade : 0) + "px");
-    wrapper.style.setProperty("--hcv-table-fade-right", (right < table.offsetWidth - 2 ? fade : 0) + "px");
+    for (const [name, size] of [
+      ["left", left],
+      ["right", right],
+      ["fade-left", left > 2 ? fade : 0],
+      ["fade-right", right < tableWidth - 2 ? fade : 0]
+    ]) {
+      const property = "--hcv-table-" + name;
+      const value = size + "px";
+      if (wrapper.style.getPropertyValue(property) !== value) wrapper.style.setProperty(property, value);
+    }
+  }
+  function updateOverflow(statesToMeasure) {
+    const measured = [];
+    for (const state of statesToMeasure) {
+      if (state.wrapper.checkVisibility({ contentVisibilityAuto: true })) {
+        measured.push(measureOverflow(state));
+      }
+    }
+    measured.forEach(applyOverflow);
   }
   const resize = new ResizeObserver((entries) => {
+    const affected = /* @__PURE__ */ new Set();
     for (const { target } of entries) {
       const state = states.get(target.matches("table") ? target : target.querySelector(":scope > table"));
-      if (state) updateOverflow(state);
+      if (state) affected.add(state);
     }
+    updateOverflow(affected);
   });
   function attach(table) {
     const wrapper = table.parentElement;
@@ -8815,13 +11787,13 @@ function registerChatTables(ctx, active2) {
     wrapper.addEventListener("blur", () => queueMicrotask(() => {
       if (document.activeElement !== wrapper && !toolbar2.contains(document.activeElement)) state.restoreOverlay();
     }), { ...options, capture: true });
-    for (const control2 of [copy6, expand]) {
-      control2.addEventListener("pointerenter", () => showTip(control2), options);
-      control2.addEventListener("focus", () => {
-        if (control2.matches(":focus-visible")) showTip(control2);
+    for (const control3 of [copy6, expand]) {
+      control3.addEventListener("pointerenter", () => showTip(control3), options);
+      control3.addEventListener("focus", () => {
+        if (control3.matches(":focus-visible")) showTip(control3);
       }, options);
-      control2.addEventListener("pointerleave", hideTip, options);
-      control2.addEventListener("blur", hideTip, options);
+      control3.addEventListener("pointerleave", hideTip, options);
+      control3.addEventListener("blur", hideTip, options);
     }
     copy6.addEventListener("click", async () => {
       if (state.copying || copy6.hasAttribute("data-copied")) return;
@@ -8850,7 +11822,7 @@ function registerChatTables(ctx, active2) {
     }, options);
     expand.addEventListener("click", () => openPreview(state), options);
     wrapper.addEventListener("scroll", () => {
-      updateOverflow(state);
+      applyOverflow(measureOverflow(state));
       hideTip();
     }, options);
     wrapper.addEventListener("keydown", (event) => {
@@ -8862,7 +11834,7 @@ function registerChatTables(ctx, active2) {
   }
   function detach(state) {
     const { table, wrapper, toolbar: toolbar2, nativeAttributes } = state;
-    if (preview2?.state === state) closePreview(false);
+    if (preview3?.state === state) closePreview(false);
     if (toolbar2.contains(tipButton)) hideTip();
     state.listeners.abort();
     clearTimeout(state.copyTimer);
@@ -8893,15 +11865,19 @@ function registerChatTables(ctx, active2) {
       if (!enabled || !state.table.isConnected || state.table.parentElement !== state.wrapper) detach(state);
     }
     if (enabled) {
+      const measured = [];
+      let refresh = false;
       for (const table of pending) {
         if (!table.isConnected || !table.matches(nativeTable)) continue;
         const state = states.get(table) || attach(table);
         markColumns(table);
         state.copy.setAttribute("aria-label", state.copy.hasAttribute("data-copied") ? strings().copied : strings().copy);
         state.expand.setAttribute("aria-label", strings().expand);
-        updateOverflow(state);
-        if (preview2?.state === state) refreshPreview();
+        measured.push(state);
+        refresh ||= preview3?.state === state;
       }
+      updateOverflow(measured);
+      if (refresh) refreshPreview();
     }
     pending.clear();
   }
@@ -8912,20 +11888,27 @@ function registerChatTables(ctx, active2) {
     if (!root.matches(active2)) return;
     let removed = false;
     for (const { target, addedNodes, removedNodes } of records) {
-      const element5 = target instanceof Element ? target : target.parentElement;
-      if (element5?.closest(`[${toolbarMark}], [${dialogMark}], [data-hcv-table-tip]`)) continue;
-      const table = element5?.closest("table");
+      const element6 = target instanceof Element ? target : target.parentElement;
+      if (element6?.closest(`[${toolbarMark}], [${dialogMark}], [data-hcv-table-tip]`)) continue;
+      const table = element6?.closest("table");
       if (table?.matches(nativeTable)) pending.add(table);
-      for (const node2 of addedNodes) {
-        if (!(node2 instanceof Element)) continue;
-        if (node2.matches(nativeTable)) pending.add(node2);
-        else for (const child of node2.querySelectorAll(nativeTable)) pending.add(child);
+      for (const node3 of addedNodes) {
+        if (!(node3 instanceof Element)) continue;
+        if (node3.matches(nativeTable)) pending.add(node3);
+        else for (const child of node3.querySelectorAll(nativeTable)) pending.add(child);
       }
-      removed ||= removedNodes.length > 0;
+      for (const node3 of removedNodes) {
+        if (node3 instanceof Element && (node3.matches(`[${tableMark}], [${wrapMark}]`) || node3.querySelector(`[${tableMark}], [${wrapMark}]`))) removed = true;
+      }
     }
     if (pending.size || removed && states.size) queue();
   });
   observer.observe(document.body, { childList: true, characterData: true, subtree: true });
+  ctx.addEventListener(document, "contentvisibilityautostatechange", (event) => {
+    if (event.skipped || !root.matches(active2)) return;
+    for (const table of event.target.querySelectorAll(`[${tableMark}]`)) pending.add(table);
+    if (pending.size) queue();
+  }, true);
   function collect() {
     if (root.matches(active2)) for (const table of document.querySelectorAll(nativeTable)) pending.add(table);
     queue();
@@ -9010,27 +11993,27 @@ var copy4 = {
     noEnvironment: "No environment"
   }
 };
-var labels10 = () => copy4[document.documentElement.lang.toLowerCase().startsWith("ru") ? "ru" : "en"];
-function node(tag, attrs = {}, text = "") {
-  const element5 = document.createElement(tag);
-  for (const [name, value] of Object.entries(attrs)) element5.setAttribute(name, value);
-  if (text) element5.textContent = text;
-  return element5;
+var labels11 = () => copy4[document.documentElement.lang.toLowerCase().startsWith("ru") ? "ru" : "en"];
+function node2(tag, attrs = {}, text = "") {
+  const element6 = document.createElement(tag);
+  for (const [name, value] of Object.entries(attrs)) element6.setAttribute(name, value);
+  if (text) element6.textContent = text;
+  return element6;
 }
 function icon7(glyph3) {
-  const element5 = node("span", { "data-hcv-draft-icon": glyph3, "aria-hidden": "true" });
-  Object.assign(element5.style, codexIconStyle(glyph3));
-  return element5;
+  const element6 = node2("span", { "data-hcv-draft-icon": glyph3, "aria-hidden": "true" });
+  Object.assign(element6.style, codexIconStyle(glyph3));
+  return element6;
 }
 function button2(glyph3, name, action) {
-  const element5 = node("button", { type: "button", "data-hcv-draft-button": "" });
-  const label = node("span", { "data-hcv-draft-label": "" }, name);
-  element5.append(icon7(glyph3), label);
-  if (action) element5.addEventListener("click", action);
-  return { element: element5, label, glyph: (name2) => element5.firstElementChild.replaceWith(icon7(name2)) };
+  const element6 = node2("button", { type: "button", "data-hcv-draft-button": "" });
+  const label3 = node2("span", { "data-hcv-draft-label": "" }, name);
+  element6.append(icon7(glyph3), label3);
+  if (action) element6.addEventListener("click", action);
+  return { element: element6, label: label3, glyph: (name2) => element6.firstElementChild.replaceWith(icon7(name2)) };
 }
 function panel(kind) {
-  return node("div", { popover: "auto", "data-hcv-draft-menu": kind });
+  return node2("div", { popover: "auto", "data-hcv-draft-menu": kind });
 }
 function position(popup, anchor, end = false) {
   const target = popup.closest("[data-radix-popper-content-wrapper]") || popup;
@@ -9061,7 +12044,7 @@ function startNativeMenu(source, anchor, decorate) {
   let frame = 0;
   let stopped = false;
   const observer = new MutationObserver(queue);
-  const dispose = (close = false) => {
+  const dispose = (close2 = false) => {
     if (stopped) return;
     stopped = true;
     observer.disconnect();
@@ -9070,7 +12053,7 @@ function startNativeMenu(source, anchor, decorate) {
     cleanup();
     anchor.removeAttribute("data-hcv-native-open");
     anchor.setAttribute("aria-expanded", "false");
-    if (close && menu?.dataset.state === "open") {
+    if (close2 && menu?.dataset.state === "open") {
       menu.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
     }
   };
@@ -9090,7 +12073,7 @@ function startNativeMenu(source, anchor, decorate) {
         return;
       }
       menu.setAttribute("data-hcv-draft-native-menu", "device");
-      title = node("div", { "data-hcv-draft-menu-heading": "" }, labels10().location);
+      title = node2("div", { "data-hcv-draft-menu-heading": "" }, labels11().location);
       menu.prepend(title);
       decorate?.(menu);
     }
@@ -9112,33 +12095,34 @@ function normalized(path) {
   return /^[A-Z]:/i.test(clean) ? clean.toLowerCase() : clean;
 }
 function newDraftBar(form, current, localEnvironment) {
-  const strip = node("div", { "data-hcv-draft-bar": "", role: "group", "aria-label": labels10().bar });
-  const projectMenu = panel("projects");
+  const strip2 = node2("div", { "data-hcv-draft-bar": "", role: "group", "aria-label": labels11().bar });
+  const projectMenu2 = panel("projects");
   const localMenu = panel("device");
   const gearMenu = panel("git");
   let connection;
   let dataScope;
+  let worktreeCwd;
   let worktree = { label: "", branch: "" };
   let bridge;
   let disposed = false;
-  const scope2 = () => JSON.stringify([host15.state.connectionId.get(), host15.state.profile.get()]);
-  const activeHere = (key) => !disposed && current() && key === scope2();
+  const scope3 = () => JSON.stringify([host15.state.connectionId.get(), host15.state.profile.get()]);
+  const activeHere = (key) => !disposed && current() && key === scope3();
   const canRequest = () => host15.state.gateway.get() === "open";
   const request = (method, params) => host15.request(method, { ...params, profile: host15.state.profile.get() }, 5e3);
-  const error = () => host15.notify({ kind: "error", message: labels10().actionsError });
-  const projects2 = button2("folder", labels10().noProject);
-  const device = button2("laptop", labels10().device);
+  const error = () => host15.notify({ kind: "error", message: labels11().actionsError });
+  const projects2 = button2("folder", labels11().noProject);
+  const device = button2("laptop", labels11().device);
   const gear = button2("settings", "");
-  const search = node("input", { type: "search", "data-hcv-draft-search": "" });
-  const results = node("div", { "data-hcv-draft-projects": "" });
-  const create = button2("plus", labels10().create, () => void createProject());
-  const noProject = button2("close", labels10().none, () => void selectProject(null));
-  const projectFooter = node("div", { "data-hcv-draft-menu-footer": "" });
+  const search = node2("input", { type: "search", "data-hcv-draft-search": "" });
+  const results = node2("div", { "data-hcv-draft-projects": "" });
+  const create = button2("plus", labels11().create, () => void createProject());
+  const noProject = button2("close", labels11().none, () => void selectProject(null));
+  const projectFooter = node2("div", { "data-hcv-draft-menu-footer": "" });
   projectFooter.append(create.element, noProject.element);
-  const searchRow = node("label", { "data-hcv-draft-search-row": "" });
-  const separator = () => node("div", { "data-hcv-draft-menu-separator": "", role: "separator" });
+  const searchRow = node2("label", { "data-hcv-draft-search-row": "" });
+  const separator = () => node2("div", { "data-hcv-draft-menu-separator": "", role: "separator" });
   searchRow.append(icon7("activitySearch"), search);
-  projectMenu.append(searchRow, separator(), results, separator(), projectFooter);
+  projectMenu2.append(searchRow, separator(), results, separator(), projectFooter);
   function bind(opener, popup, end = false) {
     opener.popoverTargetElement = popup;
     opener.setAttribute("aria-haspopup", "dialog");
@@ -9158,7 +12142,7 @@ function newDraftBar(form, current, localEnvironment) {
     });
     opener.setAttribute("aria-expanded", "false");
   }
-  bind(projects2.element, projectMenu);
+  bind(projects2.element, projectMenu2);
   bind(gear.element, gearMenu, true);
   bind(device.element, localMenu);
   device.element.addEventListener("click", (event) => {
@@ -9173,28 +12157,28 @@ function newDraftBar(form, current, localEnvironment) {
     bridge = startNativeMenu(source, device.element, (menu) => {
       for (const glyph3 of menu.querySelectorAll('[data-slot="connection-glyph"][data-connection-kind="local"]')) {
         const title = glyph3.nextElementSibling;
-        title?.setAttribute("data-hcv-device-label", labels10().device);
+        title?.setAttribute("data-hcv-device-label", labels11().device);
       }
     });
   });
-  const manage = button2("settings", labels10().manage, () => {
+  const manage = button2("settings", labels11().manage, () => {
     localMenu.hidePopover();
     host15.navigate(settingsRoute);
   });
-  const localHeading = node("div", { "data-hcv-draft-menu-heading": "" });
-  const selectedLocal = button2("laptop", labels10().device, () => localMenu.hidePopover());
+  const localHeading = node2("div", { "data-hcv-draft-menu-heading": "" });
+  const selectedLocal = button2("laptop", labels11().device, () => localMenu.hidePopover());
   selectedLocal.element.append(icon7("check"));
   localMenu.append(localHeading, selectedLocal.element, manage.element);
-  const gitHeading = node("div", { "data-hcv-draft-menu-heading": "" });
+  const gitHeading = node2("div", { "data-hcv-draft-menu-heading": "" });
   const localGit = () => host15.state.connectionId.get() === "local" && worktree.branch && window.hermesDesktop?.git;
   const worktreeTrigger = () => {
-    const label = CSS.escape(labels10().nativeWorktree);
+    const label3 = CSS.escape(labels11().nativeWorktree);
     const cwd = normalized(host15.state.cwd.get());
-    return [...document.querySelectorAll(sidebarSelector + ' button[aria-label="' + label + '"]:has(> .codicon-git-branch)')].find((button4) => normalized(nativeWorktreePath(button4)) === cwd);
+    return [...document.querySelectorAll(sidebarSelector + ' button[aria-label="' + label3 + '"]:has(> .codicon-git-branch)')].find((button4) => normalized(nativeWorktreePath(button4)) === cwd);
   };
-  const newWorktree = button2("worktree", labels10().worktree, async () => {
+  const newWorktree = button2("worktree", labels11().worktree, async () => {
     if (!localGit()) return;
-    const key = scope2();
+    const key = scope3();
     const cwd = host15.state.cwd.get();
     const ready = () => activeHere(key) && cwd === host15.state.cwd.get();
     gearMenu.hidePopover();
@@ -9230,20 +12214,20 @@ function newDraftBar(form, current, localEnvironment) {
     });
     if (!opened && ready()) error();
   });
-  newWorktree.element.append(node("span", { "data-hcv-draft-detail": "" }), icon7("right"));
-  const branch = button2("branch", labels10().branch, () => void chooseBranch());
-  const branchValue = node("span", { "data-hcv-draft-detail": "" });
+  newWorktree.element.append(node2("span", { "data-hcv-draft-detail": "" }), icon7("right"));
+  const branch = button2("branch", labels11().branch, () => void chooseBranch());
+  const branchValue = node2("span", { "data-hcv-draft-detail": "" });
   branch.element.append(branchValue, icon7("right"));
-  const environment = button2("settings", labels10().environment, () => {
+  const environment = button2("settings", labels11().environment, () => {
     const cwd = host15.state.cwd.get();
     gearMenu.hidePopover();
     void localEnvironment?.open({ cwd, projectName: worktree.label, trigger: gear.element });
   });
   environment.element.disabled = true;
-  const envValue = node("span", { "data-hcv-draft-detail": "" });
+  const envValue = node2("span", { "data-hcv-draft-detail": "" });
   environment.element.append(envValue, icon7("right"));
-  const gitOptions = node("div", { "data-hcv-draft-branches": "" });
-  const gitSetup = node("div", { "data-hcv-draft-git-setup": "" });
+  const gitOptions = node2("div", { "data-hcv-draft-branches": "" });
+  const gitSetup = node2("div", { "data-hcv-draft-git-setup": "" });
   let branchRequest;
   gitSetup.append(newWorktree.element, branch.element, environment.element);
   gearMenu.append(gitHeading, gitSetup, gitOptions);
@@ -9254,44 +12238,44 @@ function newDraftBar(form, current, localEnvironment) {
     newWorktree.element.disabled = !localGit() || !(worktreeTrigger() || worktree.projectId);
     branch.element.disabled = !localGit();
     const cwd = host15.state.cwd.get();
-    const key = scope2();
+    const key = scope3();
     environment.element.disabled = !localEnvironment || host15.state.connectionId.get() !== "local" || !cwd;
-    envValue.textContent = labels10().noEnvironment;
+    envValue.textContent = labels11().noEnvironment;
     if (!environment.element.disabled) void localEnvironment.name(cwd).then((name) => {
       if (activeHere(key) && cwd === host15.state.cwd.get() && gearMenu.matches(":popover-open")) {
-        envValue.textContent = name || labels10().noEnvironment;
+        envValue.textContent = name || labels11().noEnvironment;
       }
     });
-    branchValue.textContent = worktree.branch || labels10().noBranch;
-    gitHeading.textContent = labels10().configure;
+    branchValue.textContent = worktree.branch || labels11().noBranch;
+    gitHeading.textContent = labels11().configure;
     gitSetup.hidden = false;
     gitOptions.replaceChildren();
   });
   async function chooseBranch() {
     const git = localGit();
     const cwd = host15.state.cwd.get();
-    const key = scope2();
+    const key = scope3();
     if (!git || !cwd || branchRequest) return;
     const pending = git.branchList(cwd).catch(() => null);
     branchRequest = pending;
     branch.element.setAttribute("aria-busy", "true");
-    branchValue.textContent = labels10().loading;
+    branchValue.textContent = labels11().loading;
     const ready = () => activeHere(key) && cwd === host15.state.cwd.get() && gearMenu.matches(":popover-open");
     const branches = await pending;
     if (branchRequest !== pending) return;
     branchRequest = null;
     branch.element.removeAttribute("aria-busy");
-    branchValue.textContent = worktree.branch || labels10().noBranch;
+    branchValue.textContent = worktree.branch || labels11().noBranch;
     if (!ready()) return;
     gitSetup.hidden = true;
-    gitHeading.textContent = labels10().branch;
-    const localBranches = branches?.filter((row3) => !row3.isRemote && row3.name) || [];
+    gitHeading.textContent = labels11().branch;
+    const localBranches = branches?.filter((row4) => !row4.isRemote && row4.name) || [];
     if (!localBranches.length) {
-      gitOptions.replaceChildren(node("p", { role: "status" }, labels10().branchError));
+      gitOptions.replaceChildren(node2("p", { role: "status" }, labels11().branchError));
       return;
     }
     gitOptions.replaceChildren(...localBranches.map(({ name }) => {
-      const row3 = button2("branch", name, async () => {
+      const row4 = button2("branch", name, async () => {
         if (!ready()) return;
         gearMenu.hidePopover();
         if (name === worktree.branch) return;
@@ -9303,14 +12287,14 @@ function newDraftBar(form, current, localEnvironment) {
             void refresh();
           }
         } catch {
-          host15.notify({ kind: "error", message: labels10().switchError });
+          host15.notify({ kind: "error", message: labels11().switchError });
         }
       }).element;
       if (name === worktree.branch) {
-        row3.setAttribute("aria-current", "true");
-        row3.append(icon7("check"));
+        row4.setAttribute("aria-current", "true");
+        row4.append(icon7("check"));
       }
-      return row3;
+      return row4;
     }));
     gitOptions.querySelector('[aria-current="true"], button')?.focus({ preventScroll: true });
   }
@@ -9319,22 +12303,22 @@ function newDraftBar(form, current, localEnvironment) {
   function renderProjects() {
     const text = search.value.trim().toLowerCase();
     const cwd = normalized(host15.state.cwd.get());
-    const list = catalog?.filter(({ label, path }) => (label + " " + path).toLowerCase().includes(text)) || [];
+    const list = catalog?.filter(({ label: label3, path }) => (label3 + " " + path).toLowerCase().includes(text)) || [];
     const focusedPath = results.contains(document.activeElement) ? document.activeElement.title : null;
     if (!list.length) {
-      const message = catalog ? labels10().empty : catalog === null || !canRequest() ? labels10().projectError : labels10().loading;
-      results.replaceChildren(node("p", { role: "status" }, message));
+      const message = catalog ? labels11().empty : catalog === null || !canRequest() ? labels11().projectError : labels11().loading;
+      results.replaceChildren(node2("p", { role: "status" }, message));
       if (focusedPath) search.focus({ preventScroll: true });
       return;
     }
-    results.replaceChildren(...list.map(({ label, path }) => {
-      const row3 = button2("folder", label, () => void selectProject(path)).element;
-      row3.title = path;
+    results.replaceChildren(...list.map(({ label: label3, path }) => {
+      const row4 = button2("folder", label3, () => void selectProject(path)).element;
+      row4.title = path;
       if (cwd && (cwd === normalized(path) || cwd.startsWith(normalized(path) + "/"))) {
-        row3.setAttribute("aria-current", "true");
-        row3.append(icon7("check"));
+        row4.setAttribute("aria-current", "true");
+        row4.append(icon7("check"));
       }
-      return row3;
+      return row4;
     }));
     if (focusedPath) {
       const target = Array.from(results.children).find((item) => item.title === focusedPath) || search;
@@ -9344,7 +12328,7 @@ function newDraftBar(form, current, localEnvironment) {
   function loadCatalog(key) {
     if (catalogRequest || !canRequest()) return;
     const pending = request("projects.tree", { preview_limit: 1 }).then(
-      (reply) => (reply.projects || []).filter((row3) => !row3.isNoProject && row3.label).map((row3) => ({ label: row3.label, path: row3.path || row3.repos?.find((repo) => repo.path)?.path })).filter((row3) => typeof row3.path === "string" && row3.path.trim())
+      (reply) => (reply.projects || []).filter((row4) => !row4.isNoProject && row4.label).map((row4) => ({ label: row4.label, path: row4.path || row4.repos?.find((repo) => repo.path)?.path })).filter((row4) => typeof row4.path === "string" && row4.path.trim())
     ).catch(() => catalog ?? null);
     catalogRequest = pending;
     void pending.then((next) => {
@@ -9352,23 +12336,23 @@ function newDraftBar(form, current, localEnvironment) {
       catalogRequest = null;
       if (!activeHere(key) || JSON.stringify(next) === JSON.stringify(catalog)) return;
       catalog = next;
-      if (projectMenu.matches(":popover-open")) renderProjects();
+      if (projectMenu2.matches(":popover-open")) renderProjects();
     });
   }
-  projectMenu.addEventListener("beforetoggle", (event) => {
+  projectMenu2.addEventListener("beforetoggle", (event) => {
     if (event.newState !== "open") return;
     results.style.blockSize = catalog === void 0 && canRequest() ? "84px" : "";
     search.value = "";
     renderProjects();
-    loadCatalog(scope2());
+    loadCatalog(scope3());
   });
-  projectMenu.addEventListener("toggle", (event) => {
+  projectMenu2.addEventListener("toggle", (event) => {
     if (event.newState !== "open") return;
     results.style.blockSize = results.getBoundingClientRect().height + "px";
     search.focus({ preventScroll: true });
   });
   search.addEventListener("input", renderProjects);
-  projectMenu.addEventListener("keydown", (event) => {
+  projectMenu2.addEventListener("keydown", (event) => {
     if (!["ArrowUp", "ArrowDown"].includes(event.key)) return;
     const options = [...results.querySelectorAll("button")];
     if (!options.length) return;
@@ -9390,8 +12374,8 @@ function newDraftBar(form, current, localEnvironment) {
     return null;
   }
   async function selectProject(path) {
-    const key = scope2();
-    projectMenu.hidePopover();
+    const key = scope3();
+    projectMenu2.hidePopover();
     if (normalized(path) === normalized(host15.state.cwd.get())) return;
     const draft = await host15.composer.getDraft(null).catch(() => null);
     const sidebar2 = await sidebarFor(sidebarSelector, key);
@@ -9403,15 +12387,15 @@ function newDraftBar(form, current, localEnvironment) {
       await new Promise(requestAnimationFrame);
       await new Promise(requestAnimationFrame);
       const next = await host15.composer.getDraft(null).catch(() => null);
-      if (!next && !host15.state.focusedStoredSessionId.get() && !host15.state.busy.get() && key === scope2()) {
+      if (!next && !host15.state.focusedStoredSessionId.get() && !host15.state.busy.get() && key === scope3()) {
         await host15.composer.setDraft(null, draft).catch(() => {
         });
       }
     }
   }
   async function createProject() {
-    const key = scope2();
-    projectMenu.hidePopover();
+    const key = scope3();
+    projectMenu2.hidePopover();
     const sidebar2 = await sidebarFor(sidebarSelector, key);
     if (!sidebar2 || !activeHere(key)) return;
     sidebar2.querySelector("[data-hcv-show-projects]")?.click();
@@ -9423,10 +12407,10 @@ function newDraftBar(form, current, localEnvironment) {
     }
   }
   function localize() {
-    const t = labels10();
-    strip.setAttribute("aria-label", t.bar);
+    const t = labels11();
+    strip2.setAttribute("aria-label", t.bar);
     projects2.element.setAttribute("aria-label", t.projects);
-    projectMenu.setAttribute("aria-label", t.projects);
+    projectMenu2.setAttribute("aria-label", t.projects);
     device.element.setAttribute("aria-label", t.location);
     localMenu.setAttribute("aria-label", t.location);
     gear.element.setAttribute("aria-label", t.configure);
@@ -9450,17 +12434,22 @@ function newDraftBar(form, current, localEnvironment) {
   }
   let refreshId = 0;
   async function refresh() {
-    const key = scope2();
+    const key = scope3();
     const id2 = ++refreshId;
     const cwd = host15.state.cwd.get();
+    const folderLabel = cwd.split(/[/\\]/).filter(Boolean).at(-1) || "";
+    if (cwd !== worktreeCwd || key !== dataScope) {
+      worktreeCwd = cwd;
+      const knownProject = key === dataScope && catalog?.find((row4) => normalized(row4.path) === normalized(cwd));
+      worktree = { label: knownProject?.label || folderLabel, branch: "" };
+    }
     if (key !== dataScope) {
       dataScope = key;
       catalog = void 0;
       catalogRequest = null;
-      worktree = { label: "", branch: "" };
       const active3 = host15.state.connectionId.get();
       connection = active3 && active3 !== "local" ? { kind: "remote", label: "\u2026" } : null;
-      for (const menu of [projectMenu, localMenu, gearMenu]) menu.hidePopover();
+      for (const menu of [projectMenu2, localMenu, gearMenu]) menu.hidePopover();
     }
     if (catalog === void 0) loadCatalog(key);
     localize();
@@ -9470,21 +12459,21 @@ function newDraftBar(form, current, localEnvironment) {
       cwd && canRequest() ? request("projects.for_cwd", { cwd }).catch(() => null) : null
     ]);
     if (!activeHere(key) || id2 !== refreshId) return;
-    connection = devices.find((row3) => row3.id === active2) || connection;
+    connection = devices.find((row4) => row4.id === active2) || connection;
     worktree = {
-      label: info?.project?.name || cwd.split(/[/\\]/).filter(Boolean).at(-1) || "",
+      label: info?.project?.name || folderLabel,
       branch: info?.branch || "",
       projectId: info?.project?.id
     };
     device.glyph(connection?.kind === "local" || !connection ? "laptop" : "cloud");
     localize();
   }
-  strip.append(projects2.element, projectMenu, device.element, localMenu, gear.element, gearMenu);
-  form.before(strip);
+  strip2.append(projects2.element, projectMenu2, device.element, localMenu, gear.element, gearMenu);
+  form.before(strip2);
   const unbind = [host15.state.connectionId, host15.state.profile, host15.state.gateway, host15.state.cwd].map((store) => store.listen(refresh));
   const resize = () => {
-    for (const [popup, control2, end] of [[projectMenu, projects2, false], [localMenu, device, false], [gearMenu, gear, true]]) {
-      if (popup.matches(":popover-open")) position(popup, control2.element, end);
+    for (const [popup, control3, end] of [[projectMenu2, projects2, false], [localMenu, device, false], [gearMenu, gear, true]]) {
+      if (popup.matches(":popover-open")) position(popup, control3.element, end);
     }
   };
   window.addEventListener("resize", resize);
@@ -9498,54 +12487,54 @@ function newDraftBar(form, current, localEnvironment) {
       window.removeEventListener("resize", resize);
       window.removeEventListener("focus", refresh);
       bridge?.(true);
-      strip.remove();
+      strip2.remove();
     }
   };
 }
 function styles3(active2) {
   const draft = active2 + " " + toolbar;
   const menu = active2 + " [data-hcv-draft-menu]";
-  const projectMenu = menu + '[data-hcv-draft-menu="projects"]';
-  const projectSearch = projectMenu + " [data-hcv-draft-search]";
+  const projectMenu2 = menu + '[data-hcv-draft-menu="projects"]';
+  const projectSearch = projectMenu2 + " [data-hcv-draft-search]";
   const native = active2 + " [data-hcv-draft-native-menu]";
   const popper = active2 + " [data-radix-popper-content-wrapper]:has(> [data-hcv-draft-native-menu])";
-  const control2 = "[data-hcv-draft-button]";
-  const label = "[data-hcv-draft-label]";
+  const control3 = "[data-hcv-draft-button]";
+  const label3 = "[data-hcv-draft-label]";
   const glyph3 = "[data-hcv-draft-icon]";
   return [
     "@media (forced-colors: none) {",
     draft + " { position: relative; z-index: 1; display: flex; align-items: center; min-inline-size: 0; min-block-size: 40px; margin: 0 " + toolbarInset + "px -4px; padding: 6px 8px; border-radius: 20px 20px 0 0; background: var(--hcv-hover); color: var(--hcv-text); font: 12px/18px var(--hcv-ui-font); }",
     draft + " + " + formSelector + " { z-index: 2; }",
-    draft + " " + control2 + " { display: flex; min-inline-size: 0; min-block-size: 28px; align-items: center; gap: 6px; padding: 0 8px; border-radius: 999px; text-align: start; cursor: pointer; -webkit-app-region: no-drag; }",
-    draft + " > " + control2 + ":last-of-type { flex: none; justify-content: center; margin-inline-start: auto; inline-size: 28px; padding: 0; color: var(--hcv-muted); }",
-    draft + " " + label + " { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }",
-    draft + " " + label + ":empty { display: none; }",
+    draft + " " + control3 + " { display: flex; min-inline-size: 0; min-block-size: 28px; align-items: center; gap: 6px; padding: 0 8px; border-radius: 999px; text-align: start; cursor: pointer; -webkit-app-region: no-drag; }",
+    draft + " > " + control3 + ":last-of-type { flex: none; justify-content: center; margin-inline-start: auto; inline-size: 28px; padding: 0; color: var(--hcv-muted); }",
+    draft + " " + label3 + " { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }",
+    draft + " " + label3 + ":empty { display: none; }",
     draft + " " + glyph3 + " { display: inline-block; flex: none; inline-size: 16px; block-size: 16px; }",
-    draft + " > " + control2 + ':is(:hover, [aria-expanded="true"]) { background: var(--hcv-composer); }',
-    draft + " > " + control2 + ":focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }",
+    draft + " > " + control3 + ':is(:hover, [aria-expanded="true"]) { background: var(--hcv-composer); }',
+    draft + " > " + control3 + ":focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }",
     menu + ", " + native + " { box-sizing: border-box; min-inline-size: 0; max-block-size: var(--hcv-draft-max-height, 60vh); overflow: auto; overscroll-behavior: contain; padding: 4px; border: 1px solid transparent; border-radius: 16px; background: var(--hcv-menu); box-shadow: 0 0 0 .5px var(--hcv-hairline), 0 8px 16px -4px #0000001f; color: var(--hcv-text); font: 13px/20px var(--hcv-ui-font); }",
     ...Object.entries(menuWidths).map(([kind, width]) => menu + '[data-hcv-draft-menu="' + kind + '"]' + (kind === "device" ? ", " + native : "") + " { inline-size: min(" + width + "px, calc(100vw - 16px)); }"),
     menu + '[data-hcv-draft-menu="git"] { padding: 8px; }',
     menu + ", " + popper + " { position: fixed !important; inset: auto auto var(--hcv-draft-bottom, 40px) var(--hcv-draft-left, 8px) !important; transform: none !important; margin: 0; }",
-    menu + " " + control2 + ", " + native + ' [role^="menuitem"] { inline-size: 100%; justify-content: flex-start; border-radius: 11px; min-block-size: 28px; }',
-    menu + " " + control2 + ":disabled { color: var(--hcv-muted); opacity: .55; cursor: default; background: transparent; }",
-    menu + " " + control2 + " > " + glyph3 + '[data-hcv-draft-icon="check"] { margin-inline-start: auto; }',
+    menu + " " + control3 + ", " + native + ' [role^="menuitem"] { inline-size: 100%; justify-content: flex-start; border-radius: 11px; min-block-size: 28px; }',
+    menu + " " + control3 + ":disabled { color: var(--hcv-muted); opacity: .55; cursor: default; background: transparent; }",
+    menu + " " + control3 + " > " + glyph3 + '[data-hcv-draft-icon="check"] { margin-inline-start: auto; }',
     active2 + " [data-hcv-draft-menu-heading] { min-block-size: 28px; display: flex; align-items: center; padding-inline: 8px; color: var(--hcv-muted); }",
     draft + " [data-hcv-draft-detail] { margin-inline-start: auto; color: var(--hcv-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }",
     // Codex Desktop: ZZgR menu input and bqtn separator used by Rvqv.
-    projectMenu + " { max-block-size: min(350px, var(--hcv-draft-max-height, 60vh)); border: 0; border-radius: var(--hcv-dropdown-radius); background: var(--hcv-dropdown-background); color: var(--hcv-dropdown-text); font: 430 13px/calc(1.25 / .875) var(--hcv-ui-font); box-shadow: var(--hcv-dropdown-shadow); }",
-    projectMenu + " [data-hcv-draft-search-row] { display: flex; align-items: center; gap: 6px; padding: 5px 8px; color: var(--hcv-dropdown-muted); }",
+    projectMenu2 + " { max-block-size: min(350px, var(--hcv-draft-max-height, 60vh)); border: 0; border-radius: var(--hcv-dropdown-radius); background: var(--hcv-dropdown-background); color: var(--hcv-dropdown-text); font: 430 13px/calc(1.25 / .875) var(--hcv-ui-font); box-shadow: var(--hcv-dropdown-shadow); }",
+    projectMenu2 + " [data-hcv-draft-search-row] { display: flex; align-items: center; gap: 6px; padding: 5px 8px; color: var(--hcv-dropdown-muted); }",
     projectSearch + " { flex: 1; min-inline-size: 0; appearance: none; padding: 0; border: 0; background: transparent; color: var(--hcv-dropdown-text); font: inherit; outline: none; box-shadow: none; }",
     projectSearch + "::placeholder { color: var(--hcv-dropdown-muted); opacity: 1; }",
     projectSearch + "::-webkit-search-cancel-button { appearance: none; }",
-    projectMenu + " [data-hcv-draft-menu-separator] { block-size: 1px; margin: 4px 8px; background: var(--hcv-dropdown-outline); }",
-    projectMenu + " " + control2 + " { min-block-size: 0; padding: 5px 8px; border-radius: var(--hcv-dropdown-row-radius); font: inherit; }",
-    projectMenu + " " + control2 + ':is(:hover, :focus, [aria-current="true"]):not(:disabled) { background-color: var(--hcv-dropdown-hover); color: var(--hcv-dropdown-text); }',
+    projectMenu2 + " [data-hcv-draft-menu-separator] { block-size: 1px; margin: 4px 8px; background: var(--hcv-dropdown-outline); }",
+    projectMenu2 + " " + control3 + " { min-block-size: 0; padding: 5px 8px; border-radius: var(--hcv-dropdown-row-radius); font: inherit; }",
+    projectMenu2 + " " + control3 + ':is(:hover, :focus, [aria-current="true"]):not(:disabled) { background-color: var(--hcv-dropdown-hover); color: var(--hcv-dropdown-text); }',
     "@supports (corner-shape: superellipse(1.5)) {",
-    projectMenu + ", " + projectMenu + " " + control2 + " { corner-shape: superellipse(1.5); }",
+    projectMenu2 + ", " + projectMenu2 + " " + control3 + " { corner-shape: superellipse(1.5); }",
     "}",
-    projectMenu + " [data-hcv-draft-projects] { max-block-size: min(40vh, 230px); overflow-y: auto; overscroll-behavior: contain; }",
-    projectMenu + " [data-hcv-draft-projects] p { margin: 0; padding: 8px; color: var(--hcv-dropdown-muted); }",
+    projectMenu2 + " [data-hcv-draft-projects] { max-block-size: min(40vh, 230px); overflow-y: auto; overscroll-behavior: contain; }",
+    projectMenu2 + " [data-hcv-draft-projects] p { margin: 0; padding: 8px; color: var(--hcv-dropdown-muted); }",
     draft + " [data-hcv-draft-branches] p { margin: 0; padding: 7px; color: var(--hcv-muted); }",
     native + ' [role^="menuitem"] { padding: 0 8px; }',
     native + ' [role^="menuitem"] > span:first-child { gap: 6px; }',
@@ -9565,18 +12554,18 @@ function styles3(active2) {
 function registerDraftSetup(ctx, active2, localEnvironment) {
   const root = document.documentElement;
   const contrast = matchMedia("(forced-colors: none)");
-  const sheet = node("style", { "data-hcv-draft-setup-style": "" });
+  const sheet = node2("style", { "data-hcv-draft-setup-style": "" });
   sheet.textContent = styles3(active2);
-  document.head.append(sheet);
+  mountStyle(ctx, sheet, chatStyles);
   let form;
   let bar;
   let frame = 0;
   const target = () => {
     if (!contrast.matches || !root.matches(active2) || host15.state.focusedStoredSessionId.get() || host15.state.activeSessionId.get() || host15.state.busy.get()) return null;
-    const chat2 = document.querySelector(primary3);
-    const transcript4 = chat2?.querySelector('[data-slot="aui_thread-content"]');
+    const chat3 = document.querySelector(primary3);
+    const transcript4 = chat3?.querySelector('[data-slot="aui_thread-content"]');
     if (!transcript4 || transcript4.querySelector('[data-slot="aui_message-group"]')) return null;
-    return chat2.querySelector(formSelector);
+    return chat3.querySelector(formSelector);
   };
   const update = () => {
     frame = 0;
@@ -9591,7 +12580,7 @@ function registerDraftSetup(ctx, active2, localEnvironment) {
   };
   const observer = new MutationObserver((records) => {
     const selector = [primary3, formSelector, '[data-slot="aui_thread-content"]', '[data-slot="aui_message-group"]'].join(", ");
-    if (records.some(({ target: target2, addedNodes, removedNodes }) => target2 === root || [...addedNodes, ...removedNodes].some((node2) => node2 instanceof Element && (node2.matches(selector) || node2.querySelector(selector))))) queue();
+    if (records.some(({ target: target2, addedNodes, removedNodes }) => target2 === root || [...addedNodes, ...removedNodes].some((node3) => node3 instanceof Element && (node3.matches(selector) || node3.querySelector(selector))))) queue();
   });
   observer.observe(root, {
     childList: true,
@@ -9624,7 +12613,7 @@ var effortBadge = "data-hcv-model-effort";
 var effortLabels = /* @__PURE__ */ new Set(["Off", "Min", "Low", "Med", "High", "XHigh", "Max", "Ultra"]);
 var items = ':is([data-slot^="dropdown-menu-"][role^="menuitem"], [data-slot^="context-menu-"][role^="menuitem"], [data-slot="select-item"])';
 var menuRows = `${menus} ${items}`;
-var popover = '[data-slot="popover-content"]';
+var popover2 = '[data-slot="popover-content"]';
 var tip = '[data-slot="tooltip-content"]';
 var button3 = ':is(button, [role="button"], [data-slot="button"])';
 var quietIcon = '[data-variant="ghost"][data-size^="icon"]';
@@ -9638,7 +12627,7 @@ var fields = `:is([data-slot="input"]:not([type="file"], [type="checkbox"], [typ
 var checks = ':is([data-slot="checkbox"], [data-slot="checkbox-mark"])';
 var checkIcon = ":is(.codicon-check, svg.tabler-icon-check)";
 var commandItems = '[data-slot="command-item"]';
-var commandMenuSearch = `${popover} [data-slot="command-input-wrapper"]:has(> [data-slot="command-input"]):not(:has(> svg))`;
+var commandMenuSearch = `${popover2} [data-slot="command-input-wrapper"]:has(> [data-slot="command-input"]):not(:has(> svg))`;
 var menuSearch = `:is([data-slot="dropdown-menu-search"], ${commandMenuSearch})`;
 var menuButtons = ":is([data-hcv-draft-menu], [data-hcv-recents-menu], [data-hcv-queue-menu], [data-hcv-message-menu]) button";
 var enabledItem = `${menuRows}:not([data-disabled], [aria-disabled="true"])`;
@@ -9698,19 +12687,65 @@ function watchModelEffortBadges(ctx) {
       observer.observe(menu, { childList: true, subtree: true, characterData: true });
     }
   };
-  const observer = new MutationObserver(refresh);
+  const observer = new MutationObserver((records) => {
+    if (records.some((record) => record.target !== document.body || movedElementMatches(record, '[data-slot="dropdown-menu-content"]'))) refresh();
+  });
   refresh();
   ctx.onDispose(() => {
     observer.disconnect();
     for (const badge of document.querySelectorAll(`[${effortBadge}]`)) badge.removeAttribute(effortBadge);
   });
 }
+function catalogGroupHover(ctx) {
+  const marker3 = "data-catalog-hover-group";
+  const selector = "[" + marker3 + "]";
+  const disabled = /* @__PURE__ */ new Map();
+  let watching = false;
+  function disable(node3) {
+    const groups2 = node3.matches(selector) ? [node3] : node3.querySelectorAll(selector);
+    for (const group2 of groups2) {
+      disabled.set(group2, group2.getAttribute(marker3));
+      group2.removeAttribute(marker3);
+    }
+  }
+  function restore(group2, value) {
+    group2.setAttribute(marker3, value);
+    disabled.delete(group2);
+  }
+  const mounts = new MutationObserver((records) => {
+    for (const [group2, value] of disabled) {
+      if (!group2.isConnected) restore(group2, value);
+    }
+    for (const { addedNodes } of records) {
+      for (const node3 of addedNodes) {
+        if (node3 instanceof Element && node3.isConnected) disable(node3);
+      }
+    }
+  });
+  function sync(enabled) {
+    if (enabled === watching) return;
+    watching = enabled;
+    mounts.disconnect();
+    if (enabled) {
+      disable(document.body);
+      mounts.observe(document.body, { subtree: true, childList: true });
+    } else {
+      for (const [group2, value] of disabled) restore(group2, value);
+    }
+  }
+  ctx.onDispose(() => sync(false));
+  return sync;
+}
 function registerInterface(ctx, active2) {
   watchModelEffortBadges(ctx);
+  const suppressCatalogHover = catalogGroupHover(ctx);
   const root = document.documentElement;
+  const contrast = matchMedia("(forced-colors: none)");
   const setScreen = () => {
     const screen = screenFromRoute();
-    if (!root.matches(active2) || !screen) root.removeAttribute("data-hcv-screen");
+    const enabled = root.matches(active2);
+    suppressCatalogHover(enabled && contrast.matches && screen === "capabilities");
+    if (!enabled || !screen) root.removeAttribute("data-hcv-screen");
     else if (root.dataset.hcvScreen !== screen) root.dataset.hcvScreen = screen;
     if (root.dataset.hcvScreen === "settings") {
       const params = new URLSearchParams(location.hash.split("?")[1]);
@@ -9727,6 +12762,7 @@ function registerInterface(ctx, active2) {
   observer.observe(root, { attributes: true, attributeFilter: ["data-hermes-theme", "data-hermes-codex-visual"] });
   ctx.addEventListener(window, "hashchange", setScreen);
   ctx.addEventListener(window, "popstate", setScreen);
+  ctx.addEventListener(contrast, "change", setScreen);
   if (window.navigation) ctx.addEventListener(window.navigation, "currententrychange", setScreen);
   ctx.onDispose(() => {
     observer.disconnect();
@@ -9738,8 +12774,8 @@ function registerInterface(ctx, active2) {
   const rescan = "[data-catalog-actions] button[aria-label]:has(> svg.tabler-icon-refresh)";
   ctx.addEventListener(document, "click", (event) => {
     if (!root.matches(active2) || screenFromRoute() !== "capabilities" || event.defaultPrevented) return;
-    const control2 = event.target.closest?.(rescan);
-    if (!control2 || control2.matches(':disabled, [aria-disabled="true"]')) return;
+    const control3 = event.target.closest?.(rescan);
+    if (!control3 || control3.matches(':disabled, [aria-disabled="true"]')) return;
     const russian = root.lang.toLowerCase().startsWith("ru");
     host16.notify({
       id: "hermes-codex-visual:plugins-rescan",
@@ -9748,16 +12784,18 @@ function registerInterface(ctx, active2) {
     });
   });
   const pages = `${active2}:is([data-hcv-screen="capabilities"],[data-hcv-screen="messaging"],[data-hcv-screen="artifacts"]) ${pageShell}`;
+  const animatedPages = `${active2}:is([data-hcv-screen="messaging"],[data-hcv-screen="artifacts"]) ${pageShell}`;
   const capabilities = `${active2}[data-hcv-screen="capabilities"] ${pageShell}`;
   const shown = `${active2} ${overlays}`;
   const sessions = `${active2}[data-hcv-screen="command-center"] ${overlays} main`;
   const pageSearch = "div:has(> svg.tabler-icon-search + input[placeholder])";
   const capabilitySearch = `${capabilities} div:has(> svg.tabler-icon-search):has(> input[placeholder])`;
   const catalogCard = `${capabilities} [data-catalog-card]`;
-  const plainCatalogCard = `${catalogCard}:not([data-catalog-editorial-art])`;
+  const mutedArtwork = ':is([data-entry-id="desktop:kanban"], [data-entry-id="desktop:hermes-bots"], [data-entry-id$=":desktop:kanban"], [data-entry-id$=":desktop:hermes-bots"])';
+  const plainCatalogCard = `${catalogCard}:is(:not([data-catalog-editorial-art]), ${mutedArtwork})`;
   const catalogFilters = `${capabilities} [data-catalog-filters]`;
   const filterMode = `${catalogFilters} .catalog-filter-row > .inline-grid:has(> button[aria-pressed])`;
-  const filterPopup = `${active2}[data-hcv-screen="capabilities"] ${popover}:has(> [data-catalog-expanded-filters], > .flex.flex-wrap > button[aria-pressed])`;
+  const filterPopup = `${active2}[data-hcv-screen="capabilities"] ${popover2}:has(> [data-catalog-expanded-filters], > .flex.flex-wrap > button[aria-pressed])`;
   const filterChips = `:is(${catalogFilters} .catalog-filter-chips > button, ${filterPopup} button[aria-pressed])`;
   const filterTrigger = `${catalogFilters} .catalog-filter-trigger > button`;
   const catalogActions = `${capabilities} [data-catalog-actions] button[data-slot="button"]`;
@@ -9774,7 +12812,7 @@ function registerInterface(ctx, active2) {
   const popupButtons = `${active2} :is(
     ${dialog} [data-slot="dialog-close-button"],
     ${dialog} :is([data-slot="dialog-footer"], footer) button[data-slot="button"],
-    ${popover} button[data-slot="button"],
+    ${popover2} button[data-slot="button"],
     ${notification} button[data-slot="button"]
   )`;
   const quietPopupButtons = `${popupButtons}:is([data-variant="ghost"], [data-variant="outline"], [data-variant="secondary"], [data-slot="dialog-close-button"])`;
@@ -9783,11 +12821,6 @@ function registerInterface(ctx, active2) {
   const sheet = document.createElement("style");
   sheet.dataset.hcvInterface = "";
   sheet.textContent = `
-${active2} ${modelCatalog} [${effortBadge}] { display: none; }
-${active2} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/label"], [data-slot="dropdown-menu-label"]) {
-  text-transform: lowercase;
-  letter-spacing: normal;
-}
 @media (forced-colors: none) {
   ${active2} {
     --hcv-unit: ${codexReference.spacing}px;
@@ -9827,76 +12860,8 @@ ${active2} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/la
     --translucency-glass-keep: 100% !important;
   }
 
-  /* The menu combobox input and separator are separate in Codex ZZgR/bqtn. */
-  ${active2} ${menuSearch} {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 8px;
-    border: 0;
-    background: transparent;
-    box-shadow: none;
-  }
-  ${active2} ${menuSearch}::before {
-    content: "";
-    flex: none;
-    inline-size: 16px;
-    block-size: 16px;
-    background: var(--hcv-dropdown-muted);
-    mask: ${codexMask("activitySearch")} center / contain no-repeat;
-    pointer-events: none;
-  }
-  ${active2} ${menuSearch} > input {
-    flex: 1;
-    min-inline-size: 0;
-    block-size: auto;
-    padding: 0;
-    border: 0;
-    background: transparent;
-    color: var(--hcv-dropdown-text);
-    font: 430 13px/calc(1.25 / .875) var(--hcv-ui-font);
-    outline: none;
-    box-shadow: none;
-  }
-  ${active2} ${menuSearch} > input::placeholder { color: var(--hcv-dropdown-muted); opacity: 1; }
-  ${active2} ${commandMenuSearch} {
-    position: relative;
-    margin-block-end: 0;
-    padding-block-end: 14px;
-  }
-  ${active2} ${commandMenuSearch}::after {
-    content: "";
-    position: absolute;
-    inset: auto 8px 4px;
-    block-size: 1px;
-    background: var(--hcv-dropdown-outline);
-    pointer-events: none;
-  }
-  ${active2} [data-slot="dropdown-menu-search"] + [data-slot="dropdown-menu-separator"] {
-    block-size: 1px;
-    margin: 4px 8px;
-    background: var(--hcv-dropdown-outline);
-  }
-
-  /* Native Radix menus retain focus, arrow keys, radio semantics and placement. */
-  ${active2} :is(${menus}, ${popover}) {
-    border: 0;
-    border-radius: var(--hcv-dropdown-radius);
-    background-color: var(--hcv-dropdown-background);
-    color: var(--hcv-dropdown-text);
-    box-shadow: var(--hcv-dropdown-shadow);
-    backdrop-filter: none;
-    font-family: var(--hcv-ui-font);
-    --tw-enter-blur: 0px;
-    --tw-exit-blur: 0px;
-    animation: none;
-  }
-  ${active2} :is([data-slot="context-menu-content"], [data-slot="context-menu-sub-content"], ${popover}) {
-    box-shadow: var(--hcv-popover-shadow);
-  }
   @supports (corner-shape: superellipse(1.5)) {
     ${active2} { --hcv-dropdown-radius: 20px; --hcv-dropdown-row-radius: 15px; }
-    ${active2} :is(${menus}, ${popover}), ${active2} ${menuRows} { corner-shape: superellipse(1.5); }
   }
   /* A button label can carry its own underline independently of the button. */
   ${active2} :is(${button3}, ${button3} :where(.underline, [class*=':underline'])) {
@@ -9917,31 +12882,6 @@ ${active2} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/la
     animation: none;
   }
   ${active2} ${tip} :is([data-slot="tooltip-arrow"], span:has(> [data-slot="tooltip-arrow"])) { display: none; }
-  ${active2} :is(${dialog}, ${dialogOverlay}) { animation: none; }
-  /* A dialog on a route overlay already has a blurred layer behind it.
-     Use Codex's solid scrim here to avoid sampling that layer a second time. */
-  ${active2}:has(${overlays}) ${dialogOverlay} {
-    backdrop-filter: none;
-    background-color: light-dark(#0000004d, #00000080);
-  }
-  ${active2}:has(${overlays}) ${dialog} { background-color: var(--hcv-menu); }
-  ${active2} ${dialog} {
-    background-color: var(--hcv-menu);
-    backdrop-filter: none;
-    border: 1px solid var(--hcv-hairline);
-    border-radius: var(--hcv-dialog-radius);
-    box-shadow: var(--hcv-menu-shadow);
-    font-family: var(--hcv-ui-font);
-  }
-  ${active2} ${dialog} [data-slot="dialog-title"] {
-    font-weight: 600;
-    line-height: 1.35;
-    letter-spacing: -.012em;
-  }
-  ${active2} ${dialog} [data-slot="dialog-description"] {
-    font-size: 13px;
-    line-height: 1.5;
-  }
   ${active2} ${notificationStack} :is([data-slot="card-stack-surface"], [data-slot="card-stack-edge"]) {
     border-color: var(--hcv-hairline);
     border-radius: var(--hcv-menu-radius);
@@ -9977,43 +12917,6 @@ ${active2} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/la
     font-family: var(--hcv-ui-font);
     transition: none;
   }
-  ${active2} :is(${dialog}, ${dialogOverlay})[data-state="closed"] { pointer-events: none; }
-  ${active2} ${menus} { padding: 4px; font-size: 13px; line-height: calc(1.25 / .875); }
-  ${active2} [data-slot="dropdown-menu-content"]${sidebarMenu} {
-    inline-size: max-content;
-    min-inline-size: min(160px, var(--radix-dropdown-menu-content-available-width, 100vw));
-    max-inline-size: min(calc(100vw - 16px), var(--radix-dropdown-menu-content-available-width, 100vw));
-  }
-  ${active2} [data-hcv-sidebar-menu] { translate: var(--hcv-sidebar-menu-shift, 0px) 0; }
-  ${active2} ${menuRows} {
-    position: relative;
-    min-block-size: 28px;
-    border-radius: var(--hcv-dropdown-row-radius);
-    gap: 6px;
-    padding-block: 4px;
-    padding-inline: 8px;
-    font-size: 13px;
-    font-weight: 430;
-    line-height: calc(1.25 / .875);
-  }
-  ${active2} ${menuRows}:not([data-variant="destructive"]) { color: var(--hcv-dropdown-text); }
-  ${active2} ${highlightedItem} {
-    background-color: var(--hcv-dropdown-hover);
-  }
-  ${active2} ${menus} :is([data-slot="dropdown-menu-separator"], [data-slot="context-menu-separator"], [data-slot="select-separator"]) {
-    margin: 4px 8px;
-    background: var(--hcv-dropdown-outline);
-  }
-  ${Object.entries(menuGlyphs).map(([native, name]) => codexIconRules(`${active2} ${items} .codicon-${native}`, name)).join("")}
-  ${codexIconRules(`${active2} ${items} ${checkIcon}`, "check")}
-  ${active2} ${commandItems} { border-radius: 8px; }
-  ${active2} ${commandItems}:is(:focus, [data-selected="true"]):not([data-disabled="true"], [aria-disabled="true"]),
-  ${active2} ${menuButtons}:focus-visible:not(:disabled, [aria-disabled="true"]) {
-    background-color: var(--hcv-dropdown-hover);
-    color: var(--hcv-text);
-  }
-  ${codexIconRules(`${active2} ${commandItems} ${checkIcon}`, "check")}
-
   /* Native checkbox and checkbox-mark need different selectors: the mark
      renders a child icon only when selected and is itself decorative. */
   ${active2} ${checks} {
@@ -10130,6 +13033,264 @@ ${active2} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/la
   ${codexIconRules(`${active2} [data-tour="sessions-sidebar"] [data-row-actions] .codicon-kebab-vertical`, "more")}
   ${codexIconRules(`${active2} [data-tour="sessions-sidebar"] .codicon-list-filter`, "filter")}
 
+  ${active2} :is(${fields}, ${toggle}, [data-slot="checkbox"], [data-hcv-context-card] button, ${dialog} button):focus-visible,
+  ${popupButtons}:focus-visible,
+  ${noticeDetails}:focus-visible,
+  ${shown} :is(button, a, input, textarea, select):focus-visible,
+  ${projectRow2} :is(button, a):focus-visible {
+    outline: 2px solid var(--hcv-focus);
+    outline-offset: -2px;
+  }
+  :is(${pages}, ${shown}) ${pageSearch} > input:focus-visible { outline: none; }
+
+  /* Codex Desktop bf55123332b3.css: menu item focus is a fill, with
+     native outline behavior in forced colors. */
+  ${active2} ${menuButtons}:focus-visible:not(:disabled, [aria-disabled="true"]) {
+    background-color: var(--hcv-dropdown-hover);
+    color: var(--hcv-text);
+  }
+  ${active2} ${menuButtons}:focus {
+    outline: none;
+    box-shadow: none;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    ${active2} :where(${quietIcon}):hover:not(:disabled, [aria-disabled="true"], [aria-pressed="true"], [data-state="open"]) {
+      background-color: var(--hcv-dropdown-hover);
+      color: var(--hcv-text);
+    }
+    ${active2} ${menuButtons}:hover:not(:disabled, [aria-disabled="true"]) {
+      background-color: var(--hcv-dropdown-hover);
+    }
+    ${noticeDetails}:hover,
+    ${quietPopupButtons}:hover:not(:disabled, [aria-disabled="true"]) {
+      background-color: var(--hcv-hover-menu);
+      color: var(--hcv-text);
+    }
+    ${active2} ${toggle}[data-state="unchecked"]:not(:disabled, [aria-disabled="true"]):hover {
+      background-color: color-mix(in srgb, var(--hcv-selected) 88%, var(--hcv-text));
+    }
+    ${tabs}:not([data-active="true"], [data-selected]):hover { background-color: var(--hcv-hover); }
+    ${projectRow2}:hover { background-color: var(--hcv-sidebar-highlight); }
+    ${paneAdd}:hover { background-color: var(--hcv-hover); }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    ${active2} ${tip}:is([data-state="delayed-open"], [data-state="instant-open"]) {
+      animation: hcv-menu-in ${codexReference.tooltip.duration} var(--hcv-enter) both;
+    }
+    ${active2} ${tip}[data-state="closed"] { animation: hcv-tip-out ${codexReference.tooltip.duration} var(--hcv-enter) both; }
+    ${active2} ${toggle} {
+      transition: background-color ${codexReference.switch.trackTime} linear ${codexReference.switch.trackDelay},
+        border-color var(--hcv-enter-time) var(--hcv-ease);
+    }
+    ${active2} ${toggle} > ${thumb} {
+      transition: translate ${codexReference.switch.thumbTime} var(--hcv-move),
+        background-color var(--hcv-enter-time) var(--hcv-ease);
+    }
+    ${popupButtons}, ${noticeDetails} {
+      transition: background-color var(--hcv-enter-time) var(--hcv-ease),
+        color var(--hcv-enter-time) var(--hcv-ease);
+    }
+    ${tabs}, ${paneAdd}, ${card} button, ${projectRow2}, ${projectRow2} button {
+      transition: background-color var(--hcv-enter-time) var(--hcv-ease),
+        color var(--hcv-enter-time) var(--hcv-ease),
+        border-color var(--hcv-enter-time) var(--hcv-ease);
+    }
+  }
+  @media (any-hover: none) {
+    ${projectRow2} [data-row-actions] button { opacity: 1; }
+  }
+  @keyframes hcv-menu-in {
+    from { opacity: 0; transform: scale(var(--hcv-menu-start-scale)); }
+    to { opacity: 1; transform: scale(1); }
+  }
+  @keyframes hcv-menu-out {
+    from { opacity: 1; transform: scale(1); }
+    to { opacity: 0; transform: scale(var(--hcv-menu-start-scale)); }
+  }
+  @keyframes hcv-tip-out {
+    from { opacity: 1; transform: scale(1); }
+    to { opacity: 0; transform: scale(${codexReference.tooltip.exitScale}); }
+  }
+  @keyframes hcv-surface-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes hcv-surface-out {
+    from { opacity: 1; }
+    to { opacity: 0; }
+  }
+}
+`;
+  mountStyle(ctx, sheet);
+  mountCSS(ctx, "data-hcv-interface-popups", `
+${active2} ${modelCatalog} [${effortBadge}] { display: none; }
+${active2} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/label"], [data-slot="dropdown-menu-label"]) {
+  text-transform: lowercase;
+  letter-spacing: normal;
+}
+@media (forced-colors: none) {
+  /* The menu combobox input and separator are separate in Codex ZZgR/bqtn. */
+  ${active2} ${menuSearch} {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 8px;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  ${active2} ${menuSearch}::before {
+    content: "";
+    flex: none;
+    inline-size: 16px;
+    block-size: 16px;
+    background: var(--hcv-dropdown-muted);
+    mask: ${codexMask("activitySearch")} center / contain no-repeat;
+    pointer-events: none;
+  }
+  ${active2} ${menuSearch} > input {
+    flex: 1;
+    min-inline-size: 0;
+    block-size: auto;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--hcv-dropdown-text);
+    font: 430 13px/calc(1.25 / .875) var(--hcv-ui-font);
+    outline: none;
+    box-shadow: none;
+  }
+  ${active2} ${menuSearch} > input::placeholder { color: var(--hcv-dropdown-muted); opacity: 1; }
+  ${active2} ${commandMenuSearch} {
+    position: relative;
+    margin-block-end: 0;
+    padding-block-end: 14px;
+  }
+  ${active2} ${commandMenuSearch}::after {
+    content: "";
+    position: absolute;
+    inset: auto 8px 4px;
+    block-size: 1px;
+    background: var(--hcv-dropdown-outline);
+    pointer-events: none;
+  }
+  ${active2} [data-slot="dropdown-menu-search"] + [data-slot="dropdown-menu-separator"] {
+    block-size: 1px;
+    margin: 4px 8px;
+    background: var(--hcv-dropdown-outline);
+  }
+
+  /* Native Radix menus retain focus, arrow keys, radio semantics and placement. */
+  ${active2} :is(${menus}, ${popover2}) {
+    border: 0;
+    border-radius: var(--hcv-dropdown-radius);
+    background-color: var(--hcv-dropdown-background);
+    color: var(--hcv-dropdown-text);
+    box-shadow: var(--hcv-dropdown-shadow);
+    backdrop-filter: none;
+    font-family: var(--hcv-ui-font);
+    --tw-enter-blur: 0px;
+    --tw-exit-blur: 0px;
+    animation: none;
+  }
+  ${active2} :is([data-slot="context-menu-content"], [data-slot="context-menu-sub-content"], ${popover2}) {
+    box-shadow: var(--hcv-popover-shadow);
+  }
+  @supports (corner-shape: superellipse(1.5)) {
+    ${active2} :is(${menus}, ${popover2}), ${active2} ${menuRows} { corner-shape: superellipse(1.5); }
+  }
+  ${active2} :is(${dialog}, ${dialogOverlay}) { animation: none; }
+  /* A dialog on a route overlay already has a blurred layer behind it.
+     Use Codex's solid scrim here to avoid sampling that layer a second time. */
+  ${active2}:has(${overlays}) ${dialogOverlay} {
+    backdrop-filter: none;
+    background-color: light-dark(#0000004d, #00000080);
+  }
+  ${active2}:has(${overlays}) ${dialog} { background-color: var(--hcv-menu); }
+  ${active2} ${dialog} {
+    background-color: var(--hcv-menu);
+    backdrop-filter: none;
+    border: 1px solid var(--hcv-hairline);
+    border-radius: var(--hcv-dialog-radius);
+    box-shadow: var(--hcv-menu-shadow);
+    font-family: var(--hcv-ui-font);
+  }
+  ${active2} ${dialog} [data-slot="dialog-title"] {
+    font-weight: 600;
+    line-height: 1.35;
+    letter-spacing: -.012em;
+  }
+  ${active2} ${dialog} [data-slot="dialog-description"] {
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  ${active2} :is(${dialog}, ${dialogOverlay})[data-state="closed"] { pointer-events: none; }
+  ${active2} ${menus} { padding: 4px; font-size: 13px; line-height: calc(1.25 / .875); }
+  ${active2} [data-slot="dropdown-menu-content"]${sidebarMenu} {
+    inline-size: max-content;
+    min-inline-size: min(160px, var(--radix-dropdown-menu-content-available-width, 100vw));
+    max-inline-size: min(calc(100vw - 16px), var(--radix-dropdown-menu-content-available-width, 100vw));
+  }
+  ${active2} [data-hcv-sidebar-menu] { translate: var(--hcv-sidebar-menu-shift, 0px) 0; }
+  ${active2} ${menuRows} {
+    position: relative;
+    min-block-size: 28px;
+    border-radius: var(--hcv-dropdown-row-radius);
+    gap: 6px;
+    padding-block: 4px;
+    padding-inline: 8px;
+    font-size: 13px;
+    font-weight: 430;
+    line-height: calc(1.25 / .875);
+  }
+  ${active2} ${menuRows}:not([data-variant="destructive"]) { color: var(--hcv-dropdown-text); }
+  ${active2} ${highlightedItem} {
+    background-color: var(--hcv-dropdown-hover);
+  }
+  ${active2} ${menus} :is([data-slot="dropdown-menu-separator"], [data-slot="context-menu-separator"], [data-slot="select-separator"]) {
+    margin: 4px 8px;
+    background: var(--hcv-dropdown-outline);
+  }
+  ${Object.entries(menuGlyphs).map(([native, name]) => codexIconRules(`${active2} ${items} .codicon-${native}`, name)).join("")}
+  ${codexIconRules(`${active2} ${items} ${checkIcon}`, "check")}
+  ${active2} ${commandItems} { border-radius: 8px; }
+  ${active2} ${commandItems}:is(:focus, [data-selected="true"]):not([data-disabled="true"], [aria-disabled="true"]) {
+    background-color: var(--hcv-dropdown-hover);
+    color: var(--hcv-text);
+  }
+  ${codexIconRules(`${active2} ${commandItems} ${checkIcon}`, "check")}
+
+  ${active2} :is(${items}, ${commandItems}):focus {
+    outline: none;
+    box-shadow: none;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    ${active2} ${enabledItem}:hover { background-color: var(--hcv-dropdown-hover); }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    ${active2} ${dialog}[data-state="open"] { animation: hcv-menu-in var(--hcv-enter-time) var(--hcv-enter) both; }
+    ${active2} ${dialog}[data-state="closed"] { animation: hcv-menu-out var(--hcv-exit-time) var(--hcv-exit) both; }
+    ${active2} ${dialogOverlay}[data-state="open"] { animation: hcv-surface-in var(--hcv-enter-time) var(--hcv-enter) both; }
+    ${active2} ${dialogOverlay}[data-state="closed"] { animation: hcv-surface-out var(--hcv-exit-time) var(--hcv-exit) both; }
+    ${active2} :is(${menus}, ${popover2}) {
+      transform-origin: var(--hcv-sidebar-menu-origin, var(--radix-dropdown-menu-content-transform-origin,
+        var(--radix-context-menu-content-transform-origin,
+        var(--radix-popover-content-transform-origin,
+        var(--radix-select-content-transform-origin, center top)))));
+    }
+    ${active2} :is(${menus}, ${popover2})[data-state="open"] {
+      animation: hcv-menu-in var(--hcv-enter-time) var(--hcv-enter) both;
+    }
+    ${active2} :is(${menus}, ${popover2})[data-state="closed"] {
+      animation: hcv-menu-out var(--hcv-exit-time) var(--hcv-exit) both;
+      pointer-events: none;
+    }
+  }
+}
+`, { surface: `:is(${menus}, ${popover2}, ${dialog}, ${dialogOverlay}, ${items}, ${commandItems})` });
+  mountCSS(ctx, "data-hcv-interface-pages", `
+@media (forced-colors: none) {
   /* Shells share spacing but keep their own controls, labels and content. */
   ${pages}, ${shown} {
     font-family: var(--hcv-ui-font);
@@ -10142,11 +13303,62 @@ ${active2} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/la
     border-radius: 12px;
     background: var(--hcv-form-surface);
   }
+  ${pages} ${pageTabs} button {
+    min-block-size: 30px;
+    padding-inline: 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    line-height: 18px;
+  }
+  ${pages} ${pageTabs} button:is([aria-current], [aria-selected="true"], [data-active="true"]) {
+    color: var(--hcv-text);
+    background: var(--hcv-selected);
+  }
+  :is(${pages}, ${shown}) ${pageSearch} {
+    min-block-size: 32px;
+    gap: 8px;
+    padding: 0 10px;
+    border: 1px solid var(--hcv-hairline);
+    border-radius: 8px;
+    opacity: 1;
+    background-color: var(--hcv-form-surface);
+  }
+  :is(${pages}, ${shown}) ${pageSearch}:focus-within { border-color: var(--hcv-focus); }
+  :is(${pages}, ${shown}) ${pageSearch} > input {
+    height: auto;
+    min-block-size: 30px;
+    font-size: 13px;
+    line-height: 18px;
+  }
+  ${codexIconRules(`:is(${pages}, ${shown}) ${pageSearch} > svg.tabler-icon-search`, "search")}
+  @media (hover: hover) and (pointer: fine) {
+    ${pages} [data-tour="artifact-card"]:hover {
+      border-color: var(--hcv-stroke);
+      background: var(--hcv-hover);
+    }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    ${animatedPages}, ${shown} > div > [data-glass-raised] {
+      animation: hcv-surface-in var(--hcv-enter-time) var(--hcv-enter);
+    }
+    :is(${pages}, ${shown}) ${pageSearch}, ${nav} button,
+    ${sessions} > div > div > ul > li, ${pages} :is([data-tour="artifact-card"], ${pageTabs} button) {
+      transition: background-color var(--hcv-enter-time) var(--hcv-ease),
+        color var(--hcv-enter-time) var(--hcv-ease), border-color var(--hcv-enter-time) var(--hcv-ease);
+    }
+  }
+}
+`, { screens: ["capabilities", "messaging", "artifacts"], surface: overlays });
+  mountCSS(ctx, "data-hcv-interface-catalog", `
+@media (forced-colors: none) {
   /* Codex's catalog cards use a border and a quiet fill on hover.
      The Hermes featured carousel and artwork keep their native layout. */
   ${catalogCard} {
     border-radius: 16px;
     box-shadow: none;
+    filter: none;
+    opacity: 1;
+    transition: background-color 100ms var(--hcv-ease), border-color 100ms var(--hcv-ease);
   }
   ${plainCatalogCard} {
     border-color: var(--hcv-dropdown-outline);
@@ -10157,11 +13369,12 @@ ${active2} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/la
     background: var(--hcv-form-surface);
   }
   ${catalogCard}::after { content: none; }
-  ${capabilities} [data-catalog-hover-group]:has([data-catalog-card]:hover) [data-catalog-card]:not(:hover) {
-    filter: none;
-    opacity: 1;
+  ${catalogCard}${mutedArtwork}::before { content: none; }
+  ${catalogCard}${mutedArtwork} > .catalog-card-image { display: none; }
+  ${catalogCard}${mutedArtwork} .catalog-card-description {
+    color: var(--ui-text-secondary);
   }
-  ${catalogCard}:not([data-catalog-variant="hero"]) button:has(> .text-lg) > span {
+  ${catalogCard}:not([data-catalog-variant="hero"]) .catalog-card-title {
     font-size: 14px;
     line-height: 20px;
     font-weight: 600;
@@ -10196,17 +13409,6 @@ ${active2} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/la
     border-radius: 8px;
     border: 1px solid var(--hcv-hairline);
   }
-  ${pages} ${pageTabs} button {
-    min-block-size: 30px;
-    padding-inline: 12px;
-    border-radius: 8px;
-    font-size: 13px;
-    line-height: 18px;
-  }
-  ${pages} ${pageTabs} button:is([aria-current], [aria-selected="true"], [data-active="true"]) {
-    color: var(--hcv-text);
-    background: var(--hcv-selected);
-  }
   ${capabilities} ${pageTabs} button {
     min-block-size: 26px;
     block-size: 26px;
@@ -10215,23 +13417,6 @@ ${active2} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/la
   }
   ${capabilities} ${pageTabs} button[data-active] > span { text-decoration-line: none; }
   ${capabilities} ${pageTabs} button[data-active="true"] { background-color: var(--hcv-dropdown-hover); }
-  :is(${pages}, ${shown}) ${pageSearch} {
-    min-block-size: 32px;
-    gap: 8px;
-    padding: 0 10px;
-    border: 1px solid var(--hcv-hairline);
-    border-radius: 8px;
-    opacity: 1;
-    background-color: var(--hcv-form-surface);
-  }
-  :is(${pages}, ${shown}) ${pageSearch}:focus-within { border-color: var(--hcv-focus); }
-  :is(${pages}, ${shown}) ${pageSearch} > input {
-    height: auto;
-    min-block-size: 30px;
-    font-size: 13px;
-    line-height: 18px;
-  }
-  ${codexIconRules(`:is(${pages}, ${shown}) ${pageSearch} > svg.tabler-icon-search`, "search")}
   /* okCa (739301.37a39f26d6.js), used by the Skills and Plugins catalogs.
      The native scope badge may sit between the search icon and input. */
   ${capabilitySearch} {
@@ -10307,6 +13492,31 @@ ${active2} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/la
   }
   ${codexIconRules(`${filterTrigger} > svg.tabler-icon-filter-2`, "filter")}
   ${codexIconRules(`${capabilities} ${rescan} > svg.tabler-icon-refresh`, "refresh")}
+  @media (hover: hover) and (pointer: fine) {
+    ${capabilities} ${pageTabs} button[data-active="false"]:hover { background-color: var(--hcv-dropdown-hover); }
+    ${capabilitySearch}:hover:not(:focus-within) { border-color: var(--hcv-stroke); }
+    ${catalogControls}:hover:not(:disabled, [aria-pressed="true"], [data-state="open"]) {
+      background-color: var(--hcv-dropdown-hover);
+      color: var(--hcv-text);
+    }
+    ${plainCatalogCard}:not([data-catalog-variant="hero"]):hover {
+      background-color: var(--hcv-dropdown-hover);
+    }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    ${catalogCard}, ${capabilitySearch}, ${catalogControls} {
+      transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    ${catalogCard}, ${capabilitySearch}, ${catalogControls} {
+      transition: none;
+    }
+  }
+}
+`, { screens: ["capabilities"] });
+  mountCSS(ctx, "data-hcv-interface-overlays", `
+@media (forced-colors: none) {
   ${shown} {
     padding: clamp(10px, 2.4vw, 32px);
     background-color: rgb(0 0 0 / .24);
@@ -10358,112 +13568,9 @@ ${active2} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/la
   ${sessions} > div > div > ul > li > button:first-child > div:first-child { font-size: 14px; }
   ${sessions} > div > div > ul > li:focus-within { background: var(--hcv-hover); }
 
-  ${active2} :is(${fields}, ${toggle}, [data-slot="checkbox"], [data-hcv-context-card] button, ${dialog} button):focus-visible,
-  ${popupButtons}:focus-visible,
-  ${noticeDetails}:focus-visible,
-  ${shown} :is(button, a, input, textarea, select):focus-visible,
-  ${projectRow2} :is(button, a):focus-visible {
-    outline: 2px solid var(--hcv-focus);
-    outline-offset: -2px;
-  }
-  :is(${pages}, ${shown}) ${pageSearch} > input:focus-visible { outline: none; }
-
-  /* Codex Desktop bf55123332b3.css: menu item focus is a fill, with
-     native outline behavior in forced colors. */
-  ${active2} :is(${items}, ${commandItems}, ${menuButtons}):focus {
-    outline: none;
-    box-shadow: none;
-  }
-
   @media (hover: hover) and (pointer: fine) {
-    ${active2} :where(${quietIcon}):hover:not(:disabled, [aria-disabled="true"], [aria-pressed="true"], [data-state="open"]) {
-      background-color: var(--hcv-dropdown-hover);
-      color: var(--hcv-text);
-    }
-    ${capabilities} ${pageTabs} button[data-active="false"]:hover { background-color: var(--hcv-dropdown-hover); }
-    ${capabilitySearch}:hover:not(:focus-within) { border-color: var(--hcv-stroke); }
-    ${catalogControls}:hover:not(:disabled, [aria-pressed="true"], [data-state="open"]) {
-      background-color: var(--hcv-dropdown-hover);
-      color: var(--hcv-text);
-    }
-    ${active2} ${enabledItem}:hover { background-color: var(--hcv-dropdown-hover); }
-    ${active2} ${menuButtons}:hover:not(:disabled, [aria-disabled="true"]) {
-      background-color: var(--hcv-dropdown-hover);
-    }
-    ${noticeDetails}:hover,
-    ${quietPopupButtons}:hover:not(:disabled, [aria-disabled="true"]) {
-      background-color: var(--hcv-hover-menu);
-      color: var(--hcv-text);
-    }
-    ${active2} ${toggle}[data-state="unchecked"]:not(:disabled, [aria-disabled="true"]):hover {
-      background-color: color-mix(in srgb, var(--hcv-selected) 88%, var(--hcv-text));
-    }
-    ${tabs}:not([data-active="true"], [data-selected]):hover { background-color: var(--hcv-hover); }
-    ${projectRow2}:hover,
-    ${paneAdd}:hover,
     ${nav} button.row-hover:not([aria-current="page"]):hover,
     ${sessions} > div > div > ul > li:hover { background-color: var(--hcv-hover); }
-    ${plainCatalogCard}:not([data-catalog-variant="hero"]):hover {
-      background-color: var(--hcv-dropdown-hover);
-    }
-    ${pages} [data-tour="artifact-card"]:hover {
-      border-color: var(--hcv-stroke);
-      background: var(--hcv-hover);
-    }
-  }
-  @media (prefers-reduced-motion: no-preference) {
-    ${pages}, ${shown} > div > [data-glass-raised] {
-      animation: hcv-surface-in var(--hcv-enter-time) var(--hcv-enter);
-    }
-    ${active2} ${dialog}[data-state="open"] { animation: hcv-menu-in var(--hcv-enter-time) var(--hcv-enter) both; }
-    ${active2} ${dialog}[data-state="closed"] { animation: hcv-menu-out var(--hcv-exit-time) var(--hcv-exit) both; }
-    ${active2} ${dialogOverlay}[data-state="open"] { animation: hcv-surface-in var(--hcv-enter-time) var(--hcv-enter) both; }
-    ${active2} ${dialogOverlay}[data-state="closed"] { animation: hcv-surface-out var(--hcv-exit-time) var(--hcv-exit) both; }
-    ${active2} ${tip}:is([data-state="delayed-open"], [data-state="instant-open"]) {
-      animation: hcv-menu-in ${codexReference.tooltip.duration} var(--hcv-enter) both;
-    }
-    ${active2} ${tip}[data-state="closed"] { animation: hcv-tip-out ${codexReference.tooltip.duration} var(--hcv-enter) both; }
-    ${active2} ${toggle} {
-      transition: background-color ${codexReference.switch.trackTime} linear ${codexReference.switch.trackDelay},
-        border-color var(--hcv-enter-time) var(--hcv-ease);
-    }
-    ${active2} ${toggle} > ${thumb} {
-      transition: translate ${codexReference.switch.thumbTime} var(--hcv-move),
-        background-color var(--hcv-enter-time) var(--hcv-ease);
-    }
-    ${popupButtons}, ${noticeDetails} {
-      transition: background-color var(--hcv-enter-time) var(--hcv-ease),
-        color var(--hcv-enter-time) var(--hcv-ease);
-    }
-    ${active2} :is(${menus}, ${popover}) {
-      transform-origin: var(--hcv-sidebar-menu-origin, var(--radix-dropdown-menu-content-transform-origin,
-        var(--radix-context-menu-content-transform-origin,
-        var(--radix-popover-content-transform-origin,
-        var(--radix-select-content-transform-origin, center top)))));
-    }
-    ${active2} :is(${menus}, ${popover})[data-state="open"] {
-      animation: hcv-menu-in var(--hcv-enter-time) var(--hcv-enter) both;
-    }
-    ${active2} :is(${menus}, ${popover})[data-state="closed"] {
-      animation: hcv-menu-out var(--hcv-exit-time) var(--hcv-exit) both;
-      pointer-events: none;
-    }
-    ${tabs}, ${paneAdd}, ${card} button, ${projectRow2}, ${projectRow2} button,
-    :is(${pages}, ${shown}) ${pageSearch},
-    ${nav} button, ${sessions} > div > div > ul > li,
-    ${pages} :is([data-tour="artifact-card"], ${pageTabs} button) {
-      transition: background-color var(--hcv-enter-time) var(--hcv-ease),
-        color var(--hcv-enter-time) var(--hcv-ease),
-        border-color var(--hcv-enter-time) var(--hcv-ease);
-    }
-    ${catalogCard}, ${capabilitySearch}, ${catalogControls} {
-      transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    ${catalogCard}, ${capabilitySearch}, ${catalogControls} {
-      transition: none;
-    }
   }
   @media (max-width: 760px) {
     ${shown} { padding: 16px 8px 8px; }
@@ -10477,33 +13584,8 @@ ${active2} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/la
     ${sessions} > header:has(input) > :last-child { flex: 1 1 100%; }
     ${sessions} > header:has(input) > :last-child > div { max-inline-size: none; }
   }
-  @media (any-hover: none) {
-    ${projectRow2} [data-row-actions] button { opacity: 1; }
-  }
-  @keyframes hcv-menu-in {
-    from { opacity: 0; transform: scale(var(--hcv-menu-start-scale)); }
-    to { opacity: 1; transform: scale(1); }
-  }
-  @keyframes hcv-menu-out {
-    from { opacity: 1; transform: scale(1); }
-    to { opacity: 0; transform: scale(var(--hcv-menu-start-scale)); }
-  }
-  @keyframes hcv-tip-out {
-    from { opacity: 1; transform: scale(1); }
-    to { opacity: 0; transform: scale(${codexReference.tooltip.exitScale}); }
-  }
-  @keyframes hcv-surface-in {
-    from { opacity: 0; }
-    to { opacity: 1; }
-  }
-  @keyframes hcv-surface-out {
-    from { opacity: 1; }
-    to { opacity: 0; }
-  }
 }
-`;
-  document.head.append(sheet);
-  ctx.onDispose(() => sheet.remove());
+`, { surface: overlays });
 }
 
 // source/desktop-pages.js
@@ -10627,8 +13709,7 @@ function registerDesktopPages(ctx, active2) {
       }
     }
   `;
-  document.head.append(sheet);
-  ctx.onDispose(() => sheet.remove());
+  mountStyle(ctx, sheet, { screens: ["messaging", "artifacts", "cron"] });
 }
 
 // source/desktop-corners.js
@@ -10670,8 +13751,10 @@ function registerDesktopCorners(ctx, active2) {
       ${tour} .driver-popover-footer-btn { border-radius: ${codexReference.quietControl.radius}; }
     }
   `;
-  document.head.append(sheet);
-  ctx.onDispose(() => sheet.remove());
+  mountStyle(ctx, sheet, {
+    screens: ["messaging", "cron", "capabilities", "kanban"],
+    surface: '.arc-border, .driver-popover, div[draggable][style*="--kanban-tone:"]'
+  });
 }
 
 // source/settings.js
@@ -10751,7 +13834,7 @@ function registerSettingsStyle(ctx, active2) {
   const preferences = `:is(${main}, ${system})`;
   const crumbWrap = `${main} > div:has(> nav > [aria-current="page"])`;
   const crumbs = `:is(${main} > nav:has(> [aria-current="page"]), ${crumbWrap} > nav)`;
-  const control2 = ':is([data-slot="select-trigger"], [data-slot="searchable-select-trigger"], [data-slot="compact-select-trigger"], [data-slot="input"]:not([type="file"],[type="checkbox"],[type="range"],[type="color"]), [data-slot="textarea"])';
+  const control3 = ':is([data-slot="select-trigger"], [data-slot="searchable-select-trigger"], [data-slot="compact-select-trigger"], [data-slot="input"]:not([type="file"],[type="checkbox"],[type="range"],[type="color"]), [data-slot="textarea"])';
   const rowHost = '[class~="@container"]';
   const nativeRow = `${rowHost}:has(> .grid.py-3)`;
   const field = '[id^="setting-field-"]';
@@ -10766,7 +13849,7 @@ function registerSettingsStyle(ctx, active2) {
   const selectable = `${main} button.rounded-lg.border.transition-colors.text-left:not([data-slot], [id="setting-field-gateway.connection-mode"] *)`;
   const action = `${preferences} button[data-slot="button"]:is([data-variant="text"], [data-variant="textStrong"]):not([data-size="inline"])`;
   const inlineAction = `${preferences} button[data-size="inline"]:is([data-variant="text"], [data-variant="textStrong"])`;
-  const link = `:is(${preferences}, ${active2}[data-hcv-screen="settings"] [data-slot="dialog-content"]) a[href]:not([role="button"], [data-slot="button"])`;
+  const link2 = `:is(${preferences}, ${active2}[data-hcv-screen="settings"] [data-slot="dialog-content"]) a[href]:not([role="button"], [data-slot="button"])`;
   const operationRow = '.flex.items-center.justify-between.gap-3.py-2:has(> div.min-w-0 + button[data-variant="textStrong"])';
   const operation = `${system} section > ${operationRow}`;
   const toggle2 = `${main} [data-slot="switch"][role="switch"]`;
@@ -10991,9 +14074,9 @@ function registerSettingsStyle(ctx, active2) {
   }
   ${action}.text-destructive { color: var(--hcv-error); }
   ${action}:active:not(:disabled) { background-color: color-mix(in srgb, var(--hcv-text) 16%, transparent); }
-  ${inlineAction}, ${link} { text-decoration: none; }
-  ${link} { color: light-dark(#0169cc, #83c3ff); }
-  ${link}:is(:hover, :focus-visible) { text-decoration: underline; }
+  ${inlineAction}, ${link2} { text-decoration: none; }
+  ${link2} { color: light-dark(#0169cc, #83c3ff); }
+  ${link2}:is(:hover, :focus-visible) { text-decoration: underline; }
   ${action}:focus-visible { box-shadow: none; }
   ${operation} {
     min-inline-size: 0;
@@ -11026,7 +14109,7 @@ function registerSettingsStyle(ctx, active2) {
   ${toggle2}[data-state="checked"] > [data-slot="switch-thumb"] { translate: 12px 0; background-color: #fff; }
   ${toggle2}[data-state="checked"]:dir(rtl) > [data-slot="switch-thumb"] { translate: -12px 0; }
 
-  :is(${main}, ${panels}) ${control2} {
+  :is(${main}, ${panels}) ${control3} {
     min-block-size: 32px;
     border: 1px solid var(--hcv-hairline);
     border-radius: var(--hcv-settings-control-radius);
@@ -11036,10 +14119,10 @@ function registerSettingsStyle(ctx, active2) {
     line-height: 18px;
     box-shadow: none;
   }
-  ${main} ${control2}:is(:focus, :focus-within, [data-state="open"]):not(:disabled, [aria-invalid="true"]) {
+  ${main} ${control3}:is(:focus, :focus-within, [data-state="open"]):not(:disabled, [aria-invalid="true"]) {
     border-color: color-mix(in srgb, var(--hcv-text) 50%, transparent);
   }
-  ${main} ${control2}[aria-invalid="true"] { border-color: var(--hcv-error); }
+  ${main} ${control3}[aria-invalid="true"] { border-color: var(--hcv-error); }
   ${main} textarea[data-slot="textarea"] { padding-block: 8px; }
   ${searchField} {
     min-block-size: 32px;
@@ -11087,21 +14170,21 @@ function registerSettingsStyle(ctx, active2) {
       background: var(--hcv-hover-menu);
       color: var(--hcv-text);
     }
-    ${main} ${control2}:hover:not(:disabled, :focus, :focus-within, [data-state="open"], [aria-invalid="true"]) { border-color: var(--hcv-stroke); }
+    ${main} ${control3}:hover:not(:disabled, :focus, :focus-within, [data-state="open"], [aria-invalid="true"]) { border-color: var(--hcv-stroke); }
     ${mode}:hover:not(:disabled, .ring-2, :active),
     ${action}:hover:not(:disabled, :active) { background-color: var(--hcv-hover-menu); }
     ${rail} button.row-hover:not([aria-current]):hover { background-color: var(--hcv-settings-nav-fill); }
   }
   @media (prefers-reduced-motion: no-preference) {
     ${rail} button.row-hover { transition: background-color 150ms ease, color 150ms ease; }
-    ${preferences} :is(button:not([role="switch"]), ${control2}) {
+    ${preferences} :is(button:not([role="switch"]), ${control3}) {
       transition: color var(--hcv-enter-time) var(--hcv-ease), background-color var(--hcv-enter-time) var(--hcv-ease),
         border-color var(--hcv-enter-time) var(--hcv-ease), box-shadow var(--hcv-enter-time) var(--hcv-ease);
     }
   }
   @media (prefers-reduced-motion: reduce) {
     ${rail} button.row-hover { transition: none; }
-    ${preferences} :is(button:not([role="switch"]), ${control2}) { transition: none; }
+    ${preferences} :is(button:not([role="switch"]), ${control3}) { transition: none; }
   }
   @media (max-width: 760px) {
     ${settings} [data-glass-raised] > div > .grid:has(> [data-tour="overlay-nav"]) {
@@ -11121,8 +14204,7 @@ function registerSettingsStyle(ctx, active2) {
   }
 }
 `;
-  document.head.append(sheet);
-  ctx.onDispose(() => sheet.remove());
+  mountStyle(ctx, sheet, { screens: ["settings", "command-center"] });
 }
 
 // source/settings-providers.js
@@ -11236,8 +14318,7 @@ function registerSettingsProviders(ctx, active2) {
   ${hero}:focus-visible { outline: 2px solid Highlight; outline-offset: -2px; }
 }
 `;
-  document.head.append(sheet);
-  ctx.onDispose(() => sheet.remove());
+  mountStyle(ctx, sheet, { screens: ["settings"], tabs: ["providers"] });
 }
 
 // source/settings-special.js
@@ -11360,8 +14441,7 @@ function registerSettingsSpecial(ctx, active2) {
   }
 }
 `;
-  document.head.append(sheet);
-  ctx.onDispose(() => sheet.remove());
+  mountStyle(ctx, sheet, { screens: ["settings"], tabs: ["gateway", "billing", "keybinds", "about"] });
 }
 
 // source/app-updates.js
@@ -11482,21 +14562,23 @@ function registerAppUpdatesStyle(ctx, active2) {
   ${details} a { text-underline-offset: 3px; }
 }
 `;
-  document.head.append(sheet);
-  ctx.onDispose(() => sheet.remove());
+  mountStyle(ctx, sheet, { screens: ["settings"], tabs: ["about"], surface: '[data-slot="dialog-content"].max-w-sm' });
 }
 
 // source/install-overlay.js
 var progressGlyphs = { pending: "circle", done: "circleCheck", failed: "circleX", disclosure: "right" };
+function progressMask(state) {
+  return localAssets ? svgMask(localAssets.install[state]) : codexMask(progressGlyphs[state]);
+}
 function registerInstallOverlayStyle(ctx, active2) {
   const panel2 = `${active2} div.fixed.inset-0[class~="z-(--z-setup)"] > .flex.flex-col[class~="max-h-[90vh]"]:has(> .overflow-y-auto)`;
   const header = `${panel2} > div:first-child`;
   const body = `${panel2} > .overflow-y-auto`;
   const progress = `${body} [data-slot="progress"]`;
-  const row3 = `${body} > ol > li`;
-  const rowLabel = `${row3} > div.min-w-0 > div:first-child`;
+  const row4 = `${body} > ol > li`;
+  const rowLabel = `${row4} > div.min-w-0 > div:first-child`;
   const icon8 = `${rowLabel} > span:nth-child(2)`;
-  const spinner = `${row3} > div:first-child > [role="status"]`;
+  const spinner = `${row4} > div:first-child > [role="status"]`;
   const error = `${body} > div:has(> .codicon-error)`;
   const disclosure2 = `${body} > div:last-child > button`;
   const log = `${body} > div:last-child > [data-selectable-text]`;
@@ -11533,11 +14615,11 @@ function registerInstallOverlayStyle(ctx, active2) {
     border: 1px solid var(--hcv-hairline);
     border-radius: 12px;
   }
-  ${row3} { gap: 8px; margin: 0; padding: 0; min-block-size: 18px; }
+  ${row4} { gap: 8px; margin: 0; padding: 0; min-block-size: 18px; }
   ${rowLabel} { gap: 8px; }
   ${rowLabel} > span:first-child { font-size: 13px; line-height: 18px; font-weight: 400; }
-  ${row3}:has(> div:first-child > [role="status"]) > div:first-child { margin: 0; inline-size: 16px; block-size: 16px; }
-  ${row3}:has(> div:first-child > [role="status"]) > div.min-w-0 > div:first-child > span:first-child { color: var(--hcv-install-info); }
+  ${row4}:has(> div:first-child > [role="status"]) > div:first-child { margin: 0; inline-size: 16px; block-size: 16px; }
+  ${row4}:has(> div:first-child > [role="status"]) > div.min-w-0 > div:first-child > span:first-child { color: var(--hcv-install-info); }
   ${rowLabel}:has(> span > .codicon-check) > span:first-child { color: var(--hcv-install-info); }
   ${rowLabel}:has(> span > .codicon-error) > span:first-child { color: var(--destructive); }
   ${icon8}, ${spinner} {
@@ -11546,10 +14628,10 @@ function registerInstallOverlayStyle(ctx, active2) {
     block-size: 16px;
     background: currentColor;
     color: var(--hcv-muted);
-    mask: ${codexMask(progressGlyphs.pending)} center / contain no-repeat;
+    mask: ${progressMask("pending")} center / contain no-repeat;
   }
-  ${icon8}:has(> .codicon-check) { color: var(--hcv-install-info); mask-image: ${codexMask(progressGlyphs.done)}; }
-  ${icon8}:has(> .codicon-error) { color: var(--destructive); mask-image: ${codexMask(progressGlyphs.failed)}; }
+  ${icon8}:has(> .codicon-check) { color: var(--hcv-install-info); mask-image: ${progressMask("done")}; }
+  ${icon8}:has(> .codicon-error) { color: var(--destructive); mask-image: ${progressMask("failed")}; }
   ${icon8} > *, ${spinner} > svg, ${disclosure2} > svg > * { visibility: hidden; }
   ${spinner} {
     inline-size: 14px;
@@ -11581,7 +14663,7 @@ function registerInstallOverlayStyle(ctx, active2) {
     inline-size: 14px;
     block-size: 14px;
     background: currentColor;
-    mask: ${codexMask(progressGlyphs.disclosure)} center / contain no-repeat;
+    mask: ${progressMask("disclosure")} center / contain no-repeat;
     transition: rotate 300ms cubic-bezier(.4, 0, .2, 1);
   }
   ${disclosure2}:has(+ [data-selectable-text]) > svg { rotate: 90deg; }
@@ -11609,8 +14691,7 @@ function registerInstallOverlayStyle(ctx, active2) {
   }
 }
 `;
-  document.head.append(sheet);
-  ctx.onDispose(() => sheet.remove());
+  mountStyle(ctx, sheet, { surface: '.flex.flex-col[class~="max-h-[90vh]"]' });
 }
 
 // source/remaining-surfaces.js
@@ -11640,9 +14721,13 @@ function registerRemainingSurfaces(ctx, active2) {
   const botPane = `${active2} [data-hcv-sidebar-shell]:has(> [data-panel-header] [data-tree-tab="hermes-bots:pane"][aria-selected="true"]) > .relative.flex-1 > .absolute.inset-0:not([data-pane-hidden]) > .h-full.flex-col`;
   const botLoading = `${botPane} > div:has(> [role="status"] > .glyph-spinner)`;
   const terminalRail = `${active2}:has([data-hcv-sidebar-shell] [data-tree-tab="terminal"][aria-selected="true"]) [data-pane-host="terminal"] [data-suppress-pane-reveal] > [role="tablist"]`;
-  const sheet = document.createElement("style");
-  sheet.dataset.hcvRemainingSurfaces = "";
-  sheet.textContent = `
+  mountCSS(ctx, "data-hcv-remaining-surfaces", `
+@media (forced-colors: none) {
+  ${codexIconRules(`${active2} button[aria-haspopup="menu"] > .codicon-add`, "plus")}
+
+}
+`);
+  mountCSS(ctx, "data-hcv-connectors-styles", `
 @media (forced-colors: none) {
   ${directory} {
     container-type: inline-size;
@@ -11720,6 +14805,23 @@ function registerRemainingSurfaces(ctx, active2) {
   }
   ${connectorTools} [data-slot="tools-dirty-footer"] { border-color: var(--hcv-hairline); }
 
+  ${codexIconRules(`${directory} svg.tabler-icon-rosette-discount-check`, "verified")}
+  @container (max-width: 680px) {
+    ${directory} section > .grid:has(> [data-slot="connector-row-card"]) { grid-template-columns: minmax(0, 1fr); }
+  }
+  @media (hover: hover) and (pointer: fine) {
+    ${connector}:hover { background: var(--hcv-hover); border-color: var(--hcv-stroke); }
+    ${connectorTools} [data-slot="tool-row"]:hover { background: var(--hcv-hover); }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    ${connector}, ${connectorTools} [data-slot="tool-row"] {
+      transition: background-color var(--hcv-enter-time) var(--hcv-ease), border-color var(--hcv-enter-time) var(--hcv-ease);
+    }
+  }
+}
+`, { screens: ["capabilities"], surface: '[data-slot="connectors-directory"], [data-slot="tools-list"], [data-slot="tools-summary"]' });
+  mountCSS(ctx, "data-hcv-overlay-rows", `
+@media (forced-colors: none) {
   /* Shared panel shell used by Hermes profiles, agents, webhooks, starmap,
      session import, and contributed panels. None of their actions are replaced. */
   ${overlays2} header:has(> div > h2) > div > h2 {
@@ -11801,6 +14903,37 @@ function registerRemainingSurfaces(ctx, active2) {
   ${segmentedButton}[aria-pressed="true"] { background-color: var(--hcv-menu); }
   ${webhookAlert} { border-radius: 12px; }
   ${webhookAlert}:first-child { margin-block-start: 24px; }
+  ${codexIconRules(`${overlays2} .codicon-add`, "plus")}
+  ${codexIconRules(`${overlays2} .codicon-kebab-vertical`, "more")}
+  ${codexIconRules(`${overlays2} .codicon-hubot`, "bots")}
+  ${codexIconRules(`${overlays2} .codicon-account`, "person")}
+  ${codexIconRules(`${overlays2} .codicon-link`, "link")}
+  ${codexIconRules(`${overlays2} .codicon-comment-discussion`, "hud")}
+  ${codexIconRules(`${overlays2} .codicon-edit`, "edit")}
+  ${codexIconRules(`${overlays2} .codicon-trash`, "trash")}
+  ${codexIconRules(`${overlays2} .codicon-refresh`, "refresh")}
+  @media (hover: hover) and (pointer: fine) {
+    ${panelRows}:hover { background: var(--hcv-hover); }
+    ${selectedProfile}:hover { background: var(--hcv-selected); }
+    ${segmentedButton}[aria-pressed="false"]:hover:not(:disabled) { background: var(--hcv-hover-menu); }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    ${panelRows} {
+      transition: background-color var(--hcv-enter-time) var(--hcv-ease), border-color var(--hcv-enter-time) var(--hcv-ease);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    ${profileSearch}, ${profileRows} button, ${segmentedButton} { transition: none; }
+  }
+}
+@media (forced-colors: active) {
+  ${selectedProfile}, ${segmentedButton}[aria-pressed="true"] { outline: 1px solid Highlight; outline-offset: -1px; }
+  ${profiles} :is(button, input):focus-visible,
+  ${segmentedButton}:focus-visible { outline: 2px solid Highlight; outline-offset: -2px; }
+}
+`, { surface: '[data-overlay-surface], [data-slot="dialog-content"]' });
+  mountCSS(ctx, "data-hcv-bot-rows", `
+@media (forced-colors: none) {
   ${botRows} { border-radius: 8px; font-family: var(--hcv-ui-font); }
   ${botRows}:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }
   ${botPane} { min-block-size: 0; background: var(--hcv-sidebar); }
@@ -11827,7 +14960,23 @@ function registerRemainingSurfaces(ctx, active2) {
   }
   ${botLoading}::after { content: 'Loading bots\u2026'; }
   ${botLoading}:lang(ru)::after { content: '\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430 \u0431\u043E\u0442\u043E\u0432\u2026'; }
+  @media (hover: hover) and (pointer: fine) {
+    ${botRows}:hover { background: var(--hcv-hover); }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    ${botRows} {
+      transition: background-color var(--hcv-enter-time) var(--hcv-ease), border-color var(--hcv-enter-time) var(--hcv-ease);
+    }
+  }
+}
+`, { surface: '[data-tree-tab="hermes-bots:pane"][aria-selected="true"], [data-slot="bots-section"], button[data-roster-key]' });
+  mountCSS(ctx, "data-hcv-terminal-rail", `
+@media (forced-colors: none) {
   ${terminalRail} { padding-block-start: 6px; }
+}
+`, { surface: '[data-tree-tab="terminal"][aria-selected="true"]' });
+  mountCSS(ctx, "data-hcv-dialog-fields", `
+@media (forced-colors: none) {
   ${dialog2} :is([data-slot="input"], [data-slot="textarea"], [data-slot="select-trigger"]) {
     border-color: var(--hcv-hairline);
     background: var(--hcv-form-surface);
@@ -11835,47 +14984,9 @@ function registerRemainingSurfaces(ctx, active2) {
   ${dialog2} :is([data-slot="input"], [data-slot="select-trigger"]):not([type="file"]) { min-block-size: 32px; }
   ${dialog2} button:is([data-variant="outline"], [data-variant="secondary"]) { border-color: var(--hcv-hairline); }
 
-  ${codexIconRules(`${directory} svg.tabler-icon-rosette-discount-check`, "verified")}
-  ${codexIconRules(`${overlays2} .codicon-add`, "plus")}
-  ${codexIconRules(`${overlays2} .codicon-kebab-vertical`, "more")}
-  ${codexIconRules(`${overlays2} .codicon-hubot`, "bots")}
-  ${codexIconRules(`${overlays2} .codicon-account`, "person")}
-  ${codexIconRules(`${overlays2} .codicon-link`, "link")}
-  ${codexIconRules(`${overlays2} .codicon-comment-discussion`, "hud")}
-  ${codexIconRules(`${overlays2} .codicon-edit`, "edit")}
-  ${codexIconRules(`${overlays2} .codicon-trash`, "trash")}
-  ${codexIconRules(`${overlays2} .codicon-refresh`, "refresh")}
   ${codexIconRules(`${dialog2} :is(.codicon-close, button[data-slot="dialog-close-button"] > svg.tabler-icon-x)`, "close")}
-  ${codexIconRules(`${active2} button[aria-haspopup="menu"] > .codicon-add`, "plus")}
-
-  @container (max-width: 680px) {
-    ${directory} section > .grid:has(> [data-slot="connector-row-card"]) { grid-template-columns: minmax(0, 1fr); }
-  }
-  @media (hover: hover) and (pointer: fine) {
-    ${connector}:hover { background: var(--hcv-hover); border-color: var(--hcv-stroke); }
-    ${connectorTools} [data-slot="tool-row"]:hover { background: var(--hcv-hover); }
-    ${panelRows}:hover { background: var(--hcv-hover); }
-    ${selectedProfile}:hover { background: var(--hcv-selected); }
-    ${segmentedButton}[aria-pressed="false"]:hover:not(:disabled) { background: var(--hcv-hover-menu); }
-    ${botRows}:hover { background: var(--hcv-hover); }
-  }
-  @media (prefers-reduced-motion: no-preference) {
-    ${connector}, ${connectorTools} [data-slot="tool-row"], ${panelRows}, ${botRows} {
-      transition: background-color var(--hcv-enter-time) var(--hcv-ease), border-color var(--hcv-enter-time) var(--hcv-ease);
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    ${profileSearch}, ${profileRows} button, ${segmentedButton} { transition: none; }
-  }
 }
-@media (forced-colors: active) {
-  ${selectedProfile}, ${segmentedButton}[aria-pressed="true"] { outline: 1px solid Highlight; outline-offset: -1px; }
-  ${profiles} :is(button, input):focus-visible,
-  ${segmentedButton}:focus-visible { outline: 2px solid Highlight; outline-offset: -2px; }
-}
-`;
-  document.head.append(sheet);
-  ctx.onDispose(() => sheet.remove());
+`, { surface: '[data-slot="dialog-content"]' });
 }
 
 // source/shell-surfaces.js
@@ -11883,8 +14994,10 @@ function registerShellSurfaces(ctx, active2) {
   const panel2 = `${active2} aside[class~="before:pointer-events-none"][class~="pt-(--titlebar-height)"]`;
   const overlay = `${active2} :is([data-narrow-overlay="files"], [data-narrow-overlay="review"])`;
   const panelEntrance = `:is(${panel2}:not([data-narrow-overlay] *), ${overlay})`;
+  const collapsedFiles = '[data-tree-tab="files"][data-vertical]:only-child';
+  const filesTrack = `${active2} [data-tree-split] > div:has(> [data-tree-group] > div > [role="tablist"] > ${collapsedFiles})`;
   const header = `${panel2} [class~="group/project-header"]`;
-  const label = `${panel2} span:has(> .dither[aria-hidden="true"])`;
+  const label3 = `${panel2} span:has(> .dither[aria-hidden="true"])`;
   const empty = `${panel2} > div:has(> button > .codicon-folder-opened)`;
   const openFolder = `${empty} > button`;
   const rows = `${panel2} :is([data-project-tree] [class~="group/row"], [class~="group/review-row"])`;
@@ -11909,6 +15022,9 @@ function registerShellSurfaces(ctx, active2) {
   sheet.dataset.hcvShellSurfaces = "";
   sheet.textContent = `
 @media (forced-colors: none) {
+  /* A solo Files rail should take no width when collapsed. The titlebar
+     button still restores the native zone. Leave shared tab strips intact. */
+  ${filesTrack} { display: none; }
   ${panel2} {
     background-color: var(--hcv-sidebar);
     border-color: var(--hcv-hairline);
@@ -11938,7 +15054,7 @@ function registerShellSurfaces(ctx, active2) {
   ${reviewFooter} { padding: 8px; gap: 4px; }
   ${askForPr} { padding-inline: 8px 28px; background-color: transparent; }
   ${askForPr} > span { text-decoration-line: none; }
-  ${label} {
+  ${label3} {
     gap: 6px;
     padding-inline-start: 0;
     color: var(--hcv-muted);
@@ -11948,8 +15064,8 @@ function registerShellSurfaces(ctx, active2) {
     letter-spacing: normal;
     text-transform: none;
   }
-  ${label} > .dither { display: none; }
-  ${label} > span.leading-none { line-height: inherit; }
+  ${label3} > .dither { display: none; }
+  ${label3} > span.leading-none { line-height: inherit; }
   ${empty} { gap: 10px; }
   ${empty} > span:has(> .dither) { font-size: 13px; }
   ${empty} > span > span.truncate { white-space: normal; }
@@ -12098,14 +15214,13 @@ function registerShellSurfaces(ctx, active2) {
   }
 }
 `;
-  document.head.append(sheet);
-  ctx.onDispose(() => sheet.remove());
+  mountStyle(ctx, sheet);
 }
 
 // source/session-tabs.js
-import { createElement as h12, useRef as useRef7, useState as useState9 } from "react";
+import { createElement as h13, useRef as useRef7, useState as useState9 } from "react";
 import {
-  atom as atom5,
+  atom as atom6,
   Button as Button3,
   Dialog as Dialog3,
   DialogContent as DialogContent3,
@@ -12120,8 +15235,9 @@ import {
 } from "@hermes/plugin-sdk";
 var tilePrefix = "session-tile:";
 var workspaceTab = '[role="tab"][data-tree-tab="workspace"]';
-var chatTab = `${workspaceTab}, [role="tab"][data-tree-tab^="${tilePrefix}"]`;
+var chatTab2 = `${workspaceTab}, [role="tab"][data-tree-tab^="${tilePrefix}"]`;
 var labelSelector = ".pane-tab-content .truncate";
+var mainChatTab = `[data-zone-tabstrip="grp-main"] :is(${chatTab2}):has(> .pane-tab-content):not([data-vertical])`;
 var draftLabels = /* @__PURE__ */ new Set(["New session", "Untitled session", "\u041D\u043E\u0432\u0430\u044F \u0441\u0435\u0441\u0441\u0438\u044F", "\u0421\u0435\u0430\u043D\u0441 \u0431\u0435\u0437 \u043D\u0430\u0437\u0432\u0430\u043D\u0438\u044F"]);
 var copy5 = {
   ru: {
@@ -12147,8 +15263,8 @@ var copy5 = {
 };
 function tabSession(tab) {
   for (const dot of tab.querySelectorAll(".pane-tab-content span.rounded-full")) {
-    for (let node2 = committedFiber(dot); node2; node2 = node2.return) {
-      const props = node2.memoizedProps;
+    for (let node3 = committedFiber(dot); node3; node3 = node3.return) {
+      const props = node3.memoizedProps;
       if (props?.["data-tree-tab"]) break;
       if (props && "storedSessionId" in props && "session" in props) return props;
     }
@@ -12160,22 +15276,22 @@ function tabId(tab) {
   if (pane.startsWith(tilePrefix)) return pane.slice(tilePrefix.length);
   const session = tabSession(tab);
   if (session) return session.storedSessionId || null;
-  for (let node2 = committedFiber(tab); node2; node2 = node2.return) {
-    const props = node2.memoizedProps;
+  for (let node3 = committedFiber(tab); node3; node3 = node3.return) {
+    const props = node3.memoizedProps;
     if (props?.tabPaneId === "workspace" && props.storedSessionId) return props.storedSessionId;
   }
   return null;
 }
 function draftSubmit(tab) {
-  const group = tab.closest("[data-tree-group]");
-  const input = group?.querySelector('[data-chat-surface][data-composer-target="main"] [data-slot="composer-rich-input"]');
-  for (let node2 = committedFiber(input); node2; node2 = node2.return) {
-    const props = node2.memoizedProps;
+  const group2 = tab.closest("[data-tree-group]");
+  const input = group2?.querySelector('[data-chat-surface][data-composer-target="main"] [data-slot="composer-rich-input"]');
+  for (let node3 = committedFiber(input); node3; node3 = node3.return) {
+    const props = node3.memoizedProps;
     if (typeof props?.onSubmit === "function" && "busy" in props && "cwd" in props) return props.onSubmit;
   }
   return null;
 }
-function RenameForm({ target, close, save }) {
+function RenameForm({ target, close: close2, save }) {
   const { words: words3 } = target;
   const [value, setValue] = useState9(target.title);
   const [saving, setSaving] = useState9(false);
@@ -12186,13 +15302,13 @@ function RenameForm({ target, close, save }) {
   const submit = async (event) => {
     event.preventDefault();
     if (!title || pending.current) return;
-    if (title === target.title) return close();
+    if (title === target.title) return close2();
     pending.current = true;
     setSaving(true);
     setError(false);
     try {
       await save(target, title);
-      close();
+      close2();
     } catch {
       setError(true);
     } finally {
@@ -12200,12 +15316,12 @@ function RenameForm({ target, close, save }) {
       setSaving(false);
     }
   };
-  return h12(
+  return h13(
     Dialog3,
     { open: true, onOpenChange: (open) => {
-      if (!open && !pending.current) close();
+      if (!open && !pending.current) close2();
     } },
-    h12(
+    h13(
       DialogContent3,
       {
         "data-hcv-rename-chat": "",
@@ -12223,11 +15339,11 @@ function RenameForm({ target, close, save }) {
           if (target.tab.isConnected) target.tab.focus({ preventScroll: true });
         }
       },
-      h12(
+      h13(
         "form",
         { onSubmit: submit },
-        h12(DialogHeader3, null, h12(DialogTitle3, null, words3.title), h12(DialogDescription3, null, words3.hint)),
-        h12(Input2, {
+        h13(DialogHeader3, null, h13(DialogTitle3, null, words3.title), h13(DialogDescription3, null, words3.hint)),
+        h13(Input2, {
           ref: input,
           "aria-label": words3.input,
           placeholder: words3.placeholder,
@@ -12238,26 +15354,38 @@ function RenameForm({ target, close, save }) {
             if (event.key === "Enter" && (event.nativeEvent.isComposing || event.keyCode === 229)) event.preventDefault();
           }
         }),
-        error && h12("p", { role: "alert", className: "hcv-rename-error" }, words3.failed),
-        h12(
+        error && h13("p", { role: "alert", className: "hcv-rename-error" }, words3.failed),
+        h13(
           DialogFooter3,
           null,
-          h12(Button3, { type: "button", variant: "outline", disabled: saving, onClick: close }, words3.cancel),
-          h12(Button3, { type: "submit", disabled: saving || !title }, words3.save)
+          h13(Button3, { type: "button", variant: "outline", disabled: saving, onClick: close2 }, words3.cancel),
+          h13(Button3, { type: "submit", disabled: saving || !title }, words3.save)
         )
       )
     )
   );
 }
-function RenameSlot({ model, close, save }) {
+function RenameSlot({ model, close: close2, save }) {
   const target = useValue6(model);
-  return target && h12(RenameForm, { key: target.key, target, close, save });
+  return target && h13(RenameForm, { key: target.key, target, close: close2, save });
 }
-function renameStyles(active2) {
+function sessionTabStyles(active2) {
   const dialog2 = `${active2} [data-hcv-rename-chat]`;
-  const close = `${dialog2} [data-slot="dialog-close-button"]`;
+  const close2 = `${dialog2} [data-slot="dialog-close-button"]`;
+  const tab = `${active2} ${mainChatTab}`;
   return `
 @media (forced-colors: none) {
+  /* PaneTab's usual 12rem maximum, reduced by a quarter for chat tabs. */
+  ${tab} { max-inline-size: 9rem; }
+  ${tab} .pane-tab-content span[aria-hidden="true"][class~="size-1"][class~="rounded-full"] { display: none; }
+  ${tab} .pane-tab-content [role="status"]:is([class~="bg-(--ui-accent)"], [class~="border-(--ui-accent)"]) {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  ${fadingTitleStyles(`${tab} ${labelSelector}`, "1rem")}
   ${active2} .hcv-rename-overlay { background: rgb(0 0 0 / 25%); backdrop-filter: none; }
   ${dialog2} {
     inline-size: min(420px, calc(100vw - 32px));
@@ -12306,76 +15434,80 @@ function renameStyles(active2) {
     background: color-mix(in srgb, var(--hcv-text) 4%, var(--hcv-menu));
     color: var(--hcv-text);
   }
-  ${close} { inset-block-start: 16px; inset-inline-end: 16px; inline-size: 24px; block-size: 24px; border-radius: 8px; }
-  ${codexIconRules(`${close} > svg`, "close")}
+  ${close2} { inset-block-start: 16px; inset-inline-end: 16px; inline-size: 24px; block-size: 24px; border-radius: 8px; }
+  ${codexIconRules(`${close2} > svg`, "close")}
   ${dialog2} .hcv-rename-error { margin: 0; color: var(--dt-destructive); font-size: 13px; }
 }
 `;
 }
 function registerSessionTabs(ctx, active2) {
   const root = document.documentElement;
-  const model = atom5(null);
+  const model = atom6(null);
   const translated = /* @__PURE__ */ new Map();
   const named = /* @__PURE__ */ new Map();
+  const measureTitles = trackTitleOverflow();
   const sessions = new BroadcastChannel("hermes:sessions");
   let requestKey = 0;
   let frame = 0;
   let disposed = false;
   const words3 = () => root.matches(":lang(ru)") ? copy5.ru : copy5.en;
-  const close = () => model.set(null);
+  const close2 = () => model.set(null);
   const enabled = () => !disposed && root.matches(active2);
   const restore = (text, entry) => {
     if (text.data === entry.shown) text.data = entry.original;
     if (entry.label.title === entry.shown) entry.label.title = entry.tooltip;
     translated.delete(text);
   };
-  const labels11 = () => {
+  const labels12 = () => {
     frame = 0;
     for (const [text, entry] of translated) {
       if (!enabled() || !text.isConnected || text.data !== entry.shown) restore(text, entry);
     }
-    if (!enabled()) return;
+    if (!enabled()) return measureTitles();
     const openIds = /* @__PURE__ */ new Set();
-    for (const tab of document.querySelectorAll(chatTab)) {
+    const mainLabels = [];
+    for (const tab of document.querySelectorAll(chatTab2)) {
       const id2 = tabId(tab);
       openIds.add(id2);
-      const label = tab.querySelector(labelSelector);
-      const text = label?.childNodes.length === 1 ? label.firstChild : null;
+      const label3 = tab.querySelector(labelSelector);
+      if (label3 && tab.matches(mainChatTab)) mainLabels.push(label3);
+      const text = label3?.childNodes.length === 1 ? label3.firstChild : null;
       if (!(text instanceof Text)) continue;
-      const row3 = tabSession(tab)?.session;
-      const nativeTitle = row3?.title?.trim() || "";
+      const row4 = tabSession(tab)?.session;
+      const nativeTitle = row4?.title?.trim() || "";
       if (nativeTitle && translated.get(text)?.shown === nativeTitle) translated.delete(text);
       const previous = translated.get(text);
       const original = previous?.original ?? text.data;
       const renamed = named.get(id2);
-      if (renamed && (row3?.connection_id && row3.connection_id !== renamed.owner.connectionId || row3?.profile && row3.profile !== renamed.owner.profile || original === renamed.title || nativeTitle && nativeTitle !== renamed.previous)) named.delete(id2);
+      if (renamed && (row4?.connection_id && row4.connection_id !== renamed.owner.connectionId || row4?.profile && row4.profile !== renamed.owner.profile || original === renamed.title || nativeTitle && nativeTitle !== renamed.previous)) named.delete(id2);
       const saved = named.get(id2)?.title;
-      const shown = saved ? saved : draftLabels.has(original) && !row3?.title?.trim() && !row3?.preview?.trim() ? words3().fresh : original;
+      const shown = saved ? saved : draftLabels.has(original) && !row4?.title?.trim() && !row4?.preview?.trim() ? words3().fresh : original;
       if (previous?.shown === shown) continue;
       if (previous) restore(text, previous);
       if (shown === original) continue;
-      translated.set(text, { original, shown, label, tooltip: label.title });
-      if (label.title === original) label.title = shown;
+      translated.set(text, { original, shown, label: label3, tooltip: label3.title });
+      if (label3.title === original) label3.title = shown;
       text.data = shown;
     }
+    measureTitles(mainLabels);
     for (const id2 of named.keys()) if (!openIds.has(id2)) named.delete(id2);
   };
   const schedule = () => {
-    frame ||= requestAnimationFrame(labels11);
+    frame ||= requestAnimationFrame(labels12);
   };
   const sheet = document.createElement("style");
   sheet.dataset.hcvSessionTabs = "";
-  sheet.textContent = renameStyles(active2);
-  document.head.append(sheet);
+  sheet.textContent = sessionTabStyles(active2);
+  mountStyle(ctx, sheet);
   const observer = new MutationObserver((changes2) => {
     if (!enabled()) return;
     if (changes2.some(({ target, addedNodes }) => {
-      const element5 = target instanceof Element ? target : target.parentElement;
-      return element5?.closest("[data-zone-tabstrip]") || [...addedNodes].some((node2) => node2 instanceof Element && (node2.matches(chatTab) || node2.querySelector(chatTab)));
+      const element6 = target instanceof Element ? target : target.parentElement;
+      return element6?.closest("[data-zone-tabstrip]") || [...addedNodes].some((node3) => node3 instanceof Element && (node3.matches(chatTab2) || node3.querySelector(chatTab2)));
     })) schedule();
   });
   const themeObserver = new MutationObserver(() => {
-    if (!enabled()) close();
+    if (!enabled()) close2();
     schedule();
   });
   themeObserver.observe(root, { attributes: true, attributeFilter: ["data-hermes-theme", "lang"] });
@@ -12432,24 +15564,24 @@ function registerSessionTabs(ctx, active2) {
   ctx.register({
     id: "chat-tab-rename",
     area: TITLEBAR_AREAS5.center,
-    render: () => h12(RenameSlot, { model, close, save })
+    render: () => h13(RenameSlot, { model, close: close2, save })
   });
   ctx.addEventListener(document, "dblclick", (event) => {
     if (!enabled() || event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
     const origin = event.target instanceof Element ? event.target : event.target?.parentElement;
-    const tab = origin?.closest(chatTab);
+    const tab = origin?.closest(chatTab2);
     if (!tab || model.get() || !tab.closest("[data-zone-tabstrip]")) return;
-    const control2 = origin.closest('button, a, input, [role="button"]');
-    if (control2 && control2 !== tab) return;
+    const control3 = origin.closest('button, a, input, [role="button"]');
+    if (control3 && control3 !== tab) return;
     event.preventDefault();
     event.stopPropagation();
     const id2 = tabId(tab);
-    const label = tab.querySelector(labelSelector);
-    const translation = translated.get(label?.firstChild);
-    const title = translation && draftLabels.has(translation.original) && !named.has(id2) ? "" : label?.textContent.trim() || "";
+    const label3 = tab.querySelector(labelSelector);
+    const translation = translated.get(label3?.firstChild);
+    const title = translation && draftLabels.has(translation.original) && !named.has(id2) ? "" : label3?.textContent.trim() || "";
     const focused = id2 === host17.state.focusedStoredSessionId.get();
-    const row3 = tabSession(tab)?.session;
-    const owner = focused ? host17.state.focusedSessionOwner.get() : row3?.connection_id && { connectionId: row3.connection_id, profile: row3.profile || "default" };
+    const row4 = tabSession(tab)?.session;
+    const owner = focused ? host17.state.focusedSessionOwner.get() : row4?.connection_id && { connectionId: row4.connection_id, profile: row4.profile || "default" };
     if (!owner) return;
     model.set({
       key: ++requestKey,
@@ -12464,11 +15596,11 @@ function registerSessionTabs(ctx, active2) {
   schedule();
   ctx.onDispose(() => {
     disposed = true;
-    close();
+    close2();
     observer.disconnect();
     themeObserver.disconnect();
     cancelAnimationFrame(frame);
-    labels11();
+    labels12();
     sessions.close();
     sheet.remove();
   });
@@ -12476,7 +15608,7 @@ function registerSessionTabs(ctx, active2) {
 
 // source/context-meter.js
 import { Tip as Tip2, host as host18, useValue as useValue7 } from "@hermes/plugin-sdk";
-import { createElement as h13, useCallback, useEffect as useEffect8, useState as useState10 } from "react";
+import { createElement as h14, useCallback, useEffect as useEffect8, useState as useState10 } from "react";
 function readContext(usage) {
   const used = usage?.context_used;
   const max = usage?.context_max;
@@ -12534,19 +15666,19 @@ function ContextReadout({ context }) {
   const full = whole >= 50;
   const detail = full ? `${whole}% \u0437\u0430\u043F\u043E\u043B\u043D\u0435\u043D\u043E` : `${whole}% \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u043D\u043E (\u043E\u0441\u0442\u0430\u043B\u043E\u0441\u044C ${100 - whole}%)`;
   const used = `${context.estimated ? "\u2248" : ""}${thousands(context.used)}`;
-  const label = h13(
+  const label3 = h14(
     "div",
     { "data-hcv-context-detail": "" },
-    h13("span", { "data-muted": "" }, "\u041A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u043D\u043E\u0435 \u043E\u043A\u043D\u043E:"),
-    h13("span", full ? { "data-muted": "" } : null, detail),
-    h13("span", null, `\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u043D\u043E ${used} \u043A / ${thousands(context.max)} \u043A \u0442\u043E\u043A\u0435\u043D\u043E\u0432`)
+    h14("span", { "data-muted": "" }, "\u041A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u043D\u043E\u0435 \u043E\u043A\u043D\u043E:"),
+    h14("span", full ? { "data-muted": "" } : null, detail),
+    h14("span", null, `\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u043D\u043E ${used} \u043A / ${thousands(context.max)} \u043A \u0442\u043E\u043A\u0435\u043D\u043E\u0432`)
   );
   const circle = { cx: 6, cy: 6, r: 5, stroke: "currentColor", strokeWidth: 2, fill: "none" };
-  const ring = h13(
+  const ring = h14(
     "svg",
     { width: 12, height: 12, viewBox: "0 0 12 12", "aria-hidden": true },
-    h13("circle", { ...circle, opacity: 0.16 }),
-    h13("circle", {
+    h14("circle", { ...circle, opacity: 0.16 }),
+    h14("circle", {
       ...circle,
       "data-hcv-context-arc": "",
       opacity: Number(percent !== 0),
@@ -12557,10 +15689,10 @@ function ContextReadout({ context }) {
       transform: "rotate(-90 6 6)"
     })
   );
-  return h13(
+  return h14(
     Tip2,
-    { label, side: "top", align: "center", sideOffset: 4, "data-hcv-context-tip": "" },
-    h13("span", {
+    { label: label3, side: "top", align: "center", sideOffset: 4, "data-hcv-context-tip": "" },
+    h14("span", {
       "data-hcv-context-meter": "",
       role: "img",
       tabIndex: 0,
@@ -12570,15 +15702,15 @@ function ContextReadout({ context }) {
 }
 function ContextMeter() {
   const [inMainComposer, setInMainComposer] = useState10(false);
-  const locate = useCallback((node2) => {
-    const composer2 = node2?.closest('[data-slot="composer-surface"]');
+  const locate = useCallback((node3) => {
+    const composer2 = node3?.closest('[data-slot="composer-surface"]');
     setInMainComposer(Boolean(composer2?.querySelector('[data-tour="model-pill"]')));
   }, []);
   const context = useContext(inMainComposer);
-  return h13(
+  return h14(
     "span",
     { "data-hcv-context-anchor": "", ref: locate },
-    context ? h13(ContextReadout, { context }) : null
+    context ? h14(ContextReadout, { context }) : null
   );
 }
 function registerContextMeter(ctx, active2) {
@@ -12616,7 +15748,7 @@ function registerContextMeter(ctx, active2) {
       ${active2} [data-hcv-context-arc] { transition: none; }
     }
   `;
-  document.head.append(sheet);
+  mountStyle(ctx, sheet, chatStyles);
   let remove;
   const update = () => {
     if (root.matches(active2)) {
@@ -12624,7 +15756,7 @@ function registerContextMeter(ctx, active2) {
         id: "context-meter",
         area: "composer.actions",
         order: 110,
-        render: () => h13(ContextMeter)
+        render: () => h14(ContextMeter)
       });
     } else if (remove) {
       remove();
@@ -12646,7 +15778,7 @@ import { host as host22 } from "@hermes/plugin-sdk";
 
 // source/queue.js
 import { useI18n as useI18n5 } from "@hermes/plugin-sdk";
-import { createElement as h14, useLayoutEffect as useLayoutEffect2, useRef as useRef8 } from "react";
+import { createElement as h15, useLayoutEffect as useLayoutEffect3, useRef as useRef8 } from "react";
 
 // source/queue-order.js
 import { host as host19 } from "@hermes/plugin-sdk";
@@ -12748,18 +15880,18 @@ function bindQueueOrder(dock2, panel2, t, copy6) {
   panel2.addEventListener("dragstart", (event) => {
     if (!gripOf(event) || !event.dataTransfer) return;
     const snapshot = readQueue(dock2, panel2, copy6);
-    const element5 = rowOf(event);
-    const index = snapshot?.rows.indexOf(element5) ?? -1;
+    const element6 = rowOf(event);
+    const index = snapshot?.rows.indexOf(element6) ?? -1;
     if (index < 0) {
       event.preventDefault();
       return;
     }
-    drag = { snapshot, element: element5, index };
+    drag = { snapshot, element: element6, index };
     event.dataTransfer.setData(dragType, "queued");
     event.dataTransfer.effectAllowed = "move";
-    const bounds = element5.getBoundingClientRect();
-    event.dataTransfer.setDragImage(element5, event.clientX - bounds.left, event.clientY - bounds.top);
-    element5.dataset.hcvQueueDragging = "";
+    const bounds = element6.getBoundingClientRect();
+    event.dataTransfer.setDragImage(element6, event.clientX - bounds.left, event.clientY - bounds.top);
+    element6.dataset.hcvQueueDragging = "";
     event.stopPropagation();
   }, options);
   panel2.addEventListener("dragover", (event) => {
@@ -12837,7 +15969,7 @@ function bindQueueOrder(dock2, panel2, t, copy6) {
 // source/queue.js
 var stack = '[data-slot="composer-status-stack"]';
 var section = '[data-slot="status-section"]';
-var row2 = '[data-slot="status-row"]';
+var row3 = '[data-slot="status-row"]';
 var edit2 = "button:has(> svg.tabler-icon-pencil)";
 var steer = "button:has(> svg.tabler-icon-steering-wheel)";
 var send = "button:has(> svg.tabler-icon-corner-down-left)";
@@ -12945,7 +16077,7 @@ function rowMenu(actions, ctx, queueing) {
 function QueueSurface({ ctx, queueing }) {
   const anchor = useRef8(null);
   const { locale, t: { composer: copy6 } } = useI18n5();
-  useLayoutEffect2(() => {
+  useLayoutEffect3(() => {
     const dock2 = anchor.current?.closest('[data-slot="composer-dock"]');
     if (!dock2) return;
     const menus2 = /* @__PURE__ */ new Map();
@@ -12987,7 +16119,7 @@ function QueueSurface({ ctx, queueing }) {
         expandedByPlugin = true;
         collapsed.click();
       }
-      const live = new Set(panel2.querySelectorAll(".status-section-body > " + row2 + " > .status-row-actions"));
+      const live = new Set(panel2.querySelectorAll(".status-section-body > " + row3 + " > .status-row-actions"));
       for (const [actions, dispose] of menus2) {
         if (!live.has(actions)) {
           dispose();
@@ -13018,15 +16150,15 @@ function QueueSurface({ ctx, queueing }) {
       cleanSection();
     };
   }, [ctx, locale, copy6, queueing]);
-  return h14("span", { ref: anchor, hidden: true });
+  return h15("span", { ref: anchor, hidden: true });
 }
 function queueStyles(active2) {
   const panel2 = active2 + " [data-hcv-queue]";
-  const entry = panel2 + " > .status-section-body > " + row2;
+  const entry = panel2 + " > .status-section-body > " + row3;
   const soleQueue = '[data-slot="status-stack-content"] > :only-child > [data-hcv-queue]';
   const onlyQueue = stack + ":has(" + soleQueue + ")";
   const bareDock = active2 + ' [data-slot="composer-dock"]:has(' + stack + " " + soleQueue + "):not(:has(.coding-status-bar))";
-  const queueRows = " > .status-section-body > " + row2;
+  const queueRows = " > .status-section-body > " + row3;
   const visibleQueue = ".status-drawer:not([data-collapsed]) [data-hcv-queue]" + queueRows;
   const attached = active2 + ' [data-slot="composer-dock"]:not([data-popped-out]):has(> ' + visibleQueue + ")";
   const lastQueue = '[data-slot="status-stack-content"] > :last-child > [data-hcv-queue]';
@@ -13107,7 +16239,7 @@ function queueStyles(active2) {
       opacity: 0;
       cursor: grab;
     }
-    ${panel2}[data-hcv-queue-reorder] > .status-section-body > ${row2} > [data-hcv-queue-grip] { display: grid; }
+    ${panel2}[data-hcv-queue-reorder] > .status-section-body > ${row3} > [data-hcv-queue-grip] { display: grid; }
     ${grip}::before {
       content: "";
       inline-size: 14px;
@@ -13252,14 +16384,14 @@ function registerQueueAppearance(ctx, active2, queueing) {
   const sheet = document.createElement("style");
   sheet.dataset.hcvQueueStyle = "";
   sheet.textContent = queueStyles(active2);
-  document.head.append(sheet);
+  mountStyle(ctx, sheet, { surface: "[data-hcv-queue], [data-hcv-queue-menu]" });
   let remove;
   const sync = () => {
     if (root.matches(active2)) {
       remove ??= ctx.register({
         id: "queue-appearance",
         area: "composer.top",
-        render: () => h14(QueueSurface, { ctx, queueing })
+        render: () => h15(QueueSurface, { ctx, queueing })
       });
     } else if (remove) {
       remove();
@@ -13280,7 +16412,7 @@ function queueingPreference(ctx) {
 }
 
 // source/composer-approval.js
-import { createElement as h15, useCallback as useCallback2, useState as useState11, useSyncExternalStore as useSyncExternalStore2 } from "react";
+import { createElement as h16, useCallback as useCallback2, useState as useState11, useSyncExternalStore as useSyncExternalStore2 } from "react";
 import { COMPOSER_AREAS, DropdownMenu as DropdownMenu5, DropdownMenuContent as DropdownMenuContent5, DropdownMenuTrigger as DropdownMenuTrigger5, host as host20 } from "@hermes/plugin-sdk";
 var nativeSelector = '[data-slot="statusbar"]';
 function nativeItem(footer) {
@@ -13299,20 +16431,20 @@ function nativeButton(footer) {
 }
 function ApprovalControl({ subscribe, snapshot }) {
   const [main, setMain] = useState11(false);
-  const locate = useCallback2((node2) => {
-    setMain(Boolean(node2?.closest('form[data-slot="composer-root"][data-tour="composer"]:not([data-popped-out])') && !node2.closest("[data-hud-shell]")));
+  const locate = useCallback2((node3) => {
+    setMain(Boolean(node3?.closest('form[data-slot="composer-root"][data-tour="composer"]:not([data-popped-out])') && !node3.closest("[data-hud-shell]")));
   }, []);
   const { item, route } = useSyncExternalStore2(subscribe, snapshot);
-  let control2;
+  let control3;
   if (main && item) {
     const off = Boolean(item.className);
-    control2 = h15(
+    control3 = h16(
       DropdownMenu5,
       { key: route },
-      h15(
+      h16(
         DropdownMenuTrigger5,
         { asChild: true },
-        h15(
+        h16(
           "button",
           {
             type: "button",
@@ -13321,11 +16453,11 @@ function ApprovalControl({ subscribe, snapshot }) {
             title: item.title,
             disabled: item.disabled
           },
-          h15("span", { "data-hcv-approval-icon": "", "aria-hidden": "true", style: codexIconStyle(off ? "shieldWarning" : "shield") }),
-          h15("span", { "data-hcv-approval-label": "" }, item.label)
+          h16("span", { "data-hcv-approval-icon": "", "aria-hidden": "true", style: codexIconStyle(off ? "shieldWarning" : "shield") }),
+          h16("span", { "data-hcv-approval-label": "" }, item.label)
         )
       ),
-      h15(DropdownMenuContent5, {
+      h16(DropdownMenuContent5, {
         side: "top",
         align: "start",
         sideOffset: 4,
@@ -13334,7 +16466,7 @@ function ApprovalControl({ subscribe, snapshot }) {
       }, item.menuContent)
     );
   }
-  return h15("span", { ref: locate, "data-hcv-approval-anchor": "" }, control2);
+  return h16("span", { ref: locate, "data-hcv-approval-anchor": "" }, control3);
 }
 function registerComposerApproval(ctx, active2) {
   const root = document.documentElement;
@@ -13342,6 +16474,7 @@ function registerComposerApproval(ctx, active2) {
   const listeners = /* @__PURE__ */ new Set();
   let current = {};
   let source;
+  let footer;
   let registration;
   let frame;
   const snapshot = () => current;
@@ -13362,13 +16495,18 @@ function registerComposerApproval(ctx, active2) {
       registration ??= ctx.register({
         id: "composer-approval",
         area: COMPOSER_AREAS.leading,
-        render: () => h15(ApprovalControl, { subscribe, snapshot })
+        render: () => h16(ApprovalControl, { subscribe, snapshot })
       });
     } else {
       registration?.();
       registration = void 0;
     }
-    const footer = enabled && document.querySelector(nativeSelector);
+    const nextFooter = enabled ? document.querySelector(nativeSelector) : null;
+    if (nextFooter !== footer) {
+      statusChanges.disconnect();
+      footer = nextFooter;
+      if (footer) statusChanges.observe(footer, { childList: true, characterData: true, subtree: true });
+    }
     const item = footer ? nativeItem(footer) : void 0;
     const route = JSON.stringify([host20.state.connectionId.get(), host20.state.profile.get()]);
     markSource(item && footer ? nativeButton(footer) : void 0);
@@ -13380,18 +16518,19 @@ function registerComposerApproval(ctx, active2) {
   const schedule = () => {
     if (!frame) frame = requestAnimationFrame(sync);
   };
-  const observer = new MutationObserver(schedule);
-  observer.observe(root, {
-    childList: true,
-    characterData: true,
-    subtree: true,
-    attributes: true,
-    attributeFilter: ["data-hermes-theme", "lang"]
+  const statusChanges = new MutationObserver(schedule);
+  const observer = new MutationObserver((records) => {
+    if (root.matches(active2) && (footer?.isConnected === false || records.some((record) => movedElementMatches(record, nativeSelector)))) schedule();
   });
+  const themeChanges = new MutationObserver(schedule);
+  observer.observe(document.body, { childList: true, subtree: true });
+  themeChanges.observe(root, { attributes: true, attributeFilter: ["data-hermes-theme", "lang"] });
   contrast.addEventListener("change", schedule);
-  const unsubscribe = [host20.state.gateway, host20.state.connectionId, host20.state.profile].map((atom6) => atom6.listen(schedule));
+  const unsubscribe = [host20.state.gateway, host20.state.connectionId, host20.state.profile, host20.state.focusedSessionId].map((atom7) => atom7.listen(schedule));
   ctx.onDispose(() => {
     observer.disconnect();
+    statusChanges.disconnect();
+    themeChanges.disconnect();
     cancelAnimationFrame(frame);
     registration?.();
     markSource(void 0);
@@ -13469,18 +16608,18 @@ function changedFiles(payload) {
       section2(filePath(to) || filePath(from));
     }
   }
-  const files = sections.filter((row3) => row3.added || row3.removed);
+  const files = sections.filter((row4) => row4.added || row4.removed);
   if (files.length === 1 && fallback) files[0].path = fallback;
-  return files.filter((row3) => row3.path).map((row3) => ({ ...row3, path: pathKey(row3.path) }));
+  return files.filter((row4) => row4.path).map((row4) => ({ ...row4, path: pathKey(row4.path) }));
 }
-function element4(tag, part) {
-  const node2 = document.createElement(tag);
-  node2.setAttribute("data-hcv-" + part, "");
-  return node2;
+function element5(tag, part) {
+  const node3 = document.createElement(tag);
+  node3.setAttribute("data-hcv-" + part, "");
+  return node3;
 }
 function numberDisplay(part, sign) {
-  const wrap = element4("span", part);
-  const digits = element4("span", "changes-digits");
+  const wrap = element5("span", part);
+  const digits = element5("span", "changes-digits");
   wrap.append(sign, digits);
   const columns = /* @__PURE__ */ new Map();
   let shown;
@@ -13499,8 +16638,8 @@ function numberDisplay(part, sign) {
         }
         let column = columns.get(position2);
         if (!column) {
-          column = element4("span", "changes-digit");
-          const reel = element4("span", "changes-reel");
+          column = element5("span", "changes-digit");
+          const reel = element5("span", "changes-reel");
           for (const digit of "0123456789") {
             const cell = document.createElement("span");
             cell.textContent = digit;
@@ -13513,8 +16652,8 @@ function numberDisplay(part, sign) {
         next.push(column);
         position2++;
       }
-      next.reverse().forEach((node2, index) => {
-        if (digits.childNodes[index] !== node2) digits.insertBefore(node2, digits.childNodes[index] || null);
+      next.reverse().forEach((node3, index) => {
+        if (digits.childNodes[index] !== node3) digits.insertBefore(node3, digits.childNodes[index] || null);
       });
       while (digits.childNodes.length > next.length) digits.lastChild.remove();
       for (const index of columns.keys()) if (index >= position2) columns.delete(index);
@@ -13533,16 +16672,16 @@ function registerComposerChanges(ctx, active2) {
   const contrast = matchMedia("(forced-colors: none)");
   const turns = /* @__PURE__ */ new Map();
   const key = (connection, profile2, session) => JSON.stringify([connection, profile2, session]);
-  const scope2 = () => [host21.state.connectionId.get(), host21.state.profile.get()];
-  const eventKey = (event) => event.session_id && !event.replayed ? key(event.connectionId || scope2()[0], event.profile || scope2()[1], event.session_id) : null;
-  const rail = element4("div", "composer-changes");
-  const chip2 = element4("div", "composer-changes-chip");
-  const label = element4("span", "composer-changes-label");
-  const totals = element4("span", "composer-changes-totals");
+  const scope3 = () => [host21.state.connectionId.get(), host21.state.profile.get()];
+  const eventKey = (event) => event.session_id && !event.replayed ? key(event.connectionId || scope3()[0], event.profile || scope3()[1], event.session_id) : null;
+  const rail = element5("div", "composer-changes");
+  const chip2 = element5("div", "composer-changes-chip");
+  const label3 = element5("span", "composer-changes-label");
+  const totals = element5("span", "composer-changes-totals");
   const added = numberDisplay("composer-changes-added", "+");
   const removed = numberDisplay("composer-changes-removed", "\u2212");
   totals.append(added.node, removed.node);
-  chip2.append(label, totals);
+  chip2.append(label3, totals);
   chip2.setAttribute("role", "status");
   chip2.setAttribute("aria-live", "polite");
   for (const child of chip2.children) child.setAttribute("aria-hidden", "true");
@@ -13562,7 +16701,7 @@ function registerComposerChanges(ctx, active2) {
     frame = 0;
     if (!root.matches(active2) || !contrast.matches) return hide();
     const session = host21.state.activeSessionId.get();
-    const address = key(...scope2(), session);
+    const address = key(...scope3(), session);
     const turn = turns.get(address);
     const dock2 = turn?.paths.size && document.querySelector(dockSelector);
     if (!dock2 || !host21.state.busyBySession.get()[session]) return hide();
@@ -13576,7 +16715,7 @@ function registerComposerChanges(ctx, active2) {
     if (accessible === lastText && currentKey === address) return;
     const oldWidth = rail.isConnected ? chip2.getBoundingClientRect().width : 0;
     sizeAnimation?.cancel();
-    label.textContent = text;
+    label3.textContent = text;
     added.update(plus);
     removed.update(minus);
     chip2.setAttribute("aria-label", accessible);
@@ -13606,24 +16745,27 @@ function registerComposerChanges(ctx, active2) {
     const files = changedFiles(payload);
     if (!files.length) return;
     turn.calls.add(payload.tool_id);
-    for (const row3 of files) {
-      turn.paths.add(row3.path);
-      turn.added += row3.added;
-      turn.removed += row3.removed;
+    for (const row4 of files) {
+      turn.paths.add(row4.path);
+      turn.added += row4.added;
+      turn.removed += row4.removed;
     }
     schedule();
   });
   ctx.onEvent("message.complete", (event) => {
     if (turns.delete(eventKey(event))) schedule();
   });
-  const observer = new MutationObserver(schedule);
+  const observer = new MutationObserver(() => {
+    const session = host21.state.activeSessionId.get();
+    if (rail.isConnected || session && turns.get(key(...scope3(), session))?.paths.size) schedule();
+  });
   observer.observe(root, {
     childList: true,
     subtree: true,
     attributes: true,
     attributeFilter: ["data-hermes-theme", "lang", "data-pane-hidden", "data-popped-out"]
   });
-  const unsubscribe = [host21.state.busyBySession, host21.state.activeSessionId, host21.state.connectionId, host21.state.profile].map((atom6) => atom6.listen(schedule));
+  const unsubscribe = [host21.state.busyBySession, host21.state.activeSessionId, host21.state.connectionId, host21.state.profile].map((atom7) => atom7.listen(schedule));
   contrast.addEventListener("change", schedule);
   ctx.onDispose(() => {
     cancelAnimationFrame(frame);
@@ -13639,6 +16781,12 @@ function registerComposerLayout(ctx, active2) {
   const dock2 = `${active2} [data-slot="composer-dock"]:not([data-popped-out], [data-hud-shell] *)`;
   const surface3 = `${dock2} [data-slot="composer-surface"]`;
   const fallback = `${active2} [data-chat-surface]:not([data-hud-shell] *) .composer-fallback-surface`;
+  const statusSection = '[data-slot="status-stack-section"]';
+  const consentIcon = '[data-slot="status-row"] > .status-row-icon > .codicon-graph';
+  const consentSection = `${statusSection}:has(> ${consentIcon})`;
+  const consent = `${dock2} ${consentSection} > [data-slot="status-row"]`;
+  const consentDrawer = `${dock2} > .status-drawer:has([data-slot="status-stack-content"] > ${statusSection}:only-child > ${consentIcon})`;
+  const attachedComposer = `${consentDrawer}:not([data-collapsed]) + [data-slot="composer-root"]`;
   const backing = "> .pointer-events-none.absolute.inset-0.-z-10[aria-hidden]";
   const input = '[class~="[grid-area:input]"]';
   const leading = '[class~="[grid-area:menu]"]';
@@ -13646,9 +16794,9 @@ function registerComposerLayout(ctx, active2) {
   const grid = `${surface3} [data-slot="composer-fade"] > div:has(> ${input} + ${trailing})`;
   const regularGrid = `${grid}:not(:has(> [data-hcv-dictation]))`;
   const editor2 = '[data-slot="composer-rich-input"]';
-  const controls = `${grid} > :is(${leading}, ${trailing})`;
+  const controls2 = `${grid} > :is(${leading}, ${trailing})`;
   const reasoning = '[data-testid="reasoning-pill"]';
-  const ghost = `${controls} :is(button[aria-haspopup="menu"], button[data-tour="model-pill"], [data-slot="fan-menu-anchor"] > button):not([data-hcv-approval])`;
+  const ghost = `${controls2} :is(button[aria-haspopup="menu"], button[data-tour="model-pill"], [data-slot="fan-menu-anchor"] > button):not([data-hcv-approval])`;
   const rail = `${active2} [data-hcv-composer-changes]`;
   const chip2 = `${rail} [data-hcv-composer-changes-chip]`;
   const approval = `${active2} [data-hcv-approval]`;
@@ -13689,6 +16837,67 @@ function registerComposerLayout(ctx, active2) {
       ${dock2} .coding-status-bar { border-block-end-color: transparent; }
       @media (hover: hover) and (pointer: fine) {
         ${dock2} [data-slot="status-drawer-toggle"][aria-expanded="false"]:not(:hover, :focus-visible) { opacity: 0; }
+        ${attachedComposer} [data-slot="status-drawer-toggle"]:not(:hover, :focus-visible) { opacity: 0; }
+      }
+      /* The assistant's attached rail in Codex d6fe5799461e.css shares the
+         composer's silhouette. Keep the Hermes drawer and its actions native. */
+      ${consentDrawer} [data-slot="composer-status-stack"] > div {
+        margin-inline: 5px;
+        border-radius: 22px 22px 0 0;
+        border: 0;
+        background: var(--hcv-composer);
+        backdrop-filter: none;
+      }
+      ${attachedComposer} [data-slot="composer-surface"] {
+        border-start-start-radius: 0;
+        border-start-end-radius: 0;
+        box-shadow: none;
+      }
+      ${dock2} ${consentSection} { container-type: inline-size; }
+      ${consent} {
+        display: grid;
+        grid-template-columns: 16px minmax(0, 1fr) auto;
+        gap: 6px 8px;
+        padding: 10px 12px 6px;
+        color: var(--hcv-text);
+        font: 13px/18px var(--hcv-ui-font);
+      }
+      ${consent}:hover { background: transparent; }
+      ${consent} > .status-row-icon { grid-column: 1; align-self: start; inline-size: 16px; block-size: 18px; }
+      ${consent} > .status-row-content { grid-column: 2; }
+      ${consent} > .status-row-content > span {
+        overflow: visible;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        font: inherit;
+        color: inherit;
+      }
+      ${consent} > .status-row-content > span > span:first-child { display: block; font-weight: 600; }
+      ${consent} > .status-row-content > span > span:nth-child(2) {
+        display: block;
+        color: var(--hcv-muted);
+        font-size: 12px;
+        line-height: 17px;
+      }
+      ${consent} > .status-row-actions { grid-column: 3; align-self: center; flex-wrap: wrap; gap: 4px; }
+      ${consent} > .status-row-actions > button {
+        min-block-size: 26px;
+        margin-block-start: 0;
+        padding-inline: 8px;
+        border: 1px solid var(--hcv-hairline);
+        border-radius: 8px;
+        background: transparent;
+        color: var(--hcv-text);
+        font: 13px/18px var(--hcv-ui-font);
+      }
+      ${consent} > .status-row-actions > button:last-child { border-color: transparent; color: var(--hcv-muted); }
+      ${consent} > .status-row-actions > button:not(:disabled):hover {
+        background: var(--hcv-dropdown-hover);
+        color: var(--hcv-text);
+      }
+      @container (width < 640px) {
+        ${consent} { grid-template-columns: 16px minmax(0, 1fr); }
+        ${consent} > .status-row-actions { grid-area: 2 / 2; }
       }
       ${surface3} [data-slot="composer-fade"] { container-type: inline-size; }
       ${regularGrid} {
@@ -13714,18 +16923,18 @@ function registerComposerLayout(ctx, active2) {
       ${ghost}:is(:hover, [data-state="open"]):not(:disabled) {
         background: var(--hcv-composer-hover); color: var(--hcv-text);
       }
-      ${controls} > button:has(> .codicon-add) { color: var(--hcv-text); }
-      ${codexIconRules(`${controls} > button > .codicon-add`, "plus")}
-      ${controls} > button > .codicon-add { inline-size: 16px; block-size: 16px; }
-      ${controls} :is(button[data-tour="model-pill"], ${reasoning}) { font-size: 13px; padding-inline: 8px; }
-      ${controls} :is(button[data-tour="model-pill"], [data-slot="fan-menu-anchor"] > button) { color: var(--hcv-text); }
-      ${controls} button[data-tour="model-pill"]:has(+ ${reasoning}) { padding-inline-end: 3px; margin-inline-end: -4px; }
-      ${controls} ${reasoning} { padding-inline-start: 3px; }
-      ${controls} ${reasoning}::after {
+      ${controls2} > button:has(> .codicon-add) { color: var(--hcv-text); }
+      ${codexIconRules(`${controls2} > button > .codicon-add`, "plus")}
+      ${controls2} > button > .codicon-add { inline-size: 16px; block-size: 16px; }
+      ${controls2} :is(button[data-tour="model-pill"], ${reasoning}) { font-size: 13px; padding-inline: 8px; }
+      ${controls2} :is(button[data-tour="model-pill"], [data-slot="fan-menu-anchor"] > button) { color: var(--hcv-text); }
+      ${controls2} button[data-tour="model-pill"]:has(+ ${reasoning}) { padding-inline-end: 3px; margin-inline-end: -4px; }
+      ${controls2} ${reasoning} { padding-inline-start: 3px; }
+      ${controls2} ${reasoning}::after {
         content: ''; inline-size: 12px; block-size: 12px; background: currentColor; opacity: .65;
         mask: ${codexMask("down")} center / contain no-repeat;
       }
-      ${controls} button[type="submit"] > span[class~="rounded-[0.1875rem]"] {
+      ${controls2} button[type="submit"] > span[class~="rounded-[0.1875rem]"] {
         inline-size: 16px; block-size: 16px; background: currentColor;
         mask: ${codexMask("dictationStop")} center / contain no-repeat;
       }
@@ -13788,8 +16997,7 @@ function registerComposerLayout(ctx, active2) {
       }
     }
   `;
-  document.head.append(sheet);
-  ctx.onDispose(() => sheet.remove());
+  mountStyle(ctx, sheet, chatStyles);
   registerComposerApproval(ctx, active2);
   registerComposerChanges(ctx, active2);
 }
@@ -13804,7 +17012,7 @@ var voiceStartIcon = "svg.tabler-icon-wave-sine";
 var voiceStartGroup = `[data-slot="composer-surface"] span:has(> button[type="button"] > ${voiceStartIcon})`;
 var voiceStartItem = `[data-slot="dropdown-menu-content"]:has(> [data-slot="dropdown-menu-checkbox-item"]) > [data-slot="dropdown-menu-item"]:has(> ${voiceStartIcon})`;
 var menuSeparator = '[data-slot="dropdown-menu-separator"]';
-var attachments = '[data-slot="composer-attachments"]';
+var attachments2 = '[data-slot="composer-attachments"]';
 var queuedEdit = '[data-slot="composer-surface"] [class~="bg-accent/18"]:has(> div > button + button)';
 var russianGroups = {
   Session: "\u0421\u0435\u0430\u043D\u0441",
@@ -13838,7 +17046,7 @@ function isSlashCommand(input) {
   return !prefix.toString().trim();
 }
 function shouldQueue(form, input) {
-  return isBusy(form) && !form.querySelector(queuedEdit) && (form.querySelector(attachments) || !isSlashCommand(input));
+  return isBusy(form) && !form.querySelector(queuedEdit) && (form.querySelector(attachments2) || !isSlashCommand(input));
 }
 function queueWithNativeShortcut(event, input) {
   event.preventDefault();
@@ -13873,7 +17081,7 @@ function registerQueueShortcut(ctx, enabled, queueing) {
       if (form.querySelector(drawer)) event.stopPropagation();
       return;
     }
-    const empty = !input.innerText.trim() && !form.querySelector(attachments);
+    const empty = !input.innerText.trim() && !form.querySelector(attachments2);
     if ((queueing() || empty) && shouldQueue(form, input)) queueWithNativeShortcut(event, input);
   }, true);
   ctx.addEventListener(document, "submit", (event) => {
@@ -13886,14 +17094,14 @@ function registerQueueShortcut(ctx, enabled, queueing) {
 }
 function registerSlashGroups(ctx, root, enabled) {
   ctx.i18n.register({
-    en: { slashGroups: Object.fromEntries(Object.keys(russianGroups).map((label) => [label, label])) },
+    en: { slashGroups: Object.fromEntries(Object.keys(russianGroups).map((label3) => [label3, label3])) },
     ru: { slashGroups: russianGroups }
   });
   let form;
   const translated = /* @__PURE__ */ new Map();
   const restore = () => {
-    for (const [text, { original, label }] of translated) {
-      if (text.data === label) text.data = original;
+    for (const [text, { original, label: label3 }] of translated) {
+      if (text.data === label3) text.data = original;
     }
     translated.clear();
   };
@@ -13910,20 +17118,20 @@ function registerSlashGroups(ctx, root, enabled) {
       if (heading.childNodes.length !== 1 || text?.nodeType !== Node.TEXT_NODE) continue;
       const previous = translated.get(text);
       const original = previous?.label === text.data ? previous.original : text.data;
-      const group = original.trim();
-      if (!Object.hasOwn(russianGroups, group)) {
+      const group2 = original.trim();
+      if (!Object.hasOwn(russianGroups, group2)) {
         translated.delete(text);
         continue;
       }
-      const label = ctx.i18n.t(`slashGroups.${group}`);
-      if (text.data !== label) text.data = label;
-      if (label !== original) translated.set(text, { original, label });
+      const label3 = ctx.i18n.t(`slashGroups.${group2}`);
+      if (text.data !== label3) text.data = label3;
+      if (label3 !== original) translated.set(text, { original, label: label3 });
       else translated.delete(text);
     }
   };
   const observer = new MutationObserver(sync);
-  const watch = (node2) => {
-    const next = node2 instanceof Element ? node2.closest(editor)?.closest(composer) : null;
+  const watch = (node3) => {
+    const next = node3 instanceof Element ? node3.closest(editor)?.closest(composer) : null;
     if (!next || next === form) return;
     observer.disconnect();
     restore();
@@ -14009,8 +17217,7 @@ function registerComposer(ctx, active2) {
       ${rowTip} span:has(> [data-slot="tooltip-arrow"]) { display: none; }
     }
   `;
-  document.head.append(sheet);
-  ctx.onDispose(() => sheet.remove());
+  mountStyle(ctx, sheet, chatStyles);
   registerSlashGroups(ctx, root, enabled);
   registerComposerLayout(ctx, active2);
   const queueing = () => queueingPreference(ctx);
@@ -14024,27 +17231,27 @@ import { host as host23 } from "@hermes/plugin-sdk";
 // source/dictation-caret.js
 var chip = '[contenteditable="false"]';
 function textOf(fragment) {
-  for (const node2 of fragment.querySelectorAll(chip)) node2.replaceWith("\uFFFC");
-  for (const node2 of fragment.querySelectorAll("br")) node2.replaceWith("\n");
+  for (const node3 of fragment.querySelectorAll(chip)) node3.replaceWith("\uFFFC");
+  for (const node3 of fragment.querySelectorAll("br")) node3.replaceWith("\n");
   return fragment.textContent;
 }
 function draftText(editor2) {
   return editor2.hasAttribute("data-empty") ? "" : textOf(editor2.cloneNode(true));
 }
-function draftSelection(editor2, range) {
-  if (!range) {
+function draftSelection(editor2, range2) {
+  if (!range2) {
     const selection = window.getSelection();
-    range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+    range2 = selection?.rangeCount ? selection.getRangeAt(0) : null;
   }
-  if (!range || !editor2.contains(range.startContainer) || !editor2.contains(range.endContainer)) return null;
+  if (!range2 || !editor2.contains(range2.startContainer) || !editor2.contains(range2.endContainer)) return null;
   if (editor2.hasAttribute("data-empty")) return { start: 0, end: 0 };
-  const offset = (node2, index) => {
+  const offset = (node3, index) => {
     const prefix = document.createRange();
     prefix.selectNodeContents(editor2);
-    prefix.setEnd(node2, index);
+    prefix.setEnd(node3, index);
     return textOf(prefix.cloneContents()).length;
   };
-  return { start: offset(range.startContainer, range.startOffset), end: offset(range.endContainer, range.endOffset) };
+  return { start: offset(range2.startContainer, range2.startOffset), end: offset(range2.endContainer, range2.endOffset) };
 }
 function updateDictationAnchor(anchor, next, edit3) {
   const previous = anchor.text;
@@ -14073,18 +17280,18 @@ function updateDictationAnchor(anchor, next, edit3) {
 }
 function pointAt(editor2, offset) {
   const walker = document.createTreeWalker(editor2, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
-    acceptNode(node2) {
-      if (node2.parentElement?.closest(chip)) return NodeFilter.FILTER_REJECT;
-      return node2.nodeType === Node.TEXT_NODE || node2.matches("br, " + chip) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+    acceptNode(node3) {
+      if (node3.parentElement?.closest(chip)) return NodeFilter.FILTER_REJECT;
+      return node3.nodeType === Node.TEXT_NODE || node3.matches("br, " + chip) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
     }
   });
-  for (let node2 = walker.nextNode(); node2; node2 = walker.nextNode()) {
-    if (node2.nodeType === Node.TEXT_NODE) {
-      if (offset <= node2.length) return [node2, offset];
-      offset -= node2.length;
+  for (let node3 = walker.nextNode(); node3; node3 = walker.nextNode()) {
+    if (node3.nodeType === Node.TEXT_NODE) {
+      if (offset <= node3.length) return [node3, offset];
+      offset -= node3.length;
     } else {
-      const parent = node2.parentNode;
-      if (offset <= 1) return [parent, [...parent.childNodes].indexOf(node2) + offset];
+      const parent = node3.parentNode;
+      if (offset <= 1) return [parent, [...parent.childNodes].indexOf(node3) + offset];
       offset--;
     }
   }
@@ -14100,11 +17307,11 @@ function insertDictation(editor2, anchor, transcript4) {
   editor2.focus({ preventScroll: true });
   const selection = window.getSelection();
   if (!selection) return false;
-  const range = document.createRange();
-  range.setStart(...pointAt(editor2, start));
-  range.setEnd(...pointAt(editor2, end));
+  const range2 = document.createRange();
+  range2.setStart(...pointAt(editor2, start));
+  range2.setEnd(...pointAt(editor2, end));
   selection.removeAllRanges();
-  selection.addRange(range);
+  selection.addRange(range2);
   return document.execCommand("insertText", false, insertion);
 }
 
@@ -14158,8 +17365,8 @@ function nativeMenuOwner(item) {
   return id2 ? document.querySelector(`${formSelector2} button[aria-controls="${CSS.escape(id2)}"]`) : null;
 }
 function createStrip(grid, abort, stop) {
-  const strip = document.createElement("div");
-  strip.setAttribute("data-hcv-dictation", "");
+  const strip2 = document.createElement("div");
+  strip2.setAttribute("data-hcv-dictation", "");
   const cancel = document.createElement("button");
   cancel.type = "button";
   cancel.setAttribute("data-hcv-dictation-cancel", "");
@@ -14173,9 +17380,9 @@ function createStrip(grid, abort, stop) {
   finish.type = "button";
   finish.setAttribute("data-hcv-dictation-stop", "");
   finish.addEventListener("click", stop);
-  strip.append(cancel, wave, status, finish);
-  grid.append(strip);
-  return { strip, cancel, wave, status, finish };
+  strip2.append(cancel, wave, status, finish);
+  grid.append(strip2);
+  return { strip: strip2, cancel, wave, status, finish };
 }
 function startWaveform(canvas, stream) {
   const graphics = canvas.getContext("2d");
@@ -14249,7 +17456,7 @@ function startWaveform(canvas, stream) {
   };
 }
 function styles4(active2) {
-  const row3 = `${active2} [data-hcv-dictation]`;
+  const row4 = `${active2} [data-hcv-dictation]`;
   const surface3 = `${active2} [data-slot="composer-surface"]:has([data-hcv-dictation])`;
   const layout = "div:has(> [data-hcv-dictation])";
   const hub = `${surface3} button[data-hcv-dictation-hub]`;
@@ -14267,31 +17474,31 @@ function styles4(active2) {
     grid-template-columns: auto minmax(0, 1fr);
   }
   ${surface3} [class~="[grid-area:menu]"] { translate: none; align-self: center; }
-  ${row3} { grid-area: dictation; display: flex; min-inline-size: 0; align-items: center; gap: 8px; color: var(--hcv-muted); }
-  ${row3} button, ${hub} {
+  ${row4} { grid-area: dictation; display: flex; min-inline-size: 0; align-items: center; gap: 8px; color: var(--hcv-muted); }
+  ${row4} button, ${hub} {
     display: grid; place-items: center; flex: none; inline-size: 28px; block-size: 28px; padding: 0;
     border-radius: 50%; color: var(--hcv-text); background: color-mix(in srgb, currentColor 6%, transparent);
   }
-  ${row3} button:hover, ${hub}:hover { background: color-mix(in srgb, currentColor 13%, transparent); }
-  ${row3} button:focus-visible, ${hub}:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }
-  ${row3} button::before, ${hub}::after { content: ''; }
-  ${row3} [data-hcv-dictation-cancel]::before {
+  ${row4} button:hover, ${hub}:hover { background: color-mix(in srgb, currentColor 13%, transparent); }
+  ${row4} button:focus-visible, ${hub}:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }
+  ${row4} button::before, ${hub}::after { content: ''; }
+  ${row4} [data-hcv-dictation-cancel]::before {
     inline-size: 14px; block-size: 14px; background: currentColor; mask: ${codexMask("close")} center / contain no-repeat;
   }
-  ${row3} [data-hcv-dictation-stop]::before, ${hub}::after {
+  ${row4} [data-hcv-dictation-stop]::before, ${hub}::after {
     inline-size: 16px; block-size: 16px; background: currentColor;
     mask: ${codexMask("dictationStop")} center / contain no-repeat;
   }
   ${hub}::before { display: none !important; }
   ${surface3}:has(button[data-hcv-dictation-hub]) [data-hcv-dictation-stop],
-  ${row3}:not([data-state="recording"]) [data-hcv-dictation-stop],
-  ${row3}[data-state="recording"] [data-hcv-dictation-caption],
-  ${row3}:not([data-state="recording"]) canvas { display: none; }
-  ${row3} canvas {
+  ${row4}:not([data-state="recording"]) [data-hcv-dictation-stop],
+  ${row4}[data-state="recording"] [data-hcv-dictation-caption],
+  ${row4}:not([data-state="recording"]) canvas { display: none; }
+  ${row4} canvas {
     display: block; flex: 1 1 0; inline-size: 0; min-inline-size: 0; block-size: 28px;
     color: var(--hcv-text);
   }
-  ${row3} [data-hcv-dictation-caption] {
+  ${row4} [data-hcv-dictation-caption] {
     min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px;
   }
   ${hub}[data-hcv-dictation-hub="transcribing"]::after {
@@ -14307,7 +17514,7 @@ function registerDictation(ctx, active2) {
   const sheet = document.createElement("style");
   sheet.setAttribute("data-hcv-dictation-style", "");
   sheet.textContent = styles4(active2);
-  document.head.append(sheet);
+  mountStyle(ctx, sheet, { surface: "[data-hcv-dictation]" });
   const root = document.documentElement;
   const contrast = matchMedia("(forced-colors: none)");
   const selections = /* @__PURE__ */ new WeakMap();
@@ -14326,9 +17533,9 @@ function registerDictation(ctx, active2) {
   }
   function restoreHub(run) {
     if (!run.hub) return;
-    const { button: button4, label, pressed } = run.hub;
+    const { button: button4, label: label3, pressed } = run.hub;
     button4.removeAttribute("data-hcv-dictation-hub");
-    for (const [key, value] of [["aria-label", label], ["aria-pressed", pressed]]) {
+    for (const [key, value] of [["aria-label", label3], ["aria-pressed", pressed]]) {
       if (value === null) button4.removeAttribute(key);
       else button4.setAttribute(key, value);
     }
@@ -14346,8 +17553,8 @@ function registerDictation(ctx, active2) {
       button4.setAttribute("aria-label", run.phase === "transcribing" ? copy6.transcribing : copy6.stop);
       button4.setAttribute("aria-pressed", "true");
     }
-    const { strip, cancel: cancel2, status, finish } = run.ui;
-    strip.dataset.state = run.phase;
+    const { strip: strip2, cancel: cancel2, status, finish } = run.ui;
+    strip2.dataset.state = run.phase;
     cancel2.setAttribute("aria-label", copy6.cancel);
     cancel2.title = copy6.cancel;
     finish.setAttribute("aria-label", copy6.stop);
@@ -14503,7 +17710,7 @@ function registerDictation(ctx, active2) {
   }, true);
   ctx.addEventListener(window, "hermes:composer-dictation", (event) => {
     const form = [...document.querySelectorAll(formSelector2)].find(
-      (node2) => composerTarget(node2) === event.detail?.target && nativeVoice(node2)
+      (node3) => composerTarget(node3) === event.detail?.target && nativeVoice(node3)
     );
     if (form && toggle2(form)) event.stopImmediatePropagation();
   }, true);
@@ -14531,8 +17738,8 @@ var marker2 = `data-${id}`;
 var themeName = "codex-workspace";
 var active = `:root[${marker2}][data-hermes-theme="${themeName}"]`;
 var sidebar = `${active} [data-slot="sidebar"][data-tour="sessions-sidebar"]`;
-var chat = `${active} [data-chat-surface]`;
-var dock = `${chat} [data-slot="composer-dock"]`;
+var chat2 = `${active} [data-chat-surface]`;
+var dock = `${chat2} [data-slot="composer-dock"]`;
 var composerSurface = `${dock} [data-slot="composer-surface"]`;
 var docked = `${dock}:not([data-popped-out])`;
 var light = {
@@ -14620,30 +17827,33 @@ function paletteVariables({ error, errorInk, ...colors }) {
 var newChatLabel = '[data-tour="sidebar-nav-new-session"]';
 var chevron = "svg.tabler-icon-chevron-down";
 var sidebarMenuButton = `${sidebar} [data-sidebar="menu-button"]`;
-var sidebarNav = `${sidebarMenuButton}:has(> [data-tour^="sidebar-nav-"])`;
+var sidebarNav = `${sidebarMenuButton}[data-hcv-sidebar-nav]`;
+var sidebarFill = `${sidebarNav} > [data-hcv-sidebar-fill]`;
 var navButton = (name) => `${sidebarMenuButton}:has(> [data-tour="sidebar-nav-${name}"])`;
 var localizedNewChat = `${navButton("new-session")}:is(:lang(ru), :lang(en))`;
 var titleButton = `${active} [data-titlebar-cluster] button[data-size="icon-titlebar"]`;
 var foldOnly = `${composerSurface} button:has(> ${chevron}):not(:has(> :not(${chevron})))`;
-var rowBody = 'button[data-slot="row-button"]';
-var projectChatRow = `${sidebar} [data-sessions-mode] .row-hover:has(> ${rowBody} .hover-marquee-inner)`;
+var sidebarChatRow = `${sidebar} ${sidebarSessionRow}`;
 var runningDot = '[role="status"]:is([class~="bg-(--ui-accent)"], [class~="border-(--ui-accent)"])';
 var unreadDot = '[role="status"][class~="bg-(--ui-success)"]';
 var trailingDot = `:is(${runningDot}, ${unreadDot})`;
-var busyRowState = `:is(:has(> ${rowBody} ${runningDot}), [data-working="true"]:has(> .arc-row))`;
-var unreadRowState = `:has(> ${rowBody} ${unreadDot})`;
-var activeProjectChatRow = `${projectChatRow}:is(${busyRowState}, ${unreadRowState})`;
+var busyRowState = `:has(${runningDot})`;
+var unreadRowState = `:has(${unreadDot})`;
+var activeSidebarChatRow = `${sidebarChatRow}:is(${busyRowState}, ${unreadRowState})`;
 var sidebarStatus = `${sidebar} [data-hcv-project-status]:not([hidden])`;
 var sidebarWorking = `${sidebar} [data-hcv-project-status="working"]:not([hidden])`;
-var workingChatIcon = `${projectChatRow}${busyRowState}::after`;
-var changedFiles2 = `${chat} [data-slot="aui_changed-files"]`;
+var workingChatIcon = `${sidebarChatRow}${busyRowState}::after`;
+var changedFiles2 = `${chat2} [data-slot="aui_changed-files"]`;
 var fileSummary = `${changedFiles2}[data-hcv-file-card]`;
-var assistantRoot = `${chat} [data-slot="aui_assistant-message-root"]`;
-var elapsedBar = `${chat} [data-hcv-turn-line]`;
-var liveTurn = `${chat} :is([data-slot="aui_response-loading"], [data-slot="aui_turn-activity"][data-state="active"], [data-hcv-live-turn])`;
+var fileHeader = `${fileSummary} > div:first-child`;
+var fileList = `${fileSummary} > div:nth-child(2)`;
+var fileRow = `${fileList} > button`;
+var assistantRoot = `${chat2} [data-slot="aui_assistant-message-root"]`;
+var elapsedBar = `${chat2} [data-hcv-turn-line]`;
+var liveTurn = `${chat2} :is([data-slot="aui_response-loading"], [data-slot="aui_turn-activity"][data-state="active"], [data-hcv-live-turn])`;
 var thinkingLabel = `${liveTurn} > [data-hcv-thinking]`;
 var thinkingSweep = `${thinkingLabel} > [data-hcv-thinking-sweep]`;
-var arrow = codexMask("right");
+var arrow = codexMask("turnDisclosure");
 var glyphs3 = [
   [navButton("new-session"), ".codicon-robot", "newChat"],
   [navButton("capabilities"), ".codicon-symbol-misc", "plugins"],
@@ -14657,10 +17867,10 @@ var glyphs3 = [
   [`${composerSurface} button[type="submit"]`, ".codicon-arrow-up", "send"]
 ];
 function iconRules() {
-  return glyphs3.map(([button4, nativeIcon, icon8, flip]) => {
-    const selector = `${button4}:has(> ${nativeIcon})`;
+  return glyphs3.map(([button4, nativeIcon2, icon8, flip]) => {
+    const selector = `${button4}:has(> ${nativeIcon2})`;
     return `
-  ${selector} > ${nativeIcon} { display: none; }
+  ${selector} > ${nativeIcon2} { display: none; }
   ${selector}::before {
     content: '';
     display: block;
@@ -14680,6 +17890,7 @@ var styles5 = `
     ${paletteVariables(light)}
     --hcv-ui-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
     --ui-bg-chrome: var(--hcv-rail);
+    --hcv-sidebar-highlight: var(--hcv-selected);
     --ui-bg-sidebar: var(--hcv-sidebar);
     --ui-bg-editor: var(--hcv-chat);
     --ui-bg-elevated: var(--hcv-menu);
@@ -14731,15 +17942,41 @@ var styles5 = `
     border-radius: 8px;
   }
 
-  /* Codex NavItem uses the same ghost fill for hover and the selected row. */
-  ${sidebarNav} {
-    --ui-control-hover-background: var(--hcv-selected);
+  /* The fixed ghost fill fades independently of the text and icon. */
+  ${sidebarNav}, ${sidebarNav}:is(:hover, :active, :focus-visible, [data-active="true"]) {
+    position: relative;
+    isolation: isolate;
+    background-color: transparent;
     border: 0;
     border-radius: 10px;
+    transition: none;
   }
 
   @supports (corner-shape: superellipse(1.5)) {
-    ${sidebarNav} { border-radius: 12.5px; corner-shape: superellipse(1.5); }
+    ${sidebarNav}, ${sidebarNav}:is(:hover, :active, :focus-visible, [data-active="true"]) {
+      border-radius: 12.5px;
+      corner-shape: superellipse(1.5);
+    }
+  }
+
+  ${sidebarFill} {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    border-radius: inherit;
+    corner-shape: inherit;
+    background-color: var(--hcv-sidebar-highlight);
+    opacity: 0;
+    transition: none;
+  }
+
+  ${sidebarNav}:is(:focus-visible, :active, [data-active="true"]) > [data-hcv-sidebar-fill] { opacity: 1; }
+  @media (hover: hover) {
+    ${sidebarNav}:hover > [data-hcv-sidebar-fill] { opacity: 1; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    ${sidebarFill} { transition: opacity 150ms cubic-bezier(.4, 0, .2, 1); }
   }
 
   ${sidebarNav}:focus-visible {
@@ -14762,17 +17999,17 @@ var styles5 = `
   ${navButton("new-session")}:lang(en)::after { content: 'New chat'; }
   ${localizedNewChat}::after { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; }
 
-  ${projectChatRow} > ${rowBody} span[aria-hidden="true"][class~="size-1"][class~="rounded-full"] {
+  ${sidebarChatRow} span[aria-hidden="true"][class~="size-1"][class~="rounded-full"] {
     opacity: 0;
   }
-  ${projectChatRow} [data-row-actions] span:has(> time[datetime]) { display: none; }
-  ${projectChatRow} [data-row-actions]:has(time[datetime]) > button[aria-haspopup="menu"] { position: static; }
+  ${sidebarChatRow} [data-row-actions] span:has(> time[datetime]) { display: none; }
+  ${sidebarChatRow} [data-row-actions]:has(time[datetime]) > button[aria-haspopup="menu"] { position: static; }
   /* Keep native labels available to assistive technology. Paint the two
      relocated statuses on the right without moving any click targets. */
-  ${activeProjectChatRow} { padding-inline-end: 23px; }
-  ${activeProjectChatRow} > ${rowBody} ${trailingDot} { opacity: 0; }
-  ${projectChatRow}${busyRowState} > .arc-row { display: none; }
-  ${activeProjectChatRow}::after {
+  ${activeSidebarChatRow} { padding-inline-end: 23px; }
+  ${activeSidebarChatRow} ${trailingDot} { opacity: 0; }
+  ${sidebarChatRow} > .arc-row { display: none; }
+  ${activeSidebarChatRow}::after {
     position: absolute;
     inset-block-start: 50%;
     inset-inline-end: 7px;
@@ -14790,7 +18027,7 @@ var styles5 = `
   }
   ${sidebarWorking}::before { content: ''; }
   ${workingChatIcon}, ${sidebarWorking}::before {
-    inline-size: 14px; block-size: 14px;
+    inline-size: 16px; block-size: 16px;
     background: color-mix(in srgb, var(--hcv-text) 70%, transparent);
     mask: ${codexMask("sidebarWorking")} center / contain no-repeat;
     animation: hcv-sidebar-spin 2s steps(60, end) infinite;
@@ -14799,7 +18036,7 @@ var styles5 = `
   ${sidebar} [data-hcv-project-status="unread"]:not([hidden])::before {
     content: ''; inline-size: 7px; block-size: 7px; border-radius: 50%; background: var(--hcv-unread);
   }
-  ${projectChatRow}${unreadRowState}:not(${busyRowState})::after {
+  ${sidebarChatRow}${unreadRowState}:not(${busyRowState})::after {
     background: var(--hcv-unread);
     scale: .75;
   }
@@ -14808,7 +18045,7 @@ var styles5 = `
     ${workingChatIcon}, ${sidebarWorking}::before { animation: none; }
   }
 
-  ${chat} {
+  ${chat2} {
     /* Codex desktop's 48rem thread body has a 16px inset on each side. */
     --composer-width: 736px;
     --message-text-indent: 0px;
@@ -14821,47 +18058,139 @@ var styles5 = `
   }
 
   /* Match the dock's own 16px inset without touching its scroll clearance. */
-  ${chat} [data-slot="aui_thread-content"] {
+  ${chat2} [data-slot="aui_thread-content"] {
+    /* Hermes's default text scale is 110%. Keep its scale control relative
+       to the reference Desktop size of 14px. */
+    --conversation-text-base-size: calc(14px / 1.1);
+    --hcv-chat-prose: light-dark(#1a1c1f, #dfdfdf);
     max-inline-size: calc(var(--composer-width) + 32px);
     padding-inline: 16px;
   }
+  ${assistantRoot} .aui-md.prose, ${chat2} [data-slot="aui_user-inline-text"] {
+    color: var(--hcv-chat-prose, var(--hcv-text));
+    font-weight: 430;
+  }
+  ${assistantRoot} .aui-md.prose { --tw-prose-bold: var(--hcv-chat-prose, var(--hcv-text)); }
 
-  ${chat} [data-slot="aui_intro"] .wordmark { mix-blend-mode: normal; }
-  ${chat} [data-slot="aui_intro"] .wordmark + p { font-size: 13px; line-height: 20px; }
-
-  ${elapsedBar} {
-    inline-size: 100%;
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    min-block-size: 27px;
-    margin-block: 2px 5px;
-    padding: 1px 0 4px;
-    border-block-end: 1px solid color-mix(in srgb, var(--hcv-muted) 18%, transparent);
-    color: var(--hcv-muted);
+  ${chat2} [data-slot="aui_intro"] .wordmark { mix-blend-mode: normal; }
+  ${chat2} [data-slot="aui_intro"] .wordmark + p {
     font-size: 13px;
-    line-height: 1.4;
+    line-height: 20px;
+    /* Keep the wordmark anchored while Hermes rotates one- and two-line copy. */
+    min-block-size: 2lh;
+  }
+
+  ${chat2} [data-slot="aui_user-bubble-actions"] {
+    inline-size: fit-content;
+    min-inline-size: min(92px, 100%);
+    max-inline-size: 70%;
+    margin-inline-start: auto;
+  }
+
+  ${chat2} [data-slot="aui_user-bubble-actions"] .composer-human-message {
+    border-color: transparent;
+    border-radius: 15px;
+    padding-block: 9px;
+  }
+
+  ${docked} [data-slot="composer-root"] {
+    --composer-fill: var(--hcv-composer);
+    border-radius: 22px;
+  }
+
+  ${composerSurface} button > ${chevron},
+  ${composerSurface} [data-slot="fan-menu-anchor"] > .codicon-chevron-up {
+    display: none;
+  }
+
+  ${composerSurface} button:has(> ${chevron}) {
+    border-radius: 8px;
+  }
+
+  ${composerSurface} button:has(> ${chevron}):not(:disabled):hover {
+    background-color: var(--hcv-selected);
+  }
+
+  ${composerSurface} button[type="submit"] {
+    border-radius: 50%;
+  }
+
+  ${composerSurface} button[type="submit"]:not(:disabled) {
+    background-color: var(--hcv-action);
+    color: var(--hcv-ink);
+  }
+
+  ${composerSurface} button[type="submit"]:not(:disabled):hover {
+    background-color: color-mix(in srgb, var(--hcv-action) 85%, var(--hcv-ink));
+  }
+
+  ${iconRules()}
+}
+`;
+var plugin_default = {
+  id,
+  name: "Hermes Codex Visual",
+  description: "An independent Codex-style workspace theme for Hermes Desktop.",
+  defaultEnabled: false,
+  register(ctx) {
+    ctx.register({ id: "theme", area: THEMES_AREA, data: theme });
+    const root = document.documentElement;
+    registerStyleScope(ctx, themeName);
+    const sheet = document.createElement("style");
+    sheet.setAttribute(marker2, "");
+    sheet.textContent = styles5;
+    ctx.onDispose(() => {
+      sheet.remove();
+      if (!document.head.querySelector(`style[${marker2}]`)) {
+        root.removeAttribute(marker2);
+      }
+    });
+    mountStyle(ctx, sheet);
+    mountCSS(ctx, "data-hcv-turn-styles", `
+@media (forced-colors: none) {
+  ${elapsedBar} {
+    align-self: flex-start;
+    max-inline-size: 100%;
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: light-dark(rgb(26 28 31 / .495), rgb(255 255 255 / .498));
+    font: 430 var(--conversation-text-font-size)/1.5 ${codexReference.font};
     text-align: start;
-    font-variant-numeric: tabular-nums;
   }
-  ${chat} button[data-hcv-turn-line] { cursor: pointer; }
-  ${chat} button[data-hcv-turn-line]:hover { color: var(--hcv-text); }
-  ${chat} :is(button[data-hcv-turn-line], [data-hcv-files-more]):focus-visible {
+  ${chat2} [data-slot="aui_response-group"][data-hcv-turn-summary] {
+    /* Codex mRLe inserts a 16px conversation spacer after the disclosure. */
+    row-gap: 16px;
+  }
+  ${chat2} [data-hcv-turn-folded] [data-slot="aui_assistant-message-content"]
+    > .aui-md:nth-child(1 of :is([data-slot="tool-block"], [data-slot="aui_thinking-disclosure"], [data-slot="aui_turn-activity"], .aui-md):not([data-hcv-turn-step])) {
+    margin-block-start: 0;
+  }
+  ${chat2} button[data-hcv-turn-line] { cursor: pointer; }
+  ${chat2} button[data-hcv-turn-line]:hover { color: var(--hcv-chat-prose, var(--hcv-text)); }
+  ${chat2} button[data-hcv-turn-line]:focus-visible {
     outline: 1px solid var(--hcv-focus);
-    outline-offset: -2px;
+    outline-offset: 2px;
   }
-  ${chat} [data-hcv-turn-folded] [data-hcv-turn-step],
-  ${chat} [data-hcv-turn-summary] [data-slot="aui_turn-duration"] { display: none !important; }
-  ${chat} :is(button[data-hcv-turn-line], [data-hcv-files-more])::after {
+  ${chat2} [data-hcv-turn-folded] [data-hcv-turn-step],
+  ${chat2} [data-hcv-turn-summary] [data-slot="aui_turn-duration"] { display: none !important; }
+  ${chat2} button[data-hcv-turn-line]::after {
     content: '';
-    inline-size: 12px;
-    block-size: 12px;
+    inline-size: 14px;
+    block-size: 14px;
     flex: none;
     background: currentColor;
     mask: ${arrow} center / contain no-repeat;
-    transition: transform 150ms cubic-bezier(.23, 1, .32, 1);
   }
-  ${chat} :is(button[data-hcv-turn-line], [data-hcv-files-more])[aria-expanded="true"]::after {
+  @media (prefers-reduced-motion: no-preference) {
+    ${chat2} button[data-hcv-turn-line]::after { transition: transform 150ms ease; }
+  }
+  ${chat2} button[data-hcv-turn-line][aria-expanded="true"]::after {
     transform: rotate(90deg);
   }
 
@@ -14916,166 +18245,226 @@ var styles5 = `
     line-height: 1.2;
   }
   @media (prefers-reduced-motion: reduce) {
-    ${chat} :is(button[data-hcv-turn-line], [data-hcv-files-more])::after { transition: none; }
+    ${chat2} button[data-hcv-turn-line]::after { transition: none; }
   }
 
-  ${changedFiles2} {
-    border: 1px solid var(--hcv-stroke);
-    border-radius: 10px;
-    background: color-mix(in srgb, var(--hcv-summary) 45%, var(--hcv-chat));
-    margin-block-start: 14px;
+  /* Codex Desktop 26.1111.2228.0, completed TurnDiffContent (ev)
+     and the resource card header (fLcv). */
+  ${fileSummary} {
+    --hcv-file-padding: 12px;
+    --hcv-file-radius: 10px;
+    --hcv-file-stroke: light-dark(rgb(26 28 31 / 11.7%), rgb(255 255 255 / 15.6%));
+    --hcv-file-border: light-dark(rgb(26 28 31 / 7.8%), rgb(255 255 255 / 8.4%));
+    --hcv-file-hover: light-dark(rgb(26 28 31 / 5.35%), rgb(255 255 255 / 7.8%));
+    --hcv-file-text: light-dark(#1a1c1f, #dfdfdf);
+    --hcv-file-description: color-mix(in srgb, var(--hcv-file-text) 70%, transparent);
+    --hcv-file-focus: #0285ff;
+    border: 0;
+    border-radius: var(--hcv-file-radius);
+    box-shadow: 0 0 0 .5px var(--hcv-file-stroke);
+    background: light-dark(#fff, #222222);
+    margin: 14px .5px 8px;
     padding: 0;
-    font-size: 13px;
+    color: var(--hcv-file-text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 14px;
+    font-weight: 430;
+    line-height: 1.5;
   }
-  ${changedFiles2} > div:first-child {
-    min-block-size: 58px;
-    flex-wrap: wrap;
-    column-gap: 10px;
-    border-block-end: 1px solid var(--hcv-stroke);
-    border-start-start-radius: 9px;
-    border-start-end-radius: 9px;
-    background: var(--hcv-summary);
-    padding: 10px;
-    font-weight: 600;
-  }
-  ${changedFiles2} > div:first-child::before {
-    content: '';
-    flex: none;
-    inline-size: 36px;
-    block-size: 36px;
-    border-radius: 9px;
-    background: var(--hcv-chat);
-    background-image: ${codexMask("changes", "#5e5e5e")};
-    background-size: 18px 18px;
-    background-repeat: no-repeat;
-    background-position: center;
-  }
-  ${changedFiles2} > div:first-child > button {
-    border: 1px solid var(--hcv-stroke);
-    border-radius: 8px;
-    background: var(--hcv-hover);
-    padding: 4px 8px 5px;
-    color: var(--hcv-text);
-    font-weight: 400;
-  }
-  ${changedFiles2} > div:first-child > button:hover { background: var(--hcv-selected); }
-  ${fileSummary} [data-hcv-file-native-title] { display: none; }
-  ${fileSummary} [data-hcv-files-heading] { display: grid; flex: 1; min-inline-size: 0; gap: 2px; }
-  ${fileSummary} [data-hcv-files-totals] {
-    display: flex;
-    gap: 3px;
-    font-size: 12px;
-    font-weight: 400;
-    line-height: 1.25;
-    font-variant-numeric: tabular-nums;
-  }
-  ${fileSummary} [data-hcv-files-totals]:not(:has(> :not(:empty))) { display: none; }
-  ${fileSummary} [data-hcv-files-added] { color: var(--ui-green); }
-  ${fileSummary} [data-hcv-files-removed] { color: var(--ui-red); }
-  ${fileSummary} [data-hcv-file-review] { font-size: 0; }
-  ${fileSummary} [data-hcv-file-review]::after { content: attr(data-hcv-file-review); font-size: 12px; }
-  ${fileSummary} > div:first-child > [data-hcv-files-checkpoint] {
+  ${fileHeader} {
+    position: relative;
+    min-inline-size: 0;
     display: flex;
     align-items: center;
-    gap: 4px;
-    border-color: transparent;
-    background: transparent;
-    font-size: 12px;
+    column-gap: 10px;
+    padding: 12px var(--hcv-file-padding);
   }
-  ${fileSummary} [data-hcv-files-checkpoint]::after {
+  ${fileHeader}::before,
+  ${fileHeader}::after {
     content: '';
-    inline-size: 13px;
-    block-size: 13px;
-    background: currentColor;
-    mask: ${codexMask("checkpoint")} center / contain no-repeat;
+    pointer-events: none;
   }
-  ${changedFiles2} > div:nth-child(2) { margin: 0; padding: 0; }
-  ${changedFiles2} > div:nth-child(2) > button { min-block-size: 32px; border-radius: 0; padding: 4px 10px; }
-  ${fileSummary}[data-hcv-files-foldable]:not([data-hcv-files-open]) > div:nth-child(2) > button:nth-of-type(n + 4) { display: none; }
-  ${fileSummary} > div:nth-child(2) { max-block-size: min(60vh, 384px) !important; }
+  ${fileHeader}::before {
+    flex: none;
+    position: relative;
+    z-index: 1;
+    inline-size: 40px;
+    block-size: 40px;
+    border-radius: var(--hcv-file-radius);
+    background: light-dark(#f7f7f7, #151515);
+  }
+  ${fileHeader}::after {
+    position: absolute;
+    z-index: 1;
+    inset-inline-start: calc(var(--hcv-file-padding) + 8px);
+    inset-block-start: calc(50% - 12px);
+    inline-size: 24px;
+    block-size: 24px;
+    background: color-mix(in srgb, var(--hcv-file-text) 65%, transparent);
+    mask: ${codexMask("turnDiff")} center / contain no-repeat;
+  }
+  ${fileSummary} button {
+    cursor: pointer;
+  }
+  ${fileSummary} button:focus-visible {
+    box-shadow: inset 0 0 0 2px var(--hcv-file-focus);
+    outline: none;
+  }
+  ${fileHeader} > [data-hcv-files-open] {
+    position: absolute;
+    inset: 0;
+    border-radius: var(--hcv-file-radius);
+    background: transparent;
+  }
+  ${fileHeader}:hover > [data-hcv-files-open] {
+    background: color-mix(in oklab, var(--hcv-file-hover) 30%, transparent);
+  }
+  ${fileSummary} [data-hcv-file-native-title] { display: none; }
+  ${fileSummary} [data-hcv-files-heading] {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-inline-size: 0;
+    pointer-events: none;
+  }
+  ${fileSummary} :is([data-hcv-files-title], [data-hcv-files-subtitle], [data-hcv-files-more-label], [data-hcv-file-directory], [data-hcv-file-basename]) {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  ${fileSummary} [data-hcv-files-title] { font-weight: 500; }
+  ${fileSummary} [data-hcv-files-subtitle] {
+    color: var(--hcv-file-description);
+    font-size: 13px;
+  }
+  ${fileSummary} [data-hcv-files-hover] {
+    display: none;
+    align-items: center;
+    gap: 4px;
+  }
+  ${fileHeader}:is(:hover, :focus-within) [data-hcv-files-hover] { display: inline-flex; }
+  ${fileHeader}:is(:hover, :focus-within) [data-hcv-files-totals] { display: none; }
+  ${fileSummary} [data-hcv-files-totals] {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: 4px;
+    line-height: 1;
+    letter-spacing: -.025em;
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "cv01" on, "cv02" on;
+  }
+  ${fileSummary} [data-hcv-files-added] { color: light-dark(#00a240, #40c977); }
+  ${fileSummary} [data-hcv-files-removed] { color: light-dark(#ba2623, #fa423e); }
+  ${fileHeader} > :is([data-hcv-file-review], [data-hcv-files-checkpoint]) {
+    position: relative;
+    z-index: 1;
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: 6px;
+    block-size: 28px;
+    border-radius: var(--hcv-file-radius);
+    padding-inline: 8px;
+    color: inherit;
+    font-size: 13px;
+    font-weight: 430;
+    line-height: 18px;
+    white-space: nowrap;
+  }
+  ${fileHeader} > [data-hcv-file-review] {
+    gap: 0;
+    border: 1px solid var(--hcv-file-border);
+    background: light-dark(#fff, #292929);
+    font-size: 0;
+  }
+  ${fileHeader} > [data-hcv-files-checkpoint] + [data-hcv-file-review] { margin-inline-start: -2px; }
+  ${fileHeader} > [data-hcv-file-review]::after { content: attr(data-hcv-file-review); font-size: 13px; }
+  ${fileHeader} > :is([data-hcv-file-review], [data-hcv-files-checkpoint]):hover {
+    background-color: var(--hcv-file-hover);
+  }
+  ${fileHeader} > :is([data-hcv-file-review], [data-hcv-files-checkpoint]):focus-visible {
+    box-shadow: 0 0 0 2px var(--hcv-file-focus);
+  }
+  ${fileHeader} > [data-hcv-files-checkpoint]:not(:hover) { background: transparent; }
+  ${fileSummary} :is([data-hcv-files-checkpoint], [data-hcv-files-hover], [data-hcv-files-more])::after {
+    content: '';
+    flex: none;
+    inline-size: 14px;
+    block-size: 14px;
+    background: currentColor;
+    mask: var(--hcv-file-icon) center / contain no-repeat;
+  }
+  ${fileSummary} [data-hcv-files-checkpoint] { --hcv-file-icon: ${codexMask("turnDiffUndo")}; }
+  ${fileSummary} [data-hcv-files-hover] { --hcv-file-icon: ${codexMask("turnDiffOpen")}; }
+  ${fileSummary} [data-hcv-files-more] { --hcv-file-icon: ${codexMask("turnDiffDown")}; }
+  ${fileSummary} [data-hcv-files-more][aria-expanded="true"]::after { transform: rotate(180deg); }
+  ${fileList} {
+    max-height: none !important;
+    overflow: visible;
+    mask: none;
+    animation: none;
+    margin: 0;
+    padding: 0;
+    border-block-start: 1px solid var(--hcv-file-border);
+  }
+  ${fileSummary}[data-hcv-file-single] > div:nth-child(2),
+  ${fileSummary}[data-hcv-files-foldable]:not([data-hcv-files-open]) > div:nth-child(2) > button:nth-of-type(n + 4) {
+    display: none;
+  }
+  ${fileRow} > :not([data-hcv-generated]) { display: none; }
+  ${fileSummary} [data-hcv-file-accessible-path] {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  ${fileSummary} [data-hcv-file-path] {
+    display: flex;
+    align-items: center;
+    flex: 1;
+    min-inline-size: 0;
+  }
+  ${fileSummary} [data-hcv-file-directory] { min-inline-size: 0; color: var(--hcv-file-description); }
+  ${fileSummary} [data-hcv-file-basename] { max-inline-size: 100%; flex-shrink: 0; }
+  ${fileRow},
   ${fileSummary} [data-hcv-files-more] {
     display: flex;
     inline-size: 100%;
-    min-block-size: 32px;
+    block-size: 36px;
+    flex: none;
     align-items: center;
-    gap: 6px;
-    border-block-start: 1px solid color-mix(in srgb, var(--hcv-stroke) 65%, transparent);
-    border-end-start-radius: 9px;
-    border-end-end-radius: 9px;
-    padding: 4px 10px;
+    gap: 8px;
+    border-radius: 0;
+    padding: 4px var(--hcv-file-padding);
+    color: inherit;
     text-align: start;
-    background: var(--hcv-summary);
-    cursor: pointer;
   }
-  ${fileSummary} [data-hcv-files-more]:hover { background: var(--hcv-hover); }
-  ${assistantRoot}:has(> [data-slot="aui_changed-files"]) > :has([data-slot="aui_msg-actions"]) { order: 1; }
-  ${assistantRoot}:has(> [data-slot="aui_changed-files"]) [data-slot="aui_msg-actions"] { margin-inline-end: auto; }
-
-  ${chat} [data-slot="aui_user-bubble-actions"] {
-    inline-size: fit-content;
-    min-inline-size: min(92px, 100%);
-    max-inline-size: 70%;
-    margin-inline-start: auto;
+  ${fileRow} { background: light-dark(#fff, #1c1c1c); }
+  ${fileRow}:hover { background: color-mix(in oklab, var(--hcv-file-hover) 60%, transparent); }
+  ${fileSummary}:not([data-hcv-files-foldable]) > div:nth-child(2) > button:last-of-type,
+  ${fileSummary} [data-hcv-files-more] {
+    border-end-start-radius: var(--hcv-file-radius);
+    border-end-end-radius: var(--hcv-file-radius);
   }
-
-  ${chat} [data-slot="aui_user-bubble-actions"] .composer-human-message {
-    border-color: transparent;
-    border-radius: 15px;
-    padding-block: 9px;
+  ${fileSummary} [data-hcv-files-more]:hover {
+    background: color-mix(in oklab, var(--hcv-file-hover) 30%, transparent);
   }
-
-  ${docked} [data-slot="composer-root"] {
-    --composer-fill: var(--hcv-composer);
-    border-radius: 22px;
+  @supports (corner-shape: superellipse(1.5)) {
+    ${fileSummary} { --hcv-file-radius: 12.5px; }
+    ${fileSummary},
+    ${fileHeader}::before,
+    ${fileSummary} button { corner-shape: superellipse(1.5); }
   }
+  ${assistantRoot}:has(> [data-hcv-file-card]) > :has([data-slot="aui_msg-actions"]) { order: 1; }
+  ${assistantRoot}:has(> [data-hcv-file-card]) [data-slot="aui_msg-actions"] { margin-inline-end: auto; }
 
-  ${composerSurface} button > ${chevron},
-  ${composerSurface} [data-slot="fan-menu-anchor"] > .codicon-chevron-up {
-    display: none;
-  }
-
-  ${composerSurface} button:has(> ${chevron}) {
-    border-radius: 8px;
-  }
-
-  ${composerSurface} button:has(> ${chevron}):not(:disabled):hover {
-    background-color: var(--hcv-selected);
-  }
-
-  ${composerSurface} button[type="submit"] {
-    border-radius: 50%;
-  }
-
-  ${composerSurface} button[type="submit"]:not(:disabled) {
-    background-color: var(--hcv-action);
-    color: var(--hcv-ink);
-  }
-
-  ${composerSurface} button[type="submit"]:not(:disabled):hover {
-    background-color: color-mix(in srgb, var(--hcv-action) 85%, var(--hcv-ink));
-  }
-
-  ${iconRules()}
 }
-`;
-var plugin_default = {
-  id,
-  name: "Hermes Codex Visual",
-  description: "An independent Codex-style workspace theme for Hermes Desktop.",
-  defaultEnabled: false,
-  register(ctx) {
-    ctx.register({ id: "theme", area: THEMES_AREA, data: theme });
-    const root = document.documentElement;
-    const sheet = document.createElement("style");
-    sheet.setAttribute(marker2, "");
-    sheet.textContent = styles5;
-    ctx.onDispose(() => {
-      sheet.remove();
-      if (!document.head.querySelector(`style[${marker2}]`)) {
-        root.removeAttribute(marker2);
-      }
-    });
-    document.head.append(sheet);
+`, { surface: '[data-hcv-turn-line], [data-slot="aui_turn-duration"], [data-slot="aui_response-loading"], [data-slot="aui_turn-activity"], [data-slot="aui_changed-files"]', retainAcrossChatTabs: true });
     root.setAttribute(marker2, "");
     registerWorkspaceChrome(ctx, themeName);
     const roster = registerSubagents(ctx, active);
@@ -15101,6 +18490,13 @@ var plugin_default = {
     registerComposer(ctx, active);
     registerDraftSetup(ctx, active, localEnvironment);
     registerDictation(ctx, active);
+    if (null) {
+      void ctx.files.writeText(ctx.files.dataFolder, "loaded-version.json", JSON.stringify({
+        version: null,
+        theme: root.dataset.hermesTheme,
+        loadedAt: (/* @__PURE__ */ new Date()).toISOString()
+      }) + "\n");
+    }
   }
 };
 export {

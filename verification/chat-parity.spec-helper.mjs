@@ -11,6 +11,91 @@ const tileGoal = 'Проверка соседней вкладки'
 const goals = ['Карта источников', 'Проверка выводов', 'Вычитка примеров']
 const subagentReply = 'Проверка пройдена.'
 
+export async function verifyReplyActionsInteraction({ app, page, expect, openThemeSettings, closeSettings, themeCard }) {
+  const line = 'Ответ 59. Контрольный текст для проверки длинного разговора.'
+  const chat = page.locator('[data-chat-surface][data-composer-target="main"]:visible')
+  const answer = chat.locator('[data-slot="aui_assistant-message-root"]').filter({ hasText: line })
+  const actions = answer.locator('[data-slot="aui_msg-actions"]')
+  const copy = actions.locator('.aui-message-actions-desktop button[data-size="icon"]').first()
+  const tip = page.locator('[data-hcv-reply-copy-tip]')
+
+  await actions.scrollIntoViewIfNeeded()
+  await page.mouse.move(3, 90)
+  await expect(tip).toBeHidden()
+  await expect(actions).toHaveCSS('opacity', '0')
+  await expect(actions.locator('time')).toHaveCSS('pointer-events', 'none')
+  const layout = await actions.boundingBox()
+
+  await answer.getByText(line, { exact: true }).hover()
+  await expect(actions).toHaveCSS('opacity', '1')
+  assert.deepEqual(await actions.boundingBox(), layout)
+  await expect(actions.locator('button:visible')).toHaveCount(1)
+  await copy.hover()
+  await expect(copy).toHaveCSS('width', '26px')
+  await expect(copy).toHaveCSS('height', '26px')
+  await expect(copy.locator('svg')).toHaveCSS('width', '14px')
+  await expect(copy).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+  await expect(tip).toHaveText('Скопировать ответ')
+  await expect(tip).toBeVisible()
+  const [buttonBox, tipBox] = await Promise.all([copy.boundingBox(), tip.boundingBox()])
+  assert(buttonBox && tipBox, 'Copy and its tooltip must both have layout boxes')
+  assert(Math.abs(buttonBox.y - tipBox.y - tipBox.height - 5) <= 1, 'Tooltip gap above Copy')
+  await expect(page.locator('[data-slot="tooltip-content"]:visible')).toHaveCount(0)
+  await page.mouse.move(3, 90)
+  await expect(actions).toHaveCSS('opacity', '0')
+  await expect(tip).toBeHidden()
+
+  // Simulate the real keyboard modality used by the floating composer's focus guard.
+  await page.keyboard.down('Tab')
+  await copy.evaluate(button => button.focus({ preventScroll: true }))
+  await page.keyboard.up('Tab')
+  await page.keyboard.press('Shift+Tab')
+  await page.keyboard.press('Tab')
+  await expect(copy).toBeFocused()
+  assert(await copy.evaluate(button => button.matches(':focus-visible')))
+  await expect(actions).toHaveCSS('opacity', '1')
+  await expect(tip).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(tip).toBeHidden()
+  await expect(copy).toBeFocused()
+
+  // Replace only the text writer of this isolated Electron process. The
+  // operating-system clipboard can change while a test is running.
+  await app.evaluate(({ clipboard }) => {
+    globalThis.hcvReplyClipboardWriter = clipboard.writeText
+    clipboard.writeText = async text => { globalThis.hcvReplyClipboard = text }
+  })
+  try {
+    await copy.press('Enter')
+    await expect(copy).toHaveAttribute('aria-label', 'Скопировано')
+    assert.equal(await app.evaluate(() => globalThis.hcvReplyClipboard), [
+      line,
+      '- Пункт проверки\n- Ещё один пункт.',
+      '| A | B |\n| --- | --- |\n| 59 | 118 |',
+      '[Источник](https://example.invalid/reference-59)',
+    ].join('\n\n'))
+  } finally {
+    await app.evaluate(({ clipboard }) => {
+      clipboard.writeText = globalThis.hcvReplyClipboardWriter
+      delete globalThis.hcvReplyClipboard
+      delete globalThis.hcvReplyClipboardWriter
+    })
+  }
+
+  await openThemeSettings()
+  await themeCard('Nous').click()
+  await closeSettings()
+  await expect(actions.locator('button:visible')).toHaveCount(4)
+  await expect(actions.locator('time')).toHaveCSS('pointer-events', 'auto')
+  await expect(tip).toBeHidden()
+  await openThemeSettings()
+  await themeCard('Codex').click()
+  await closeSettings()
+  await expect(actions.locator('button:visible')).toHaveCount(1)
+  return { datePreserved: true, tooltipGap: buttonBox.y - tipBox.y - tipBox.height,
+    layoutStable: true, keyboardCopy: true, nativeThemeRestored: true }
+}
+
 export function makeChatFixture() {
   const { promise, resolve } = Promise.withResolvers()
   const children = new Set()

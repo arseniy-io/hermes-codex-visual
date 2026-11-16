@@ -1,6 +1,11 @@
-import { codexMask } from './codex-reference.js'
+import { mountStyle } from './style-scope.js'
+import { localAssets, svgMask, codexMask } from './codex-reference.js'
 
 const progressGlyphs = { pending: 'circle', done: 'circleCheck', failed: 'circleX', disclosure: 'right' }
+
+function progressMask(state) {
+  return localAssets ? svgMask(localAssets.install[state]) : codexMask(progressGlyphs[state])
+}
 
 export function registerInstallOverlayStyle(ctx, active) {
   // Only the progress/failure panel has a scrollable middle and a 90vh cap.
@@ -62,10 +67,10 @@ export function registerInstallOverlayStyle(ctx, active) {
     block-size: 16px;
     background: currentColor;
     color: var(--hcv-muted);
-    mask: ${codexMask(progressGlyphs.pending)} center / contain no-repeat;
+    mask: ${progressMask('pending')} center / contain no-repeat;
   }
-  ${icon}:has(> .codicon-check) { color: var(--hcv-install-info); mask-image: ${codexMask(progressGlyphs.done)}; }
-  ${icon}:has(> .codicon-error) { color: var(--destructive); mask-image: ${codexMask(progressGlyphs.failed)}; }
+  ${icon}:has(> .codicon-check) { color: var(--hcv-install-info); mask-image: ${progressMask('done')}; }
+  ${icon}:has(> .codicon-error) { color: var(--destructive); mask-image: ${progressMask('failed')}; }
   ${icon} > *, ${spinner} > svg, ${disclosure} > svg > * { visibility: hidden; }
   ${spinner} {
     inline-size: 14px;
@@ -97,7 +102,7 @@ export function registerInstallOverlayStyle(ctx, active) {
     inline-size: 14px;
     block-size: 14px;
     background: currentColor;
-    mask: ${codexMask(progressGlyphs.disclosure)} center / contain no-repeat;
+    mask: ${progressMask('disclosure')} center / contain no-repeat;
     transition: rotate 300ms cubic-bezier(.4, 0, .2, 1);
   }
   ${disclosure}:has(+ [data-selectable-text]) > svg { rotate: 90deg; }
@@ -125,6 +130,5 @@ export function registerInstallOverlayStyle(ctx, active) {
   }
 }
 `
-  document.head.append(sheet)
-  ctx.onDispose(() => sheet.remove())
+  mountStyle(ctx, sheet, { surface: '.flex.flex-col[class~="max-h-[90vh]"]' })
 }

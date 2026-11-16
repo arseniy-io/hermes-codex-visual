@@ -35,8 +35,8 @@ export async function verifyPolish({ page, expect, sidebar, screenshot, navigati
 
   const summary = page.locator('[data-hcv-context-card]')
   const toggle = page.locator('[data-hcv-context-toggle]')
-  const bounds = page.locator('[data-chat-surface][data-composer-target="main"] > [data-slot="composer-bounds"]')
-  const inset = () => bounds.evaluate(node => parseFloat(getComputedStyle(node).marginInlineEnd))
+  const viewport = page.locator('[data-chat-surface][data-composer-target="main"] [data-slot="aui_thread-viewport"]')
+  const inset = () => viewport.evaluate(node => parseFloat(getComputedStyle(node).paddingRight))
   const before = await inset()
   assert(before > 250)
   const cardX = (await summary.boundingBox()).x

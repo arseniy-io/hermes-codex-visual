@@ -1,3 +1,5 @@
+import { localAssets } from './codex-reference.js'
+
 // Original workspace badges. The same seed selects a badge in both modes.
 const shapes = [
   '<circle cx="12" cy="12" r="2.1" fill="currentColor"/><ellipse cx="12" cy="12" rx="7.5" ry="3.7" transform="rotate(-28 12 12)" fill="none" stroke="currentColor" stroke-width="1.65"/>',
@@ -17,7 +19,7 @@ const palettes = [
   [['#4b3230', '#ffb4a1'], ['#f5e1d9', '#963e35']],
 ]
 
-export const agentAvatars = shapes.flatMap((shape) =>
+export const agentAvatars = localAssets?.avatars ?? shapes.flatMap((shape) =>
   palettes.map((palette) => palette.map(([background, foreground]) =>
     `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" style="color:${foreground};--badge-bg:${background}"><rect x="1" y="1" width="22" height="22" rx="8" fill="${background}"/>${shape}</svg>`,
   )),

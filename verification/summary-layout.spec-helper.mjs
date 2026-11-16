@@ -11,29 +11,68 @@ export async function verifySummaryLayout({ page, expect, summary, outside, scre
       const rect = root.querySelector(selector)?.getBoundingClientRect()
       return rect && { left: rect.left, right: rect.right, center: rect.left + rect.width / 2 }
     }
-    const bounds = box('[data-slot="composer-bounds"]')
     const outer = node.getBoundingClientRect()
+    const viewport = node.querySelector('[data-slot="aui_thread-viewport"]')
+    const rect = viewport.getBoundingClientRect()
+    const styles = getComputedStyle(viewport)
     return {
-      bounds,
-      inset: outer.right - bounds.right,
+      inset: parseFloat(styles.paddingRight),
       outer: { left: outer.left, right: outer.right },
+      scroll: {
+        right: rect.right,
+        windowInset: window.innerWidth - rect.right,
+        centerY: rect.top + rect.height / 2,
+        gutter: viewport.offsetWidth - viewport.clientWidth - viewport.clientLeft,
+        width: styles.scrollbarWidth,
+        gutterMode: styles.scrollbarGutter,
+        color: styles.scrollbarColor,
+      },
       thread: box('[data-slot="aui_thread-content"]'),
       composer: box('[data-slot="composer-surface"]'),
       card: box('[data-hcv-context-card]', document),
-      scrollTop: node.querySelector('[data-slot="aui_thread-viewport"]').scrollTop,
+      scrollTop: viewport.scrollTop,
     }
   })
   const inset = async () => Math.round((await measure()).inset)
-  const reserve = 312
+  const reserve = 292
   const draft = 'Черновик для проверки сводки'
   await expect(editor).toBeEditable()
   await editor.fill(draft)
   await expect(viewport.getByText(/^Контрольный абзац 36\./)).toBeAttached()
-  await viewport.evaluate(node => { node.scrollTop = Math.floor((node.scrollHeight - node.clientHeight) / 2) })
-  await expect(viewport).toHaveAttribute('data-following', 'false')
   await expect.poll(inset).toBe(reserve)
+  await expect.poll(() => viewport.evaluate(node => node.scrollHeight - node.clientHeight)).toBeGreaterThan(200)
+  const loaded = await measure()
+  await page.mouse.move(loaded.thread.center, loaded.scroll.centerY)
+  await page.mouse.wheel(0, -300)
+  await expect(viewport).toHaveAttribute('data-following', 'false', { timeout: 15000 })
+  await viewport.evaluate(node => { node.scrollTop = Math.floor((node.scrollHeight - node.clientHeight) / 2) })
+  await page.mouse.move(10, (await page.evaluate(() => window.innerHeight)) - 8)
+  const scrollbarAlpha = async () => Number((await measure()).scroll.color.match(/rgba\([^)]*, ([.\d]+)\)/)?.[1])
+  await expect.poll(scrollbarAlpha).toBeLessThan(.1)
   const expanded = await measure()
   assert(expanded.scrollTop > 30)
+  assert(Math.abs(expanded.scroll.right - expanded.outer.right) < 1, JSON.stringify(expanded))
+  assert(expanded.scroll.windowInset < 8, JSON.stringify(expanded.scroll))
+  assert.equal(expanded.scroll.width, 'thin')
+  assert.equal(expanded.scroll.gutterMode, 'stable both-edges')
+  await screenshot('summary-layout-scrollbar.png')
+
+  await page.mouse.move(expanded.thread.center, expanded.scroll.centerY)
+  await expect.poll(scrollbarAlpha).toBeGreaterThan(.1)
+  const hovered = await measure()
+  assert.notEqual(hovered.scroll.color, expanded.scroll.color)
+
+  if (process.platform === 'win32') {
+    assert(expanded.scroll.gutter > 0, JSON.stringify(expanded.scroll))
+    const x = expanded.scroll.right - expanded.scroll.gutter / 2
+    const y = expanded.scroll.centerY
+    await page.mouse.move(x, y)
+    await page.mouse.down()
+    await page.mouse.move(x, y + 24, { steps: 4 })
+    await page.mouse.up()
+    await expect.poll(async () => (await measure()).scrollTop, { message: 'Dragging the right-edge thumb scrolls the transcript' }).toBeGreaterThan(expanded.scrollTop + 24)
+    await viewport.evaluate((node, top) => { node.scrollTop = top }, expanded.scrollTop)
+  }
 
   await actions.click()
   await page.getByRole('menuitem', { name: 'Открепить сводку' }).click()
@@ -44,6 +83,7 @@ export async function verifySummaryLayout({ page, expect, summary, outside, scre
   await expect(summary).toBeHidden()
   await expect.poll(inset).toBe(0)
   const collapsed = await measure()
+  assert.equal(collapsed.scroll.right, expanded.scroll.right)
   for (const column of ['thread', 'composer']) {
     assert(expanded[column].right < expanded.card.left, JSON.stringify(expanded))
     assert(Math.abs(collapsed[column].center - expanded[column].center - reserve / 2) < 3)
@@ -54,16 +94,19 @@ export async function verifySummaryLayout({ page, expect, summary, outside, scre
   await cdp.send('Animation.enable')
   await page.emulateMedia({ reducedMotion: 'no-preference' })
   for (const opening of [true, false]) {
-    await cdp.send('Animation.setPlaybackRate', { playbackRate: .12 })
+    await cdp.send('Animation.setPlaybackRate', { playbackRate: 0 })
     await toggle.click()
     await expect(toggle).toHaveAttribute('aria-expanded', String(opening))
-    const started = await page.locator('html').evaluate(node => node.getAnimations().some(animation => animation.transitionProperty === '--hcv-summary-progress'))
-    assert(started)
-    await expect.poll(async () => {
-      const width = await inset()
-      return width > 10 && width < reserve - 10
-    }).toBe(true)
+    const sampled = await page.locator('html').evaluate(node => {
+      const transition = node.getAnimations().find(animation => animation.transitionProperty === '--hcv-summary-progress')
+      if (!transition) return false
+      transition.currentTime = transition.effect.getTiming().duration / 3
+      return true
+    })
+    assert(sampled, 'Expected a summary transition')
     const moving = await measure()
+    assert(moving.inset > 10 && moving.inset < reserve - 10, JSON.stringify(moving))
+    assert.equal(moving.scroll.right, expanded.scroll.right)
     for (const column of ['thread', 'composer']) {
       assert(Math.abs(moving[column].center - collapsed[column].center + moving.inset / 2) < 3, JSON.stringify(moving))
     }
@@ -76,8 +119,8 @@ export async function verifySummaryLayout({ page, expect, summary, outside, scre
   await expect(summary).toBeHidden()
   await expect(editor).toHaveText(draft)
   const afterAnimation = await measure()
-  assert(Math.abs(afterAnimation.scrollTop - expanded.scrollTop) < 2,
-    JSON.stringify({ before: expanded.scrollTop, after: afterAnimation.scrollTop }))
+  assert(Math.abs(afterAnimation.scrollTop - collapsed.scrollTop) < 2,
+    JSON.stringify({ before: collapsed.scrollTop, after: afterAnimation.scrollTop }))
   await editor.fill('')
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await toggle.click()
@@ -88,13 +131,17 @@ export async function verifySummaryLayout({ page, expect, summary, outside, scre
   await expect(summary).toHaveAttribute('data-pinned', 'true')
 
   await page.setViewportSize({ width: 1440, height: 465 })
-  await expect(summary).toBeVisible()
-  await expect.poll(inset).toBe(reserve)
+  await expect(summary).toBeVisible({ timeout: 15000 })
+  await expect.poll(inset, { timeout: 15000 }).toBe(reserve)
   await page.setViewportSize({ width: 1050, height: 920 })
   await expect(summary).toHaveCount(0)
   await expect.poll(inset).toBe(0)
+  assert.equal((await measure()).scroll.width, 'thin')
   await page.setViewportSize({ width: 1440, height: 920 })
-  await expect(summary).toBeVisible()
-  await expect.poll(inset).toBe(reserve)
-  console.log(JSON.stringify({ summaryInset: reserve, transcriptShift: collapsed.thread.center - expanded.thread.center, draftPreserved: true, scrollPreserved: true }))
+  await expect(summary).toBeVisible({ timeout: 15000 })
+  await expect.poll(inset, { timeout: 15000 }).toBe(reserve)
+  console.log(JSON.stringify({
+    summaryInset: reserve, transcriptShift: collapsed.thread.center - expanded.thread.center,
+    scrollbar: expanded.scroll, scrollbarHoverColor: hovered.scroll.color, draftPreserved: true, scrollPreserved: true,
+  }))
 }

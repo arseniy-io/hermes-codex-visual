@@ -1,11 +1,15 @@
 import { host } from '@hermes/plugin-sdk'
 import { codexIconRules, codexIconStyle, codexReference as codex } from './codex-reference.js'
-import { nativeProjectActivity } from './sidebar-recents.js'
+import { committedFiber, nativeProjectActivity } from './sidebar-recents.js'
 import { attachSidebarOrder, sidebarOrderStyles } from './sidebar-chat-order.js'
+import { sidebarMarqueeStyles, trackTitleOverflow } from './title-overflow.js'
 
 const media = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
 const folderRows = '[data-sessions-project]:not([data-sessions-mode])'
 const scope = '[data-sessions-mode="projects"]'
+const sessionTitle = 'button[data-slot="row-button"] .hover-marquee'
+export const sidebarSessionRow = `[data-sessions-mode] .row-hover:has(${sessionTitle})`
+const scrollingRow = `:is(${sidebarSessionRow}, [data-hcv-recents-fallback] > button)`
 const projectSection = '[data-hcv-projects-section]'
 const sectionHeader = '[data-hcv-projects-header]'
 const projectRow = '[data-hcv-project-row]'
@@ -173,17 +177,28 @@ export function disclosure(button, native, region, regionId, timing = sectionMot
   }
 }
 
-function openNativeEdit(trigger, alive) {
+const projectMenu = '[data-row-actions] button[aria-haspopup="menu"]'
+
+function nativeProject(trigger, id) {
+  for (let fiber = committedFiber(trigger); fiber; fiber = fiber.return) {
+    const project = fiber.memoizedProps?.project
+    if (project?.id === id) return project
+  }
+}
+
+function openNativeRename(entry, alive) {
+  const trigger = entry?.row.querySelector(projectMenu)
   if (!trigger?.isConnected) return
   trigger.focus({ preventScroll: true })
   trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
-  requestAnimationFrame(() => {
-    if (!alive()) return
+  let remaining = 6
+  function select() {
+    if (!alive() || !trigger.isConnected || trigger.getAttribute('aria-expanded') !== 'true') return
     const menu = document.getElementById(trigger.getAttribute('aria-controls'))
-    const edit = menu?.querySelector('[role="menuitem"]:has(> .codicon-edit)') ||
-      menu?.querySelector('[role="menuitem"]:has(> .codicon-symbol-color)')
-    edit?.click()
-  })
+    if (menu) menu.querySelector('[role="menuitem"]:has(> .codicon-edit)')?.click()
+    else if (--remaining) requestAnimationFrame(select)
+  }
+  requestAnimationFrame(select)
 }
 
 export function positionSidebarPreview(card, rect) {
@@ -266,14 +281,18 @@ function projectPreview(content, t) {
     showing = entry
     entry.row.setAttribute('data-hcv-preview-open', '')
     card.setAttribute('aria-label', t('projectDetails'))
-    editLabel.textContent = t('editProject')
+    editLabel.textContent = t('renameProject')
     title.textContent = entry.name.textContent
+    const trigger = entry.row.querySelector(projectMenu)
+    const project = nativeProject(trigger, entry.id)
     sessions.hidden = true
     folder.hidden = true
-    footer.hidden = !entry.menu
+    footer.hidden = !trigger || Boolean(project?.isAuto || project?.isNoProject)
     card.hidden = false
-    position()
-    const data = await projectData(entry.id)
+    // The row already carries the path and count on current Hermes. Avoid
+    // rebuilding the backend project tree just to show the hover preview.
+    if (!project) position()
+    const data = project ?? await projectData(entry.id)
     if (!alive || showing !== entry || !data) return
     if (Number.isFinite(data.sessionCount)) {
       count.textContent = t('projectChats', data.sessionCount)
@@ -299,7 +318,7 @@ function projectPreview(content, t) {
   edit.addEventListener('click', () => {
     const entry = showing
     close()
-    openNativeEdit(entry?.menu, () => alive && entry?.row.isConnected)
+    openNativeRename(entry, () => alive && entry?.row.isConnected)
   })
   card.addEventListener('pointerenter', () => clearTimeout(delay))
   card.addEventListener('pointerleave', deferClose)
@@ -312,7 +331,7 @@ function projectPreview(content, t) {
   return {
     attach(entry) {
       const enter = (event) => {
-        if (!supportsHover.matches || event.pointerType !== 'mouse' || event.buttons || !entry.menu) return
+        if (!supportsHover.matches || event.pointerType !== 'mouse' || event.buttons || !entry.row.querySelector(projectMenu)) return
         clearTimeout(delay)
         clearTimeout(timer)
         hovered = entry
@@ -344,6 +363,7 @@ export function attachProjects(content, t, storage) {
   const rows = new Map()
   const preview = projectPreview(content, t)
   const order = attachSidebarOrder(content, storage)
+  const measureTitles = trackTitleOverflow({ marquee: true })
   let section
   let reveal
 
@@ -395,8 +415,21 @@ export function attachProjects(content, t, storage) {
     if (section.label.data !== text) section.label.data = text
     section.motion.sync()
   }
+  function syncActivity(tree = content.querySelector(scope)) {
+    if (!tree) return
+    const activity = nativeProjectActivity(tree)
+    if (section) {
+      const collapsedStatus = [...activity.values()].includes('working') ? 'working' : activity.size ? 'unread' : ''
+      showStatus(section.status, section.button.ariaExpanded === 'false' ? collapsedStatus : '', t)
+    }
+    for (const entry of rows.values()) {
+      showStatus(entry.status, entry.name.ariaExpanded === 'true' ? '' : activity.get(entry.id) || '', t)
+    }
+  }
   return {
+    syncActivity,
     sync() {
+      measureTitles(content.querySelectorAll(`${scrollingRow} .hover-marquee`))
       const view = content.querySelector('[data-sessions-mode]')
       const mode = view?.dataset.sessionsMode
       if (reveal && (reveal.connection !== host.state.connectionId.get() || reveal.profile !== host.state.profile.get())) reveal = undefined
@@ -415,11 +448,6 @@ export function attachProjects(content, t, storage) {
       if (mode && mode !== 'projects') reveal = undefined
       const tree = content.querySelector(scope)
       syncSection(tree)
-      const activity = nativeProjectActivity(tree)
-      if (section) {
-        const collapsedStatus = [...activity.values()].includes('working') ? 'working' : activity.size ? 'unread' : ''
-        showStatus(section.status, section.button.ariaExpanded === 'false' ? collapsedStatus : '', t)
-      }
       const seen = new Set()
       const projectLists = []
       for (const item of tree?.querySelectorAll(folderRows) || []) {
@@ -469,7 +497,7 @@ export function attachProjects(content, t, storage) {
             }
           }
           const motion = action ? disclosure(name, action, region, `hcv-project-${encodeURIComponent(id)}`) : null
-          entry = { item, row, name, link, toggle, id, region, motion, status, empty, emptyKey, menu: row.querySelector('[data-row-actions] button[aria-haspopup="menu"]') }
+          entry = { item, row, name, link, toggle, id, region, motion, status, empty, emptyKey }
           entry.detach = preview.attach(entry)
           rows.set(item, entry)
           if (restoreFocus && expandable) name.focus({ preventScroll: true })
@@ -481,9 +509,9 @@ export function attachProjects(content, t, storage) {
         }
         entry.motion?.sync()
         projectLists.push({ project: entry.id, list: entry.toggle ? entry.region() : null })
-        showStatus(entry.status, entry.name.ariaExpanded === 'true' ? '' : activity.get(entry.id) || '', t)
       }
       for (const [key, entry] of rows) if (!seen.has(key)) clearRow(key, entry)
+      syncActivity(tree)
       order.sync({ chats: projectLists, projects: [...rows.values()] })
       if (section && reveal) {
         if (section.button.ariaExpanded === 'false') {
@@ -502,6 +530,7 @@ export function attachProjects(content, t, storage) {
       }
     },
     dispose() {
+      measureTitles()
       order.dispose()
       for (const [key, entry] of rows) clearRow(key, entry)
       clearSection()
@@ -528,6 +557,7 @@ export function projectSidebarStyles(active) {
   const readAction = 'button:has(> .codicon-check-all)'
   return `
   ${sidebarOrderStyles(active)}
+  ${sidebarMarqueeStyles(`${active} [data-tour="sessions-sidebar"] ${scrollingRow}`)}
   ${active} [data-hcv-native-project-action] { display: none !important; }
   ${active} [data-tour="sessions-sidebar"] [data-sessions-mode="project"]:has(button[class~="group/back"]) { visibility: hidden; }
   ${active} [data-hcv-disclosure-motion] {
@@ -561,7 +591,7 @@ export function projectSidebarStyles(active) {
   ${project} > [data-hcv-project-empty] > span { opacity: .5; }
   ${row} { position: relative; }
   ${row}:is(:hover, [data-hcv-preview-open], [data-state="open"], :has(> [data-row-actions] button[data-state="open"])) {
-    background: var(--hcv-hover);
+    background-color: var(--hcv-sidebar-highlight);
   }
   ${rowActions} { padding-inline-end: 4px; }
   ${rowActions}, ${rowActions} > div[class~="group/group-actions"] > div { column-gap: 8px; }

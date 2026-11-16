@@ -1,4 +1,6 @@
+import { mountStyle } from './style-scope.js'
 import {
+  atom,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -14,13 +16,14 @@ import {
 import { createElement as h, Fragment, useEffect, useId, useRef, useState } from 'react'
 import { codexIconStyle, codexReference as codex } from './codex-reference.js'
 import { toolbarOffsetEvent } from './chrome.js'
-import { CompactSources, registerSummarySources, SourcesPane, useChatSources } from './summary-sources.js'
+import { CompactSummaryItems, CompactSources, registerSummarySources, SourcesPane, useChatSources } from './summary-sources.js'
 import { SubagentsPane, SummarySubagents } from './subagents.js'
 import { registerSummaryPanes } from './summary-panes.js'
 import { ChangesPane, registerSummaryChanges } from './summary-changes.js'
+import { SummarySection, summarySectionStyles } from './summary-section.js'
 import {
   openWorkspaceReview, openWorkspaceTerminal, readWorkspaceRepository, readWorkspaceTrees,
-  registerWorkspaceActions, workspaceTreeFor,
+  registerWorkspaceActions, workspacePathKey, workspaceTreeFor,
 } from './workspace-actions.js'
 
 const primaryChat = '[data-chat-surface][data-composer-target="main"]'
@@ -181,12 +184,14 @@ function useWorkspaceData(draftCwd, enabled) {
         : host.request(method, params, 8000)
       let cwd = draftCwd
       let storedBranch = ''
+      let root = ''
       if (session) {
         // A live cwd can still belong to the previous chat during resume.
         const params = new URLSearchParams({ profile: route?.targetProfile ?? profile })
         const row = await window.hermesDesktop.api({ connectionId, path: `/api/sessions/${encodeURIComponent(session)}?${params}`, timeoutMs: 8000 }).catch(() => null)
         cwd = typeof row?.cwd === 'string' ? row.cwd.trim() : ''
         storedBranch = typeof row?.git_branch === 'string' ? row.git_branch : ''
+        root = typeof row?.git_repo_root === 'string' ? row.git_repo_root : ''
       }
       if (!current) return
       const scope = { connectionId, profile }
@@ -207,15 +212,17 @@ function useWorkspaceData(draftCwd, enabled) {
         sources.status === 'fulfilled' && Array.isArray(sources.value?.servers)
           ? sources.value.servers.filter((row) => typeof row?.name === 'string' && row.name && !row.disabled)
           : null
+      const tree = workspaceTreeFor(worktrees, cwd)
       setSnapshot({
         key,
         cwd,
+        root: tree?.path || root || cwd,
         project: project.status === 'fulfilled' ? project.value?.project?.name : null,
         sources: sourceRows,
         repo,
         nativeGit: status?.native,
         branch: repo?.branch || storedBranch,
-        isWorktree: workspaceTreeFor(worktrees, cwd)?.isMain === false,
+        isWorktree: tree?.isMain === false,
       })
     }
 
@@ -233,6 +240,41 @@ function useWorkspaceData(draftCwd, enabled) {
     key,
     refresh: () => setRevision(value => value + 1),
   }
+}
+
+function useRelatedRepositories(scope, primaryRoot, key, rows, shown) {
+  const dirs = JSON.stringify([...new Set(rows.filter(row => row.attached && row.kind === 'folder' &&
+    /^(?:[a-z]:[/\\]|\/[^/])/i.test(row.meta || '')).map(row => row.meta))])
+  const [snapshot, setSnapshot] = useState(null)
+  const connection = scope?.connectionId
+  const profile = scope?.profile
+  useEffect(() => {
+    if (!shown || !primaryRoot || !connection || !profile || dirs === '[]') return
+    let current = true
+    const owner = { connectionId: connection, profile }
+    const read = async (cwd) => {
+      const status = await readWorkspaceRepository(cwd, owner)
+      if (!current || !status?.repo) return null
+      const trees = await readWorkspaceTrees(cwd, owner, status.native).catch(() => [])
+      const root = workspaceTreeFor(trees, cwd)?.path || cwd
+      return { cwd: root, repo: status.repo, branch: status.repo.branch }
+    }
+    void Promise.allSettled(JSON.parse(dirs).map(read)).then(results => {
+      if (!current) return
+      const known = new Set([workspacePathKey(primaryRoot)])
+      const repos = []
+      for (const result of results) {
+        if (result.status !== 'fulfilled' || !result.value) continue
+        const repoKey = workspacePathKey(result.value.cwd)
+        if (known.has(repoKey)) continue
+        known.add(repoKey)
+        repos.push(result.value)
+      }
+      setSnapshot({ key, dirs, repos })
+    })
+    return () => { current = false }
+  }, [connection, profile, primaryRoot, key, dirs, shown])
+  return snapshot?.key === key && snapshot.dirs === dirs ? snapshot.repos : []
 }
 
 function useSourcesView(data, enabled) {
@@ -261,9 +303,11 @@ function ExpandedSources() {
   return h(SourcesPane, useSourcesView(enabled ? data : { key: data.key }, enabled))
 }
 
-function ExpandedChanges() {
+function ExpandedChanges({ selection }) {
   const { data, enabled } = useExpandedWorkspace()
-  return h(ChangesPane, { cwd: enabled ? data.snapshot?.cwd : '', scope: enabled ? data.scope : null })
+  const choice = useValue(selection)
+  const cwd = choice?.key === data.key ? choice.cwd : data.snapshot?.cwd
+  return h(ChangesPane, { cwd: enabled ? cwd : '', scope: enabled ? data.scope : null })
 }
 
 function DiffStats({ repo }) {
@@ -275,12 +319,14 @@ function DiffStats({ repo }) {
       : h('span', null, repo.changed))
 }
 
-function WorkspaceCard({ id, close, copy, shown, pinned, onPin, roster, panes, actions, localEnvironment, data, projectActions }) {
+function WorkspaceCard({ id, close, copy, shown, pinned, onPin, roster, panes, actions, localEnvironment, data,
+  projectActions, disclosure, selection }) {
   const { scope, snapshot, refresh } = data
   const sources = useSourcesView(data, shown)
   const runtime = useValue(host.state.activeSessionId)
   const session = useValue(host.state.focusedStoredSessionId)
   const busy = useValue(host.state.busy)
+  const related = useRelatedRepositories(scope, snapshot?.root, data.key, sources.rows, shown && !busy)
   const cwd = snapshot?.cwd || ''
   const local = scope?.connectionId === 'local' && Boolean(cwd)
   const target = { cwd, owner: scope, runtime, session, nativeGit: snapshot?.nativeGit, branch: snapshot?.branch }
@@ -296,24 +342,23 @@ function WorkspaceCard({ id, close, copy, shown, pinned, onPin, roster, panes, a
     setMenu(frame && anchor ? { side: anchor.left - frame.left + 8, align: frame.top - anchor.top } : { side: 8, align: 0 })
   }
 
-  function openChanges() {
-    if (snapshot?.nativeGit && openWorkspaceReview(currentChat)) return
-    panes.open('changes')
+  function changeRow(repo, folder, primary) {
+    const button = h('button', {
+      type: 'button', className: 'hcv-context-row hcv-context-changes',
+      disabled: !folder || !scope, 'aria-label': copy.changes, 'data-hcv-branch': repo?.branch || undefined,
+      onClick: () => {
+        if (primary && repo?.nativeGit && openWorkspaceReview(currentChat)) return
+        selection.set(primary ? null : { key: data.key, cwd: folder })
+        panes.open('changes')
+      },
+    }, icon('changes'), h('span', { className: 'hcv-context-label' }, copy.changes),
+    h('span', { className: 'hcv-context-change-meta' },
+      h(DiffStats, { repo: repo?.repo }),
+      repo?.branch && h('span', { className: 'hcv-context-branch-icon' }, icon('branch'))))
+    return repo?.branch ? h(Tip, { label: repo.branch }, button) : button
   }
 
-  const changeButton = h('button', {
-    type: 'button', className: 'hcv-context-row hcv-context-changes', onClick: openChanges,
-    disabled: !cwd || !scope, 'aria-label': copy.changes, 'data-hcv-branch': snapshot?.branch || undefined,
-  }, icon('changes'), h('span', { className: 'hcv-context-label' }, copy.changes),
-  h('span', { className: 'hcv-context-change-meta' },
-    h(DiffStats, { repo: snapshot?.repo }),
-    snapshot?.branch && h('span', { className: 'hcv-context-branch-icon' }, icon('branch'))))
-
-  return h('aside',
-    { ref: card, id, 'data-hcv-context-card': '', 'data-pinned': pinned, 'aria-label': copy.card, 'aria-hidden': !shown, inert: !shown },
-    h('header', { className: 'hcv-context-title' },
-      h('span', { title }, title),
-      h(DropdownMenu, { open: Boolean(menu), onOpenChange: toggleMenu },
+  const projectMenu = h(DropdownMenu, { open: Boolean(menu), onOpenChange: toggleMenu },
         h(DropdownMenuTrigger, { asChild: true },
           h('button', { ref: trigger, type: 'button', className: 'hcv-context-icon', 'aria-label': copy.actions },
             icon('more'))),
@@ -338,10 +383,21 @@ function WorkspaceCard({ id, close, copy, shown, pinned, onPin, roster, panes, a
             }, snapshot.isWorktree ? copy.toMain : copy.toTree)),
           h(DropdownMenuSeparator),
           h(DropdownMenuItem, { onSelect: onPin }, icon(pinned ? 'unpin' : 'pin'), pinned ? copy.unpin : copy.pin),
-          h(DropdownMenuItem, { onSelect: close }, icon('close'), copy.hide)))),
-    snapshot?.branch ? h(Tip, { label: snapshot.branch }, changeButton) : changeButton,
-    h(SummarySubagents, { roster, onExpand: () => panes.open('agents') }),
-    h(CompactSources, { ...sources, onExpand: () => panes.open('sources') }))
+          h(DropdownMenuItem, { onSelect: close }, icon('close'), copy.hide)))
+
+  return h('aside',
+    { ref: card, id, 'data-hcv-context-card': '', 'data-pinned': pinned, 'aria-label': copy.card, 'aria-hidden': !shown, inert: !shown },
+    h(SummarySection, { ...disclosure('project'), kind: 'project', title, action: projectMenu }, changeRow(snapshot, cwd, true)),
+    related.map(repo => {
+      const key = workspacePathKey(repo.cwd)
+      const name = repo.cwd.split(/[/\\]/).filter(Boolean).at(-1)
+      return h(SummarySection, { ...disclosure(key), key, kind: 'project', title: name }, changeRow(repo, repo.cwd, false))
+    }),
+    ['pullRequests', 'outputs'].map(kind => h(CompactSummaryItems, { key: kind, kind, onOpenSource: sources.onOpenSource,
+      rows: sources.rows.filter(row => row.section === kind), disclosure: disclosure(kind) })),
+    h(SummarySubagents, { roster, disclosure: disclosure('agents'), onExpand: () => panes.open('agents') }),
+    h(CompactSources, { ...sources, rows: sources.rows.filter(row => !row.section), disclosure: disclosure('sources'),
+      onExpand: () => panes.open('sources') }))
 }
 
 function ProjectActions({ entries, cwd, localEnvironment, copy }) {
@@ -358,7 +414,7 @@ function ProjectActions({ entries, cwd, localEnvironment, copy }) {
       }, icon(entry.icon), entry.label))))
 }
 
-function CardSlot({ storage, roster, panes, actions, localEnvironment }) {
+function CardSlot({ storage, roster, panes, actions, localEnvironment, selection }) {
   const { locale } = useI18n()
   const copy = labels[locale] || labels.en
   const workspace = useValue(host.paneVisibility('workspace'))
@@ -378,6 +434,7 @@ function CardSlot({ storage, roster, panes, actions, localEnvironment }) {
   const roomy = useRoomForCard(workspace && !files && !review && !agents && !sources && !changes && focused === primary)
   const [pinned, setPinned] = useState(() => storage.get('summary-pinned', true) !== false)
   const [open, setOpen] = useState(() => storage.get('summary-pinned', true) !== false)
+  const [closed, setClosed] = useState(null)
   const toggleRef = useRef(null)
   const cardId = useId()
 
@@ -425,6 +482,18 @@ function CardSlot({ storage, roster, panes, actions, localEnvironment }) {
     requestAnimationFrame(() => toggleRef.current?.focus({ preventScroll: true }))
   }
 
+  function disclosure(section) {
+    return {
+      expanded: closed?.key !== data.key || !closed.sections.has(section),
+      onToggle: () => setClosed(previous => {
+        const sections = new Set(previous?.key === data.key ? previous.sections : [])
+        if (sections.has(section)) sections.delete(section)
+        else sections.add(section)
+        return { key: data.key, sections }
+      }),
+    }
+  }
+
   return h(
     Fragment,
     null,
@@ -443,7 +512,7 @@ function CardSlot({ storage, roster, panes, actions, localEnvironment }) {
       icon('panel'),
     )),
     h(WorkspaceCard, { id: cardId, copy, close: closeFromMenu, shown: open, pinned, onPin: togglePin,
-      roster, panes, actions, localEnvironment, data, projectActions }),
+      roster, panes, actions, localEnvironment, data, projectActions, disclosure, selection }),
   )
 }
 
@@ -456,15 +525,17 @@ export function registerWorkspaceCard(ctx, themeName, roster, localEnvironment) 
   if (typeof host.paneVisibility !== 'function' || !host.state.focusedSessionOwner) return
   const scope = `:root[data-hermes-codex-visual][data-hermes-theme="${CSS.escape(themeName)}"]`
   const actions = registerWorkspaceActions(ctx, scope, localEnvironment)
+  const selection = atom(null)
   const panes = registerSummaryPanes(ctx, scope, {
     agents: () => h(SubagentsPane, { roster }),
     sources: () => h(ExpandedSources),
-    changes: () => h(ExpandedChanges),
+    changes: () => h(ExpandedChanges, { selection }),
   })
   registerSummarySources(ctx, scope)
   registerSummaryChanges(ctx, scope)
   const surfaces = `${scope} [data-hcv-context-card]`
   const chat = `${scope} ${primaryChat}`
+  const bounds = `${chat} > [data-slot="composer-bounds"]`
   const dock = `${chat} [data-slot="composer-dock"]:not([data-popped-out])`
   const fallback = `${chat} [data-slot="composer-root"]:has(> .composer-fallback-surface)`
   const style = document.createElement('style')
@@ -476,7 +547,8 @@ export function registerWorkspaceCard(ctx, themeName, roster, localEnvironment) 
   initial-value: 0;
 }
 ${scope} {
-  --hcv-summary-width: 300px;
+  /* A 300px card in Codex at 90% covers the same screen width at the owner's Hermes zoom. */
+  --hcv-summary-width: 280px;
   --hcv-summary-layout-inset: calc((var(--hcv-summary-width) + 12px) * var(--hcv-summary-progress));
 }
 ${scope}:has([data-hcv-context-card][aria-hidden="false"]) { --hcv-summary-progress: 1; }
@@ -484,7 +556,10 @@ ${scope}:has([data-hcv-context-card][aria-hidden="false"]) { --hcv-summary-progr
   ${chat} {
     --hcv-summary-composer-width: min(var(--composer-width), 100% - var(--hcv-summary-layout-inset) - 2rem);
   }
-  ${chat} > [data-slot="composer-bounds"] { margin-right: var(--hcv-summary-layout-inset); }
+  /* Codex shifts the transcript inside the full-width scroll container. */
+  ${bounds} [data-slot="aui_thread-viewport"] { padding-right: var(--hcv-summary-layout-inset); }
+  ${bounds} > .thread-jump-button { left: calc(50% - var(--hcv-summary-layout-inset) / 2); }
+  ${bounds} [data-slot="thread-timeline"] { margin-right: max(10px, var(--hcv-summary-layout-inset)); }
   ${dock}, ${fallback} { left: calc(50% - var(--hcv-summary-layout-inset) / 2); }
   ${dock} { width: calc(var(--hcv-summary-composer-width) + 10px); }
   ${fallback} { width: var(--hcv-summary-composer-width); }
@@ -497,11 +572,12 @@ ${scope} [data-hcv-context-card] {
   max-block-size: calc(100dvh - var(--hcv-context-card-top, 93px) - 8px);
   overflow: auto;
   box-sizing: border-box;
-  padding: 12px 12px 8px;
+  padding: 12px 18px;
   border: 1px solid color-mix(in srgb, var(--hcv-text) 8%, transparent);
   border-radius: 16px;
   color: var(--hcv-text);
   background: var(--hcv-menu);
+  --hcv-summary-row-hover: light-dark(rgb(26 28 31 / 5%), rgb(255 255 255 / 6%));
   text-align: start;
   font: 13px/20px var(--hcv-ui-font);
   font-weight: 400;
@@ -539,20 +615,6 @@ ${scope} [data-hcv-context-toggle] {
 ${scope} [data-hcv-context-card] button:disabled { opacity: .5; cursor: default; }
 ${surfaces} button:focus-visible,
 ${scope} [data-hcv-context-toggle]:focus-visible { outline: 1px solid var(--hcv-focus); outline-offset: 1px; }
-${scope} [data-hcv-context-card] .hcv-context-title {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 7px;
-  color: var(--hcv-muted);
-  min-block-size: 24px;
-  margin-block-end: 4px;
-  padding-inline: 8px 2px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-}
-${scope} [data-hcv-context-card] .hcv-context-title > span,
 ${surfaces} .hcv-context-label {
   min-inline-size: 0;
   overflow: hidden;
@@ -564,7 +626,7 @@ ${surfaces} .hcv-context-row {
   align-items: center;
   inline-size: 100%;
   min-block-size: 28px;
-  padding: 4px 8px;
+  padding: 4px 0;
   gap: 12px;
   text-align: start;
 }
@@ -574,12 +636,17 @@ ${scope} :is([data-hcv-context-card], [data-hcv-context-toggle], [data-hcv-summa
   block-size: 16px;
   flex: 0 0 auto;
 }
-${surfaces} :is([data-hcv-summary-agents], [data-hcv-sources-compact]) { margin-inline: 8px; }
+${summarySectionStyles(surfaces)}
+${surfaces} .hcv-context-changes { position: relative; isolation: isolate; }
+${surfaces} .hcv-context-changes:is(:hover, :focus-visible)::before {
+  content: ''; position: absolute; inset: 0 -8px; z-index: -1;
+  border-radius: 8px; background: var(--hcv-summary-row-hover);
+}
 ${surfaces} .hcv-context-change-meta { display: grid; align-items: center; margin-inline-start: auto; color: var(--hcv-muted); }
 ${surfaces} .hcv-context-change-meta > * { grid-area: 1/1; justify-self: end; }
 ${surfaces} .hcv-context-diff { display: flex; gap: 4px; font-variant-numeric: tabular-nums; }
-${surfaces} .hcv-context-added { color: light-dark(#008241, #40c977); }
-${surfaces} .hcv-context-removed { color: light-dark(#aa2626, #f28080); }
+${surfaces} .hcv-context-added { color: light-dark(#008241, #36c676); }
+${surfaces} .hcv-context-removed { color: light-dark(#aa2626, #ff5656); }
 ${surfaces} .hcv-context-branch-icon { display: flex; }
 ${surfaces} .hcv-context-diff + .hcv-context-branch-icon { opacity: 0; }
 ${surfaces} .hcv-context-changes:is(:hover, :focus-visible) .hcv-context-diff:has(+ .hcv-context-branch-icon) { opacity: 0; }
@@ -614,7 +681,8 @@ ${scope} [data-hcv-project-actions]:is(:hover, [data-state="open"]) {
 }
 ${scope} [data-hcv-project-actions-menu] { z-index: calc(var(--z-modal-backdrop, 120) - 1); }
 @media (hover: hover) and (pointer: fine) {
-  ${surfaces} button:is(.hcv-context-row, .hcv-context-icon):hover:not(:disabled),
+  ${surfaces} button.hcv-context-row:hover:not(:disabled) { color: var(--hcv-text); }
+  ${surfaces} button.hcv-context-icon:hover:not(:disabled),
   ${scope} [data-hcv-context-toggle]:hover { background: var(--hcv-hover); color: var(--hcv-text); }
 }
 @media (prefers-reduced-motion: no-preference) {
@@ -624,11 +692,10 @@ ${scope} [data-hcv-project-actions-menu] { z-index: calc(var(--z-modal-backdrop,
   ${scope} [data-hcv-context-card][aria-hidden="true"] { transition-delay: ${codex.summaryTime}; }
 }
 `
-  document.head.append(style)
-  ctx.onDispose(() => style.remove())
+  mountStyle(ctx, style, { surface: '[data-hcv-context-card], [data-hcv-context-toggle], [data-hcv-project-actions]', retainAcrossChatTabs: true })
   ctx.register({
     id: 'workspace-card',
     area: TITLEBAR_AREAS.right,
-    render: () => h(ThemeCardSlot, { themeName, storage: ctx.storage, roster, panes, actions, localEnvironment }),
+    render: () => h(ThemeCardSlot, { themeName, storage: ctx.storage, roster, panes, actions, localEnvironment, selection }),
   })
 }

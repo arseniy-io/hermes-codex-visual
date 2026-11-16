@@ -2,6 +2,7 @@ import { createElement as h, useCallback, useState, useSyncExternalStore } from 
 import { COMPOSER_AREAS, DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, host } from '@hermes/plugin-sdk'
 import { codexIconStyle } from './codex-reference.js'
 import { committedFiber } from './sidebar-recents.js'
+import { movedElementMatches } from './dom-changes.js'
 
 const nativeSelector = '[data-slot="statusbar"]'
 
@@ -52,6 +53,7 @@ export function registerComposerApproval(ctx, active) {
   const listeners = new Set()
   let current = {}
   let source
+  let footer
   let registration
   let frame
   const snapshot = () => current
@@ -76,7 +78,12 @@ export function registerComposerApproval(ctx, active) {
       registration?.()
       registration = undefined
     }
-    const footer = enabled && document.querySelector(nativeSelector)
+    const nextFooter = enabled ? document.querySelector(nativeSelector) : null
+    if (nextFooter !== footer) {
+      statusChanges.disconnect()
+      footer = nextFooter
+      if (footer) statusChanges.observe(footer, { childList: true, characterData: true, subtree: true })
+    }
     const item = footer ? nativeItem(footer) : undefined
     const route = JSON.stringify([host.state.connectionId.get(), host.state.profile.get()])
     markSource(item && footer ? nativeButton(footer) : undefined)
@@ -86,13 +93,21 @@ export function registerComposerApproval(ctx, active) {
     }
   }
   const schedule = () => { if (!frame) frame = requestAnimationFrame(sync) }
-  const observer = new MutationObserver(schedule)
-  observer.observe(root, { childList: true, characterData: true, subtree: true,
-    attributes: true, attributeFilter: ['data-hermes-theme', 'lang'] })
+  const statusChanges = new MutationObserver(schedule)
+  const observer = new MutationObserver(records => {
+    if (root.matches(active) && (footer?.isConnected === false ||
+        records.some(record => movedElementMatches(record, nativeSelector)))) schedule()
+  })
+  const themeChanges = new MutationObserver(schedule)
+  observer.observe(document.body, { childList: true, subtree: true })
+  themeChanges.observe(root, { attributes: true, attributeFilter: ['data-hermes-theme', 'lang'] })
   contrast.addEventListener('change', schedule)
-  const unsubscribe = [host.state.gateway, host.state.connectionId, host.state.profile].map(atom => atom.listen(schedule))
+  const unsubscribe = [host.state.gateway, host.state.connectionId, host.state.profile, host.state.focusedSessionId]
+    .map(atom => atom.listen(schedule))
   ctx.onDispose(() => {
     observer.disconnect()
+    statusChanges.disconnect()
+    themeChanges.disconnect()
     cancelAnimationFrame(frame)
     registration?.()
     markSource(undefined)

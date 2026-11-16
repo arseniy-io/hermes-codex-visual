@@ -1,5 +1,7 @@
+import { mountCSS, mountStyle } from './style-scope.js'
 import { host } from '@hermes/plugin-sdk'
 import { codexIconRules, codexMask, codexReference as codex } from './codex-reference.js'
+import { movedElementMatches } from './dom-changes.js'
 
 const menus = ':is([data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"], [data-slot="context-menu-content"], [data-slot="context-menu-sub-content"], [data-slot="select-content"]):not([data-hcv-window-menu-content])'
 const modelCatalog = '[data-slot="dropdown-menu-content"]:has(> [data-slot="dropdown-menu-search"]):has(> [data-slot="dropdown-menu-item"] > .codicon-settings-gear)'
@@ -69,7 +71,10 @@ function watchModelEffortBadges(ctx) {
       observer.observe(menu, { childList: true, subtree: true, characterData: true })
     }
   }
-  const observer = new MutationObserver(refresh)
+  const observer = new MutationObserver(records => {
+    if (records.some(record => record.target !== document.body ||
+        movedElementMatches(record, '[data-slot="dropdown-menu-content"]'))) refresh()
+  })
   refresh()
   ctx.onDispose(() => {
     observer.disconnect()
@@ -77,12 +82,59 @@ function watchModelEffortBadges(ctx) {
   })
 }
 
+function catalogGroupHover(ctx) {
+  // Hermes uses this attribute only for a group-wide CSS hover effect that
+  // Codex already suppresses. Avoid invalidating every sibling on each move.
+  const marker = 'data-catalog-hover-group'
+  const selector = '[' + marker + ']'
+  const disabled = new Map()
+  let watching = false
+  function disable(node) {
+    const groups = node.matches(selector) ? [node] : node.querySelectorAll(selector)
+    for (const group of groups) {
+      disabled.set(group, group.getAttribute(marker))
+      group.removeAttribute(marker)
+    }
+  }
+  function restore(group, value) {
+    group.setAttribute(marker, value)
+    disabled.delete(group)
+  }
+  const mounts = new MutationObserver(records => {
+    for (const [group, value] of disabled) {
+      if (!group.isConnected) restore(group, value)
+    }
+    for (const { addedNodes } of records) {
+      for (const node of addedNodes) {
+        if (node instanceof Element && node.isConnected) disable(node)
+      }
+    }
+  })
+  function sync(enabled) {
+    if (enabled === watching) return
+    watching = enabled
+    mounts.disconnect()
+    if (enabled) {
+      disable(document.body)
+      mounts.observe(document.body, { subtree: true, childList: true })
+    } else {
+      for (const [group, value] of disabled) restore(group, value)
+    }
+  }
+  ctx.onDispose(() => sync(false))
+  return sync
+}
+
 export function registerInterface(ctx, active) {
   watchModelEffortBadges(ctx)
+  const suppressCatalogHover = catalogGroupHover(ctx)
   const root = document.documentElement
+  const contrast = matchMedia('(forced-colors: none)')
   const setScreen = () => {
     const screen = screenFromRoute()
-    if (!root.matches(active) || !screen) root.removeAttribute('data-hcv-screen')
+    const enabled = root.matches(active)
+    suppressCatalogHover(enabled && contrast.matches && screen === 'capabilities')
+    if (!enabled || !screen) root.removeAttribute('data-hcv-screen')
     else if (root.dataset.hcvScreen !== screen) root.dataset.hcvScreen = screen
     if (root.dataset.hcvScreen === 'settings') {
       const params = new URLSearchParams(location.hash.split('?')[1])
@@ -99,6 +151,7 @@ export function registerInterface(ctx, active) {
   observer.observe(root, { attributes: true, attributeFilter: ['data-hermes-theme', 'data-hermes-codex-visual'] })
   ctx.addEventListener(window, 'hashchange', setScreen)
   ctx.addEventListener(window, 'popstate', setScreen)
+  ctx.addEventListener(contrast, 'change', setScreen)
   if (window.navigation) ctx.addEventListener(window.navigation, 'currententrychange', setScreen)
   ctx.onDispose(() => {
     observer.disconnect()
@@ -123,13 +176,15 @@ export function registerInterface(ctx, active) {
   })
 
   const pages = `${active}:is([data-hcv-screen="capabilities"],[data-hcv-screen="messaging"],[data-hcv-screen="artifacts"]) ${pageShell}`
+  const animatedPages = `${active}:is([data-hcv-screen="messaging"],[data-hcv-screen="artifacts"]) ${pageShell}`
   const capabilities = `${active}[data-hcv-screen="capabilities"] ${pageShell}`
   const shown = `${active} ${overlays}`
   const sessions = `${active}[data-hcv-screen="command-center"] ${overlays} main`
   const pageSearch = 'div:has(> svg.tabler-icon-search + input[placeholder])'
   const capabilitySearch = `${capabilities} div:has(> svg.tabler-icon-search):has(> input[placeholder])`
   const catalogCard = `${capabilities} [data-catalog-card]`
-  const plainCatalogCard = `${catalogCard}:not([data-catalog-editorial-art])`
+  const mutedArtwork = ':is([data-entry-id="desktop:kanban"], [data-entry-id="desktop:hermes-bots"], [data-entry-id$=":desktop:kanban"], [data-entry-id$=":desktop:hermes-bots"])'
+  const plainCatalogCard = `${catalogCard}:is(:not([data-catalog-editorial-art]), ${mutedArtwork})`
   const catalogFilters = `${capabilities} [data-catalog-filters]`
   const filterMode = `${catalogFilters} .catalog-filter-row > .inline-grid:has(> button[aria-pressed])`
   const filterPopup = `${active}[data-hcv-screen="capabilities"] ${popover}:has(> [data-catalog-expanded-filters], > .flex.flex-wrap > button[aria-pressed])`
@@ -160,11 +215,6 @@ export function registerInterface(ctx, active) {
   const sheet = document.createElement('style')
   sheet.dataset.hcvInterface = ''
   sheet.textContent = `
-${active} ${modelCatalog} [${effortBadge}] { display: none; }
-${active} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/label"], [data-slot="dropdown-menu-label"]) {
-  text-transform: lowercase;
-  letter-spacing: normal;
-}
 @media (forced-colors: none) {
   ${active} {
     --hcv-unit: ${codex.spacing}px;
@@ -204,76 +254,8 @@ ${active} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/lab
     --translucency-glass-keep: 100% !important;
   }
 
-  /* The menu combobox input and separator are separate in Codex ZZgR/bqtn. */
-  ${active} ${menuSearch} {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 8px;
-    border: 0;
-    background: transparent;
-    box-shadow: none;
-  }
-  ${active} ${menuSearch}::before {
-    content: "";
-    flex: none;
-    inline-size: 16px;
-    block-size: 16px;
-    background: var(--hcv-dropdown-muted);
-    mask: ${codexMask('activitySearch')} center / contain no-repeat;
-    pointer-events: none;
-  }
-  ${active} ${menuSearch} > input {
-    flex: 1;
-    min-inline-size: 0;
-    block-size: auto;
-    padding: 0;
-    border: 0;
-    background: transparent;
-    color: var(--hcv-dropdown-text);
-    font: 430 13px/calc(1.25 / .875) var(--hcv-ui-font);
-    outline: none;
-    box-shadow: none;
-  }
-  ${active} ${menuSearch} > input::placeholder { color: var(--hcv-dropdown-muted); opacity: 1; }
-  ${active} ${commandMenuSearch} {
-    position: relative;
-    margin-block-end: 0;
-    padding-block-end: 14px;
-  }
-  ${active} ${commandMenuSearch}::after {
-    content: "";
-    position: absolute;
-    inset: auto 8px 4px;
-    block-size: 1px;
-    background: var(--hcv-dropdown-outline);
-    pointer-events: none;
-  }
-  ${active} [data-slot="dropdown-menu-search"] + [data-slot="dropdown-menu-separator"] {
-    block-size: 1px;
-    margin: 4px 8px;
-    background: var(--hcv-dropdown-outline);
-  }
-
-  /* Native Radix menus retain focus, arrow keys, radio semantics and placement. */
-  ${active} :is(${menus}, ${popover}) {
-    border: 0;
-    border-radius: var(--hcv-dropdown-radius);
-    background-color: var(--hcv-dropdown-background);
-    color: var(--hcv-dropdown-text);
-    box-shadow: var(--hcv-dropdown-shadow);
-    backdrop-filter: none;
-    font-family: var(--hcv-ui-font);
-    --tw-enter-blur: 0px;
-    --tw-exit-blur: 0px;
-    animation: none;
-  }
-  ${active} :is([data-slot="context-menu-content"], [data-slot="context-menu-sub-content"], ${popover}) {
-    box-shadow: var(--hcv-popover-shadow);
-  }
   @supports (corner-shape: superellipse(1.5)) {
     ${active} { --hcv-dropdown-radius: 20px; --hcv-dropdown-row-radius: 15px; }
-    ${active} :is(${menus}, ${popover}), ${active} ${menuRows} { corner-shape: superellipse(1.5); }
   }
   /* A button label can carry its own underline independently of the button. */
   ${active} :is(${button}, ${button} :where(.underline, [class*=':underline'])) {
@@ -294,31 +276,6 @@ ${active} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/lab
     animation: none;
   }
   ${active} ${tip} :is([data-slot="tooltip-arrow"], span:has(> [data-slot="tooltip-arrow"])) { display: none; }
-  ${active} :is(${dialog}, ${dialogOverlay}) { animation: none; }
-  /* A dialog on a route overlay already has a blurred layer behind it.
-     Use Codex's solid scrim here to avoid sampling that layer a second time. */
-  ${active}:has(${overlays}) ${dialogOverlay} {
-    backdrop-filter: none;
-    background-color: light-dark(#0000004d, #00000080);
-  }
-  ${active}:has(${overlays}) ${dialog} { background-color: var(--hcv-menu); }
-  ${active} ${dialog} {
-    background-color: var(--hcv-menu);
-    backdrop-filter: none;
-    border: 1px solid var(--hcv-hairline);
-    border-radius: var(--hcv-dialog-radius);
-    box-shadow: var(--hcv-menu-shadow);
-    font-family: var(--hcv-ui-font);
-  }
-  ${active} ${dialog} [data-slot="dialog-title"] {
-    font-weight: 600;
-    line-height: 1.35;
-    letter-spacing: -.012em;
-  }
-  ${active} ${dialog} [data-slot="dialog-description"] {
-    font-size: 13px;
-    line-height: 1.5;
-  }
   ${active} ${notificationStack} :is([data-slot="card-stack-surface"], [data-slot="card-stack-edge"]) {
     border-color: var(--hcv-hairline);
     border-radius: var(--hcv-menu-radius);
@@ -354,43 +311,6 @@ ${active} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/lab
     font-family: var(--hcv-ui-font);
     transition: none;
   }
-  ${active} :is(${dialog}, ${dialogOverlay})[data-state="closed"] { pointer-events: none; }
-  ${active} ${menus} { padding: 4px; font-size: 13px; line-height: calc(1.25 / .875); }
-  ${active} [data-slot="dropdown-menu-content"]${sidebarMenu} {
-    inline-size: max-content;
-    min-inline-size: min(160px, var(--radix-dropdown-menu-content-available-width, 100vw));
-    max-inline-size: min(calc(100vw - 16px), var(--radix-dropdown-menu-content-available-width, 100vw));
-  }
-  ${active} [data-hcv-sidebar-menu] { translate: var(--hcv-sidebar-menu-shift, 0px) 0; }
-  ${active} ${menuRows} {
-    position: relative;
-    min-block-size: 28px;
-    border-radius: var(--hcv-dropdown-row-radius);
-    gap: 6px;
-    padding-block: 4px;
-    padding-inline: 8px;
-    font-size: 13px;
-    font-weight: 430;
-    line-height: calc(1.25 / .875);
-  }
-  ${active} ${menuRows}:not([data-variant="destructive"]) { color: var(--hcv-dropdown-text); }
-  ${active} ${highlightedItem} {
-    background-color: var(--hcv-dropdown-hover);
-  }
-  ${active} ${menus} :is([data-slot="dropdown-menu-separator"], [data-slot="context-menu-separator"], [data-slot="select-separator"]) {
-    margin: 4px 8px;
-    background: var(--hcv-dropdown-outline);
-  }
-  ${Object.entries(menuGlyphs).map(([native, name]) => codexIconRules(`${active} ${items} .codicon-${native}`, name)).join('')}
-  ${codexIconRules(`${active} ${items} ${checkIcon}`, 'check')}
-  ${active} ${commandItems} { border-radius: 8px; }
-  ${active} ${commandItems}:is(:focus, [data-selected="true"]):not([data-disabled="true"], [aria-disabled="true"]),
-  ${active} ${menuButtons}:focus-visible:not(:disabled, [aria-disabled="true"]) {
-    background-color: var(--hcv-dropdown-hover);
-    color: var(--hcv-text);
-  }
-  ${codexIconRules(`${active} ${commandItems} ${checkIcon}`, 'check')}
-
   /* Native checkbox and checkbox-mark need different selectors: the mark
      renders a child icon only when selected and is itself decorative. */
   ${active} ${checks} {
@@ -507,6 +427,264 @@ ${active} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/lab
   ${codexIconRules(`${active} [data-tour="sessions-sidebar"] [data-row-actions] .codicon-kebab-vertical`, 'more')}
   ${codexIconRules(`${active} [data-tour="sessions-sidebar"] .codicon-list-filter`, 'filter')}
 
+  ${active} :is(${fields}, ${toggle}, [data-slot="checkbox"], [data-hcv-context-card] button, ${dialog} button):focus-visible,
+  ${popupButtons}:focus-visible,
+  ${noticeDetails}:focus-visible,
+  ${shown} :is(button, a, input, textarea, select):focus-visible,
+  ${projectRow} :is(button, a):focus-visible {
+    outline: 2px solid var(--hcv-focus);
+    outline-offset: -2px;
+  }
+  :is(${pages}, ${shown}) ${pageSearch} > input:focus-visible { outline: none; }
+
+  /* Codex Desktop bf55123332b3.css: menu item focus is a fill, with
+     native outline behavior in forced colors. */
+  ${active} ${menuButtons}:focus-visible:not(:disabled, [aria-disabled="true"]) {
+    background-color: var(--hcv-dropdown-hover);
+    color: var(--hcv-text);
+  }
+  ${active} ${menuButtons}:focus {
+    outline: none;
+    box-shadow: none;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    ${active} :where(${quietIcon}):hover:not(:disabled, [aria-disabled="true"], [aria-pressed="true"], [data-state="open"]) {
+      background-color: var(--hcv-dropdown-hover);
+      color: var(--hcv-text);
+    }
+    ${active} ${menuButtons}:hover:not(:disabled, [aria-disabled="true"]) {
+      background-color: var(--hcv-dropdown-hover);
+    }
+    ${noticeDetails}:hover,
+    ${quietPopupButtons}:hover:not(:disabled, [aria-disabled="true"]) {
+      background-color: var(--hcv-hover-menu);
+      color: var(--hcv-text);
+    }
+    ${active} ${toggle}[data-state="unchecked"]:not(:disabled, [aria-disabled="true"]):hover {
+      background-color: color-mix(in srgb, var(--hcv-selected) 88%, var(--hcv-text));
+    }
+    ${tabs}:not([data-active="true"], [data-selected]):hover { background-color: var(--hcv-hover); }
+    ${projectRow}:hover { background-color: var(--hcv-sidebar-highlight); }
+    ${paneAdd}:hover { background-color: var(--hcv-hover); }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    ${active} ${tip}:is([data-state="delayed-open"], [data-state="instant-open"]) {
+      animation: hcv-menu-in ${codex.tooltip.duration} var(--hcv-enter) both;
+    }
+    ${active} ${tip}[data-state="closed"] { animation: hcv-tip-out ${codex.tooltip.duration} var(--hcv-enter) both; }
+    ${active} ${toggle} {
+      transition: background-color ${codex.switch.trackTime} linear ${codex.switch.trackDelay},
+        border-color var(--hcv-enter-time) var(--hcv-ease);
+    }
+    ${active} ${toggle} > ${thumb} {
+      transition: translate ${codex.switch.thumbTime} var(--hcv-move),
+        background-color var(--hcv-enter-time) var(--hcv-ease);
+    }
+    ${popupButtons}, ${noticeDetails} {
+      transition: background-color var(--hcv-enter-time) var(--hcv-ease),
+        color var(--hcv-enter-time) var(--hcv-ease);
+    }
+    ${tabs}, ${paneAdd}, ${card} button, ${projectRow}, ${projectRow} button {
+      transition: background-color var(--hcv-enter-time) var(--hcv-ease),
+        color var(--hcv-enter-time) var(--hcv-ease),
+        border-color var(--hcv-enter-time) var(--hcv-ease);
+    }
+  }
+  @media (any-hover: none) {
+    ${projectRow} [data-row-actions] button { opacity: 1; }
+  }
+  @keyframes hcv-menu-in {
+    from { opacity: 0; transform: scale(var(--hcv-menu-start-scale)); }
+    to { opacity: 1; transform: scale(1); }
+  }
+  @keyframes hcv-menu-out {
+    from { opacity: 1; transform: scale(1); }
+    to { opacity: 0; transform: scale(var(--hcv-menu-start-scale)); }
+  }
+  @keyframes hcv-tip-out {
+    from { opacity: 1; transform: scale(1); }
+    to { opacity: 0; transform: scale(${codex.tooltip.exitScale}); }
+  }
+  @keyframes hcv-surface-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes hcv-surface-out {
+    from { opacity: 1; }
+    to { opacity: 0; }
+  }
+}
+`
+  mountStyle(ctx, sheet)
+  mountCSS(ctx, 'data-hcv-interface-popups', `
+${active} ${modelCatalog} [${effortBadge}] { display: none; }
+${active} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/label"], [data-slot="dropdown-menu-label"]) {
+  text-transform: lowercase;
+  letter-spacing: normal;
+}
+@media (forced-colors: none) {
+  /* The menu combobox input and separator are separate in Codex ZZgR/bqtn. */
+  ${active} ${menuSearch} {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 8px;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  ${active} ${menuSearch}::before {
+    content: "";
+    flex: none;
+    inline-size: 16px;
+    block-size: 16px;
+    background: var(--hcv-dropdown-muted);
+    mask: ${codexMask('activitySearch')} center / contain no-repeat;
+    pointer-events: none;
+  }
+  ${active} ${menuSearch} > input {
+    flex: 1;
+    min-inline-size: 0;
+    block-size: auto;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--hcv-dropdown-text);
+    font: 430 13px/calc(1.25 / .875) var(--hcv-ui-font);
+    outline: none;
+    box-shadow: none;
+  }
+  ${active} ${menuSearch} > input::placeholder { color: var(--hcv-dropdown-muted); opacity: 1; }
+  ${active} ${commandMenuSearch} {
+    position: relative;
+    margin-block-end: 0;
+    padding-block-end: 14px;
+  }
+  ${active} ${commandMenuSearch}::after {
+    content: "";
+    position: absolute;
+    inset: auto 8px 4px;
+    block-size: 1px;
+    background: var(--hcv-dropdown-outline);
+    pointer-events: none;
+  }
+  ${active} [data-slot="dropdown-menu-search"] + [data-slot="dropdown-menu-separator"] {
+    block-size: 1px;
+    margin: 4px 8px;
+    background: var(--hcv-dropdown-outline);
+  }
+
+  /* Native Radix menus retain focus, arrow keys, radio semantics and placement. */
+  ${active} :is(${menus}, ${popover}) {
+    border: 0;
+    border-radius: var(--hcv-dropdown-radius);
+    background-color: var(--hcv-dropdown-background);
+    color: var(--hcv-dropdown-text);
+    box-shadow: var(--hcv-dropdown-shadow);
+    backdrop-filter: none;
+    font-family: var(--hcv-ui-font);
+    --tw-enter-blur: 0px;
+    --tw-exit-blur: 0px;
+    animation: none;
+  }
+  ${active} :is([data-slot="context-menu-content"], [data-slot="context-menu-sub-content"], ${popover}) {
+    box-shadow: var(--hcv-popover-shadow);
+  }
+  @supports (corner-shape: superellipse(1.5)) {
+    ${active} :is(${menus}, ${popover}), ${active} ${menuRows} { corner-shape: superellipse(1.5); }
+  }
+  ${active} :is(${dialog}, ${dialogOverlay}) { animation: none; }
+  /* A dialog on a route overlay already has a blurred layer behind it.
+     Use Codex's solid scrim here to avoid sampling that layer a second time. */
+  ${active}:has(${overlays}) ${dialogOverlay} {
+    backdrop-filter: none;
+    background-color: light-dark(#0000004d, #00000080);
+  }
+  ${active}:has(${overlays}) ${dialog} { background-color: var(--hcv-menu); }
+  ${active} ${dialog} {
+    background-color: var(--hcv-menu);
+    backdrop-filter: none;
+    border: 1px solid var(--hcv-hairline);
+    border-radius: var(--hcv-dialog-radius);
+    box-shadow: var(--hcv-menu-shadow);
+    font-family: var(--hcv-ui-font);
+  }
+  ${active} ${dialog} [data-slot="dialog-title"] {
+    font-weight: 600;
+    line-height: 1.35;
+    letter-spacing: -.012em;
+  }
+  ${active} ${dialog} [data-slot="dialog-description"] {
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  ${active} :is(${dialog}, ${dialogOverlay})[data-state="closed"] { pointer-events: none; }
+  ${active} ${menus} { padding: 4px; font-size: 13px; line-height: calc(1.25 / .875); }
+  ${active} [data-slot="dropdown-menu-content"]${sidebarMenu} {
+    inline-size: max-content;
+    min-inline-size: min(160px, var(--radix-dropdown-menu-content-available-width, 100vw));
+    max-inline-size: min(calc(100vw - 16px), var(--radix-dropdown-menu-content-available-width, 100vw));
+  }
+  ${active} [data-hcv-sidebar-menu] { translate: var(--hcv-sidebar-menu-shift, 0px) 0; }
+  ${active} ${menuRows} {
+    position: relative;
+    min-block-size: 28px;
+    border-radius: var(--hcv-dropdown-row-radius);
+    gap: 6px;
+    padding-block: 4px;
+    padding-inline: 8px;
+    font-size: 13px;
+    font-weight: 430;
+    line-height: calc(1.25 / .875);
+  }
+  ${active} ${menuRows}:not([data-variant="destructive"]) { color: var(--hcv-dropdown-text); }
+  ${active} ${highlightedItem} {
+    background-color: var(--hcv-dropdown-hover);
+  }
+  ${active} ${menus} :is([data-slot="dropdown-menu-separator"], [data-slot="context-menu-separator"], [data-slot="select-separator"]) {
+    margin: 4px 8px;
+    background: var(--hcv-dropdown-outline);
+  }
+  ${Object.entries(menuGlyphs).map(([native, name]) => codexIconRules(`${active} ${items} .codicon-${native}`, name)).join('')}
+  ${codexIconRules(`${active} ${items} ${checkIcon}`, 'check')}
+  ${active} ${commandItems} { border-radius: 8px; }
+  ${active} ${commandItems}:is(:focus, [data-selected="true"]):not([data-disabled="true"], [aria-disabled="true"]) {
+    background-color: var(--hcv-dropdown-hover);
+    color: var(--hcv-text);
+  }
+  ${codexIconRules(`${active} ${commandItems} ${checkIcon}`, 'check')}
+
+  ${active} :is(${items}, ${commandItems}):focus {
+    outline: none;
+    box-shadow: none;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    ${active} ${enabledItem}:hover { background-color: var(--hcv-dropdown-hover); }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    ${active} ${dialog}[data-state="open"] { animation: hcv-menu-in var(--hcv-enter-time) var(--hcv-enter) both; }
+    ${active} ${dialog}[data-state="closed"] { animation: hcv-menu-out var(--hcv-exit-time) var(--hcv-exit) both; }
+    ${active} ${dialogOverlay}[data-state="open"] { animation: hcv-surface-in var(--hcv-enter-time) var(--hcv-enter) both; }
+    ${active} ${dialogOverlay}[data-state="closed"] { animation: hcv-surface-out var(--hcv-exit-time) var(--hcv-exit) both; }
+    ${active} :is(${menus}, ${popover}) {
+      transform-origin: var(--hcv-sidebar-menu-origin, var(--radix-dropdown-menu-content-transform-origin,
+        var(--radix-context-menu-content-transform-origin,
+        var(--radix-popover-content-transform-origin,
+        var(--radix-select-content-transform-origin, center top)))));
+    }
+    ${active} :is(${menus}, ${popover})[data-state="open"] {
+      animation: hcv-menu-in var(--hcv-enter-time) var(--hcv-enter) both;
+    }
+    ${active} :is(${menus}, ${popover})[data-state="closed"] {
+      animation: hcv-menu-out var(--hcv-exit-time) var(--hcv-exit) both;
+      pointer-events: none;
+    }
+  }
+}
+`, { surface: `:is(${menus}, ${popover}, ${dialog}, ${dialogOverlay}, ${items}, ${commandItems})` })
+  mountCSS(ctx, 'data-hcv-interface-pages', `
+@media (forced-colors: none) {
   /* Shells share spacing but keep their own controls, labels and content. */
   ${pages}, ${shown} {
     font-family: var(--hcv-ui-font);
@@ -519,11 +697,62 @@ ${active} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/lab
     border-radius: 12px;
     background: var(--hcv-form-surface);
   }
+  ${pages} ${pageTabs} button {
+    min-block-size: 30px;
+    padding-inline: 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    line-height: 18px;
+  }
+  ${pages} ${pageTabs} button:is([aria-current], [aria-selected="true"], [data-active="true"]) {
+    color: var(--hcv-text);
+    background: var(--hcv-selected);
+  }
+  :is(${pages}, ${shown}) ${pageSearch} {
+    min-block-size: 32px;
+    gap: 8px;
+    padding: 0 10px;
+    border: 1px solid var(--hcv-hairline);
+    border-radius: 8px;
+    opacity: 1;
+    background-color: var(--hcv-form-surface);
+  }
+  :is(${pages}, ${shown}) ${pageSearch}:focus-within { border-color: var(--hcv-focus); }
+  :is(${pages}, ${shown}) ${pageSearch} > input {
+    height: auto;
+    min-block-size: 30px;
+    font-size: 13px;
+    line-height: 18px;
+  }
+  ${codexIconRules(`:is(${pages}, ${shown}) ${pageSearch} > svg.tabler-icon-search`, 'search')}
+  @media (hover: hover) and (pointer: fine) {
+    ${pages} [data-tour="artifact-card"]:hover {
+      border-color: var(--hcv-stroke);
+      background: var(--hcv-hover);
+    }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    ${animatedPages}, ${shown} > div > [data-glass-raised] {
+      animation: hcv-surface-in var(--hcv-enter-time) var(--hcv-enter);
+    }
+    :is(${pages}, ${shown}) ${pageSearch}, ${nav} button,
+    ${sessions} > div > div > ul > li, ${pages} :is([data-tour="artifact-card"], ${pageTabs} button) {
+      transition: background-color var(--hcv-enter-time) var(--hcv-ease),
+        color var(--hcv-enter-time) var(--hcv-ease), border-color var(--hcv-enter-time) var(--hcv-ease);
+    }
+  }
+}
+`, { screens: ['capabilities', 'messaging', 'artifacts'], surface: overlays })
+  mountCSS(ctx, 'data-hcv-interface-catalog', `
+@media (forced-colors: none) {
   /* Codex's catalog cards use a border and a quiet fill on hover.
      The Hermes featured carousel and artwork keep their native layout. */
   ${catalogCard} {
     border-radius: 16px;
     box-shadow: none;
+    filter: none;
+    opacity: 1;
+    transition: background-color 100ms var(--hcv-ease), border-color 100ms var(--hcv-ease);
   }
   ${plainCatalogCard} {
     border-color: var(--hcv-dropdown-outline);
@@ -534,11 +763,12 @@ ${active} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/lab
     background: var(--hcv-form-surface);
   }
   ${catalogCard}::after { content: none; }
-  ${capabilities} [data-catalog-hover-group]:has([data-catalog-card]:hover) [data-catalog-card]:not(:hover) {
-    filter: none;
-    opacity: 1;
+  ${catalogCard}${mutedArtwork}::before { content: none; }
+  ${catalogCard}${mutedArtwork} > .catalog-card-image { display: none; }
+  ${catalogCard}${mutedArtwork} .catalog-card-description {
+    color: var(--ui-text-secondary);
   }
-  ${catalogCard}:not([data-catalog-variant="hero"]) button:has(> .text-lg) > span {
+  ${catalogCard}:not([data-catalog-variant="hero"]) .catalog-card-title {
     font-size: 14px;
     line-height: 20px;
     font-weight: 600;
@@ -573,17 +803,6 @@ ${active} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/lab
     border-radius: 8px;
     border: 1px solid var(--hcv-hairline);
   }
-  ${pages} ${pageTabs} button {
-    min-block-size: 30px;
-    padding-inline: 12px;
-    border-radius: 8px;
-    font-size: 13px;
-    line-height: 18px;
-  }
-  ${pages} ${pageTabs} button:is([aria-current], [aria-selected="true"], [data-active="true"]) {
-    color: var(--hcv-text);
-    background: var(--hcv-selected);
-  }
   ${capabilities} ${pageTabs} button {
     min-block-size: 26px;
     block-size: 26px;
@@ -592,23 +811,6 @@ ${active} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/lab
   }
   ${capabilities} ${pageTabs} button[data-active] > span { text-decoration-line: none; }
   ${capabilities} ${pageTabs} button[data-active="true"] { background-color: var(--hcv-dropdown-hover); }
-  :is(${pages}, ${shown}) ${pageSearch} {
-    min-block-size: 32px;
-    gap: 8px;
-    padding: 0 10px;
-    border: 1px solid var(--hcv-hairline);
-    border-radius: 8px;
-    opacity: 1;
-    background-color: var(--hcv-form-surface);
-  }
-  :is(${pages}, ${shown}) ${pageSearch}:focus-within { border-color: var(--hcv-focus); }
-  :is(${pages}, ${shown}) ${pageSearch} > input {
-    height: auto;
-    min-block-size: 30px;
-    font-size: 13px;
-    line-height: 18px;
-  }
-  ${codexIconRules(`:is(${pages}, ${shown}) ${pageSearch} > svg.tabler-icon-search`, 'search')}
   /* okCa (739301.37a39f26d6.js), used by the Skills and Plugins catalogs.
      The native scope badge may sit between the search icon and input. */
   ${capabilitySearch} {
@@ -684,6 +886,31 @@ ${active} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/lab
   }
   ${codexIconRules(`${filterTrigger} > svg.tabler-icon-filter-2`, 'filter')}
   ${codexIconRules(`${capabilities} ${rescan} > svg.tabler-icon-refresh`, 'refresh')}
+  @media (hover: hover) and (pointer: fine) {
+    ${capabilities} ${pageTabs} button[data-active="false"]:hover { background-color: var(--hcv-dropdown-hover); }
+    ${capabilitySearch}:hover:not(:focus-within) { border-color: var(--hcv-stroke); }
+    ${catalogControls}:hover:not(:disabled, [aria-pressed="true"], [data-state="open"]) {
+      background-color: var(--hcv-dropdown-hover);
+      color: var(--hcv-text);
+    }
+    ${plainCatalogCard}:not([data-catalog-variant="hero"]):hover {
+      background-color: var(--hcv-dropdown-hover);
+    }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    ${catalogCard}, ${capabilitySearch}, ${catalogControls} {
+      transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    ${catalogCard}, ${capabilitySearch}, ${catalogControls} {
+      transition: none;
+    }
+  }
+}
+`, { screens: ['capabilities'] })
+  mountCSS(ctx, 'data-hcv-interface-overlays', `
+@media (forced-colors: none) {
   ${shown} {
     padding: clamp(10px, 2.4vw, 32px);
     background-color: rgb(0 0 0 / .24);
@@ -735,112 +962,9 @@ ${active} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/lab
   ${sessions} > div > div > ul > li > button:first-child > div:first-child { font-size: 14px; }
   ${sessions} > div > div > ul > li:focus-within { background: var(--hcv-hover); }
 
-  ${active} :is(${fields}, ${toggle}, [data-slot="checkbox"], [data-hcv-context-card] button, ${dialog} button):focus-visible,
-  ${popupButtons}:focus-visible,
-  ${noticeDetails}:focus-visible,
-  ${shown} :is(button, a, input, textarea, select):focus-visible,
-  ${projectRow} :is(button, a):focus-visible {
-    outline: 2px solid var(--hcv-focus);
-    outline-offset: -2px;
-  }
-  :is(${pages}, ${shown}) ${pageSearch} > input:focus-visible { outline: none; }
-
-  /* Codex Desktop bf55123332b3.css: menu item focus is a fill, with
-     native outline behavior in forced colors. */
-  ${active} :is(${items}, ${commandItems}, ${menuButtons}):focus {
-    outline: none;
-    box-shadow: none;
-  }
-
   @media (hover: hover) and (pointer: fine) {
-    ${active} :where(${quietIcon}):hover:not(:disabled, [aria-disabled="true"], [aria-pressed="true"], [data-state="open"]) {
-      background-color: var(--hcv-dropdown-hover);
-      color: var(--hcv-text);
-    }
-    ${capabilities} ${pageTabs} button[data-active="false"]:hover { background-color: var(--hcv-dropdown-hover); }
-    ${capabilitySearch}:hover:not(:focus-within) { border-color: var(--hcv-stroke); }
-    ${catalogControls}:hover:not(:disabled, [aria-pressed="true"], [data-state="open"]) {
-      background-color: var(--hcv-dropdown-hover);
-      color: var(--hcv-text);
-    }
-    ${active} ${enabledItem}:hover { background-color: var(--hcv-dropdown-hover); }
-    ${active} ${menuButtons}:hover:not(:disabled, [aria-disabled="true"]) {
-      background-color: var(--hcv-dropdown-hover);
-    }
-    ${noticeDetails}:hover,
-    ${quietPopupButtons}:hover:not(:disabled, [aria-disabled="true"]) {
-      background-color: var(--hcv-hover-menu);
-      color: var(--hcv-text);
-    }
-    ${active} ${toggle}[data-state="unchecked"]:not(:disabled, [aria-disabled="true"]):hover {
-      background-color: color-mix(in srgb, var(--hcv-selected) 88%, var(--hcv-text));
-    }
-    ${tabs}:not([data-active="true"], [data-selected]):hover { background-color: var(--hcv-hover); }
-    ${projectRow}:hover,
-    ${paneAdd}:hover,
     ${nav} button.row-hover:not([aria-current="page"]):hover,
     ${sessions} > div > div > ul > li:hover { background-color: var(--hcv-hover); }
-    ${plainCatalogCard}:not([data-catalog-variant="hero"]):hover {
-      background-color: var(--hcv-dropdown-hover);
-    }
-    ${pages} [data-tour="artifact-card"]:hover {
-      border-color: var(--hcv-stroke);
-      background: var(--hcv-hover);
-    }
-  }
-  @media (prefers-reduced-motion: no-preference) {
-    ${pages}, ${shown} > div > [data-glass-raised] {
-      animation: hcv-surface-in var(--hcv-enter-time) var(--hcv-enter);
-    }
-    ${active} ${dialog}[data-state="open"] { animation: hcv-menu-in var(--hcv-enter-time) var(--hcv-enter) both; }
-    ${active} ${dialog}[data-state="closed"] { animation: hcv-menu-out var(--hcv-exit-time) var(--hcv-exit) both; }
-    ${active} ${dialogOverlay}[data-state="open"] { animation: hcv-surface-in var(--hcv-enter-time) var(--hcv-enter) both; }
-    ${active} ${dialogOverlay}[data-state="closed"] { animation: hcv-surface-out var(--hcv-exit-time) var(--hcv-exit) both; }
-    ${active} ${tip}:is([data-state="delayed-open"], [data-state="instant-open"]) {
-      animation: hcv-menu-in ${codex.tooltip.duration} var(--hcv-enter) both;
-    }
-    ${active} ${tip}[data-state="closed"] { animation: hcv-tip-out ${codex.tooltip.duration} var(--hcv-enter) both; }
-    ${active} ${toggle} {
-      transition: background-color ${codex.switch.trackTime} linear ${codex.switch.trackDelay},
-        border-color var(--hcv-enter-time) var(--hcv-ease);
-    }
-    ${active} ${toggle} > ${thumb} {
-      transition: translate ${codex.switch.thumbTime} var(--hcv-move),
-        background-color var(--hcv-enter-time) var(--hcv-ease);
-    }
-    ${popupButtons}, ${noticeDetails} {
-      transition: background-color var(--hcv-enter-time) var(--hcv-ease),
-        color var(--hcv-enter-time) var(--hcv-ease);
-    }
-    ${active} :is(${menus}, ${popover}) {
-      transform-origin: var(--hcv-sidebar-menu-origin, var(--radix-dropdown-menu-content-transform-origin,
-        var(--radix-context-menu-content-transform-origin,
-        var(--radix-popover-content-transform-origin,
-        var(--radix-select-content-transform-origin, center top)))));
-    }
-    ${active} :is(${menus}, ${popover})[data-state="open"] {
-      animation: hcv-menu-in var(--hcv-enter-time) var(--hcv-enter) both;
-    }
-    ${active} :is(${menus}, ${popover})[data-state="closed"] {
-      animation: hcv-menu-out var(--hcv-exit-time) var(--hcv-exit) both;
-      pointer-events: none;
-    }
-    ${tabs}, ${paneAdd}, ${card} button, ${projectRow}, ${projectRow} button,
-    :is(${pages}, ${shown}) ${pageSearch},
-    ${nav} button, ${sessions} > div > div > ul > li,
-    ${pages} :is([data-tour="artifact-card"], ${pageTabs} button) {
-      transition: background-color var(--hcv-enter-time) var(--hcv-ease),
-        color var(--hcv-enter-time) var(--hcv-ease),
-        border-color var(--hcv-enter-time) var(--hcv-ease);
-    }
-    ${catalogCard}, ${capabilitySearch}, ${catalogControls} {
-      transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    ${catalogCard}, ${capabilitySearch}, ${catalogControls} {
-      transition: none;
-    }
   }
   @media (max-width: 760px) {
     ${shown} { padding: 16px 8px 8px; }
@@ -854,31 +978,6 @@ ${active} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/lab
     ${sessions} > header:has(input) > :last-child { flex: 1 1 100%; }
     ${sessions} > header:has(input) > :last-child > div { max-inline-size: none; }
   }
-  @media (any-hover: none) {
-    ${projectRow} [data-row-actions] button { opacity: 1; }
-  }
-  @keyframes hcv-menu-in {
-    from { opacity: 0; transform: scale(var(--hcv-menu-start-scale)); }
-    to { opacity: 1; transform: scale(1); }
-  }
-  @keyframes hcv-menu-out {
-    from { opacity: 1; transform: scale(1); }
-    to { opacity: 0; transform: scale(var(--hcv-menu-start-scale)); }
-  }
-  @keyframes hcv-tip-out {
-    from { opacity: 1; transform: scale(1); }
-    to { opacity: 0; transform: scale(${codex.tooltip.exitScale}); }
-  }
-  @keyframes hcv-surface-in {
-    from { opacity: 0; }
-    to { opacity: 1; }
-  }
-  @keyframes hcv-surface-out {
-    from { opacity: 1; }
-    to { opacity: 0; }
-  }
 }
-`
-  document.head.append(sheet)
-  ctx.onDispose(() => sheet.remove())
+`, { surface: overlays })
 }

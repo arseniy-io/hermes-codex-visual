@@ -1,11 +1,10 @@
 import assert from 'node:assert/strict'
-import fs from 'node:fs'
 import path from 'node:path'
 
 import { previewResourceCard } from '../source/chat-resources.js'
 
 export async function verifyChatResources({
-  app, page, expect, projectChat, screenshot, projectFolder, downloadDir, openThemeSettings, closeSettings,
+  app, page, expect, projectChat, screenshot, projectFolder, openThemeSettings, closeSettings, themeCard,
 }) {
   await projectChat('Проверка каталога').click()
   const thread = page.locator('[data-chat-surface][data-composer-target="main"] [data-slot="aui_thread-content"]')
@@ -14,9 +13,10 @@ export async function verifyChatResources({
   const file = cards.filter({ hasText: 'fixture-note.md' })
   const longFile = cards.filter({ has: page.locator('span[title$="report.txt"]') })
   const site = cards.filter({ has: page.locator('span[title$="/resource-preview"]') })
+  const folder = cards.filter({ has: page.locator('button:last-child > .tabler-icon-folder-open') })
   const artifact = answer.locator('[data-slot="aui_artifact-card"]').filter({ hasText: 'Отчёт проверки' })
-  await expect(cards).toHaveCount(3)
   await expect(artifact).toBeVisible()
+  await expect(file.getByRole('button', { name: 'Открыть содержащую папку' })).toHaveCount(1)
   const capture = async (target, name) => {
     await target.scrollIntoViewIfNeeded()
     const bounds = await target.boundingBox()
@@ -33,51 +33,54 @@ export async function verifyChatResources({
   }
 
   if (process.env.HERMES_VISUAL_RESOURCES_BEFORE === '1') {
-    await capture(file, 'file-before.png')
-    await capture(artifact, 'artifact-before.png')
-    console.log('Previous ZIP card:', await file.evaluate((card) => {
-      const style = getComputedStyle(card)
-      return { borderRadius: style.borderRadius, borderWidth: style.borderWidth }
-    }))
+    await capture(answer.filter({ hasText: 'Подготовил результаты проверки.' }), 'resources-before.png')
+    console.log('Previous ZIP cards:', await cards.evaluateAll((elements) => elements.map((card) => {
+      const { borderRadius, borderWidth } = getComputedStyle(card)
+      return { name: card.children[1].textContent, borderRadius, borderWidth }
+    })))
     return
   }
 
-  const auditBaseline = process.env.HERMES_VISUAL_AUDIT_BASELINE === '1'
+  await expect(cards).toHaveCount(4)
+  await expect(folder).toHaveCount(1)
   const supportsCorners = await page.evaluate(() => CSS.supports('corner-shape', 'superellipse(1.5)'))
-  const resourceRadius = !auditBaseline && supportsCorners ? '12.5px' : '10px'
-  for (const card of [file, longFile, site, artifact]) {
+  const resourceRadius = supportsCorners ? '12.5px' : '10px'
+  for (const card of [file, longFile, site, folder, artifact]) {
     await expect(card).toHaveCSS('border-radius', resourceRadius)
     await expect(card).toHaveCSS('border-width', '0px')
     await expect(card.locator(':scope > span:first-child')).toHaveCSS('width', '40px')
   }
   await expect(file).toHaveCSS('display', 'grid')
+  await expect(file).toHaveCSS('padding', '6px')
+  await expect(site).toHaveCSS('padding', '12px')
   const fileIcon = file.locator(':scope > span:first-child')
   const siteIcon = site.locator(':scope > span:first-child')
   const mask = (icon) => icon.evaluate((el) => getComputedStyle(el, '::before').maskImage)
   assert.match(await mask(fileIcon), /^url\(/)
   assert.notEqual(await mask(fileIcon), await mask(siteIcon))
-  const download = file.getByRole('button', { name: 'Скачать', exact: true })
+  const download = site.getByRole('button', { name: 'Скачать', exact: true })
+  const reveal = file.getByRole('button', { name: 'Открыть содержащую папку' })
   const open = file.getByRole('button', { name: 'Открыть предпросмотр', exact: true })
   const close = file.getByRole('button', { name: 'Скрыть', exact: true })
   await expect(download).toHaveCSS('border-radius', '8px')
   await expect(download).toHaveCSS('height', '28px')
   await page.mouse.move(0, 0)
-  if (!auditBaseline) await expect(download).toHaveCSS('opacity', '0')
-  await capture(file, 'file-after.png')
-  await capture(artifact, 'artifact-after.png')
-  await capture(site, 'site-after.png')
-  await file.hover()
+  await expect(download).toHaveCSS('opacity', '0')
+  await expect(reveal).toHaveCSS('opacity', '0')
+  await site.hover()
   await expect(download).toHaveCSS('opacity', '1')
+  await file.hover()
+  await expect(reveal).toHaveCSS('opacity', '1')
   await capture(file, 'file-hover.png')
   await page.mouse.move(0, 0)
 
   // Place the starting focus while Hermes is handling keyboard navigation.
   // Outside a navigation gesture it redirects scripted focus to the composer.
   await page.keyboard.down('Tab')
-  await download.focus()
+  await reveal.focus()
   await page.keyboard.up('Tab')
-  await expect(download).toBeFocused()
-  await expect(download).toHaveCSS('opacity', '1')
+  await expect(reveal).toBeFocused()
+  await expect(reveal).toHaveCSS('opacity', '1')
   await page.keyboard.press('Tab')
   await expect(open).toBeFocused()
   await expect(file).toHaveCSS('outline-width', '2px')
@@ -90,24 +93,65 @@ export async function verifyChatResources({
   await expect(filename).toHaveAttribute('title', /fixture-note\.md$/)
   await filename.click()
   await expect(close).toBeVisible()
-  await expect(page.locator('[data-preview-markdown]').getByText('Тестовый файл', { exact: true })).toBeVisible()
+  const rendered = page.locator('[data-preview-markdown]')
+  if (!(await rendered.isVisible())) {
+    await page.getByRole('button', { name: /^предпросмотр$/i }).click()
+  }
+  await expect(rendered.getByText('Тестовый файл', { exact: true })).toBeVisible()
   await close.click()
   await expect(open).toBeVisible()
 
-  const destination = path.join(downloadDir, 'downloaded-note.md')
-  await app.evaluate(({ dialog }, filePath) => {
-    dialog.showSaveDialog = async () => ({ canceled: false, filePath })
-  }, destination)
+  // Capture the real renderer-to-main action without opening Windows Explorer.
+  await app.evaluate(({ app, ipcMain }) => {
+    ipcMain.removeHandler('hermes:fs:reveal')
+    ipcMain.handle('hermes:fs:reveal', (_event, target) => {
+      app.hcvFixtureRevealed = target
+      return true
+    })
+    ipcMain.removeHandler('hermes:fs:openDir')
+    ipcMain.handle('hermes:fs:openDir', (_event, target) => {
+      app.hcvFixtureDirectory = target
+      return { ok: true }
+    })
+  })
   await file.hover()
-  await download.click()
-  const original = fs.readFileSync(path.join(projectFolder, 'fixture-note.md'))
-  await expect.poll(() => fs.existsSync(destination) && fs.readFileSync(destination).equals(original)).toBe(true)
+  await reveal.click()
+  await expect.poll(() => app.evaluate(({ app }) => app.hcvFixtureRevealed))
+    .toBe(path.join(projectFolder, 'fixture-note.md'))
   await expect(open).toBeVisible()
+  await folder.getByRole('button').click()
+  await expect.poll(() => app.evaluate(({ app }) => app.hcvFixtureDirectory)).toBe(projectFolder)
 
-  const media = answer.locator('span[class~="bg-muted/35"]:has(> audio)')
-  await expect(media).toHaveCSS('border-radius', '10px')
+  const media = answer.locator('[data-hcv-audio]')
+  const audio = media.locator('audio')
+  const play = media.locator('.hcv-audio-play')
+  const seek = media.getByRole('slider')
+  const options = media.locator('.hcv-audio-options')
+  const waveform = media.locator('.hcv-audio-glyph')
+  await expect(media).toHaveCSS('border-radius', resourceRadius)
   await expect(media).toHaveCSS('border-width', '0px')
-  await expect.poll(() => media.locator('audio').evaluate((el) => el.controls && el.readyState >= 1)).toBe(true)
+  await expect(audio).toBeHidden()
+  await expect.poll(() => audio.evaluate((el) => el.controls && el.duration === 4)).toBe(true)
+  await expect(media).toContainText('0:00 / 0:04')
+  await expect(seek).toHaveCSS('height', '20px')
+  await expect(play).toHaveCSS('width', '32px')
+  const darkWaveform = await waveform.evaluate((el) => getComputedStyle(el, '::before').backgroundImage)
+  if (process.env.HERMES_VISUAL_EXPECT_LOCAL_ICONS === '1') assert.match(darkWaveform, /4784E1/i)
+  await play.press('Enter')
+  await expect(play).toHaveAttribute('data-playing', 'true')
+  await play.press('Space')
+  await expect(play).toHaveAttribute('data-playing', 'false')
+  await seek.press('End')
+  await expect.poll(() => audio.evaluate(el => el.currentTime)).toBe(4)
+  await seek.press('Home')
+  await expect(media).toContainText('0:00 / 0:04')
+  await options.click()
+  await expect(audio).toBeVisible()
+  await expect(options).toHaveAttribute('aria-expanded', 'true')
+  await options.click()
+  await expect(audio).toBeHidden()
+  await page.mouse.move(0, 0)
+  await capture(answer.filter({ hasText: 'Подготовил результаты проверки.' }), 'resources-after.png')
   const image = thread.locator('[data-slot="aui_embedded-images"] img')
   await expect(image).toHaveCSS('border-radius', '12px')
   await expect.poll(() => image.evaluate((el) => el.complete && el.naturalWidth > 0)).toBe(true)
@@ -125,7 +169,9 @@ export async function verifyChatResources({
   await longTitle.scrollIntoViewIfNeeded()
   assert.equal(await longTitle.evaluate((el) => el.scrollWidth > el.clientWidth), true)
   assert.equal(await longFile.evaluate((el) => el.scrollWidth <= el.clientWidth), true)
-  await expect(longFile.getByRole('button', { name: 'Скачать', exact: true })).toBeVisible()
+  await expect(longFile.getByRole('button', { name: 'Открыть содержащую папку' })).toBeVisible()
+  assert.equal(await media.evaluate((el) => el.scrollWidth <= el.clientWidth + 1), true)
+  await capture(media, 'audio-narrow.png')
 
   await page.setViewportSize({ width: 1440, height: 920 })
   const dark = await file.evaluate((el) => getComputedStyle(el).backgroundColor)
@@ -135,11 +181,25 @@ export async function verifyChatResources({
   await page.emulateMedia({ colorScheme: 'light' })
   await expect.poll(() => file.evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe(dark)
   await expect(file).toHaveCSS('border-radius', resourceRadius)
-  await capture(file, 'file-light.png')
+  if (process.env.HERMES_VISUAL_EXPECT_LOCAL_ICONS === '1') {
+    assert.match(await waveform.evaluate((el) => getComputedStyle(el, '::before').backgroundImage), /3C5CD8/i)
+  }
+  await capture(answer.filter({ hasText: 'Подготовил результаты проверки.' }), 'resources-light.png')
 
   await site.getByRole('button', { name: 'Открыть предпросмотр', exact: true }).click()
   await expect(page.locator('[data-preview-browser]:visible')).toBeVisible()
   await expect.poll(() => app.evaluate(({ webContents }) =>
     webContents.getAllWebContents().some((tab) => tab.getTitle() === 'Тестовый сайт'))).toBe(true)
-  console.log('Resource cards: file preview by pointer and keyboard, saved bytes, website preview, HTML artifact tab, audio, image zoom, narrow and light layouts.')
+
+  await page.emulateMedia({ forcedColors: 'active' })
+  await expect(media).toHaveCount(0)
+  await expect(answer.locator('audio')).toBeVisible()
+  await page.emulateMedia({ forcedColors: 'none' })
+  await expect(media).toHaveCount(1)
+  await openThemeSettings()
+  await themeCard('Nous').click()
+  await closeSettings()
+  await expect(media).toHaveCount(0)
+  await expect(answer.locator('audio')).toBeVisible()
+  console.log('Resource cards: native file preview, reveal IPC, directory, website preview, HTML artifact, image zoom, audio play/pause/seek, both themes, forced colors and narrow layout.')
 }

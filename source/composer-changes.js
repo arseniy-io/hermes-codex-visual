@@ -224,7 +224,10 @@ export function registerComposerChanges(ctx, active) {
   ctx.onEvent('message.complete', event => {
     if (turns.delete(eventKey(event))) schedule()
   })
-  const observer = new MutationObserver(schedule)
+  const observer = new MutationObserver(() => {
+    const session = host.state.activeSessionId.get()
+    if (rail.isConnected || (session && turns.get(key(...scope(), session))?.paths.size)) schedule()
+  })
   observer.observe(root, {
     childList: true, subtree: true, attributes: true,
     attributeFilter: ['data-hermes-theme', 'lang', 'data-pane-hidden', 'data-popped-out'],

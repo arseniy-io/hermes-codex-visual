@@ -1,3 +1,4 @@
+import { mountStyle } from './style-scope.js'
 import { codexIconRules } from './codex-reference.js'
 
 export function registerSettingsSpecial(ctx, active) {
@@ -124,6 +125,5 @@ export function registerSettingsSpecial(ctx, active) {
   }
 }
 `
-  document.head.append(sheet)
-  ctx.onDispose(() => sheet.remove())
+  mountStyle(ctx, sheet, { screens: ['settings'], tabs: ['gateway', 'billing', 'keybinds', 'about'] })
 }

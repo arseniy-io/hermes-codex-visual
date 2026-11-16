@@ -18,7 +18,7 @@ export async function verifySummarySources({ page, expect, projectChat, screensh
 
   await heading.click()
   await expect(heading).toHaveAttribute('aria-expanded', 'false')
-  await expect(compact.locator('.hcv-sources-disclosure')).toHaveAttribute('inert', '')
+  await expect(compact.locator('[data-hcv-summary-disclosure]')).toHaveAttribute('inert', '')
   await heading.click()
   await expect(heading).toHaveAttribute('aria-expanded', 'true')
   await expect(viewAll).toBeVisible()

@@ -1,3 +1,4 @@
+import { mountStyle } from './style-scope.js'
 import { codexIconRules } from './codex-reference.js'
 
 export function registerDesktopPages(ctx, active) {
@@ -121,6 +122,5 @@ export function registerDesktopPages(ctx, active) {
       }
     }
   `
-  document.head.append(sheet)
-  ctx.onDispose(() => sheet.remove())
+  mountStyle(ctx, sheet, { screens: ['messaging', 'artifacts', 'cron'] })
 }

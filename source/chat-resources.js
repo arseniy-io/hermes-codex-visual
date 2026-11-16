@@ -1,19 +1,30 @@
+import { mountStyle } from './style-scope.js'
 import { codexIconRules, codexMask } from './codex-reference.js'
+import { registerChatAudio } from './chat-audio.js'
+import { registerChatVideo } from './chat-video.js'
 
-// PreviewAttachment has no data-slot. Use the entire native structure so a
-// file title with an unrelated action elsewhere in the answer does not match.
-export const previewResourceCard = 'div:has(> span:first-child > svg.tabler-icon-device-desktop-analytics):has(> span.truncate[title] + button[aria-label] + button:not([aria-label]):last-child)'
+// PreviewAttachment has no data-slot. The secondary action becomes Reveal
+// once Hermes has resolved a local file. A directory only has the folder action.
+const revealIcon = 'svg.tabler-icon-folder-open'
+const secondaryAction = `button:has(> :is(svg.tabler-icon-download, ${revealIcon}))`
+const directoryCard = `:has(> button:last-child > ${revealIcon})`
+export const previewResourceCard = 'div:has(> span:first-child > svg.tabler-icon-device-desktop-analytics):has(> span.truncate[title] + button)'
 
 export function registerChatResources(ctx, active) {
   const thread = `${active} [data-chat-surface] [data-slot="aui_thread-content"]`
   const answer = `${thread} [data-slot="aui_assistant-message-content"]`
   const preview = `${answer} ${previewResourceCard}`
   const site = `${preview}:has(> span[title]:is([title^="http://" i], [title^="https://" i]))`
+  const directory = `${preview}${directoryCard}`
+  const file = `${preview}:not(${site}, ${directory})`
   const artifact = `${answer} [data-slot="aui_artifact-card"]`
   const icon = `:is(${preview}, ${artifact}) > span:first-child`
-  const open = `${preview} > button:last-child`
-  const download = `${preview} > button[aria-label]`
-  const media = `${answer} .aui-md span[class~="bg-muted/35"]:has(> :is(audio, video))`
+  const withPreview = `${preview}:not(${directoryCard})`
+  const open = `${withPreview} > button:last-child`
+  const trailing = `${preview} > ${secondaryAction}`
+  const secondary = `${preview} > ${secondaryAction}:not(:last-child)`
+  const reveal = `${preview} > button:has(> ${revealIcon})`
+  const media = `${answer} .aui-md span[class~="bg-muted/35"]`
   const image = `${thread} :is([data-slot="aui_embedded-images"], [data-slot="aui_markdown-image"])`
   const generated = `${answer} [data-slot="aui_generated-image"]`
   const imageDownload = `:is(${image}, ${generated}) button:has(> svg.tabler-icon-download)`
@@ -47,11 +58,19 @@ export function registerChatResources(ctx, active) {
     font-family: var(--hcv-ui-font);
   }
   ${preview} {
+    container-type: inline-size;
     display: grid;
     grid-template-columns: 40px minmax(0, 1fr) auto;
     grid-template-rows: 1fr 1fr;
     gap: 0 10px;
   }
+  :is(${file}, ${directory}) {
+    max-inline-size: 32rem;
+    min-block-size: 52px;
+    padding: 6px;
+  }
+  ${directory} { grid-template-rows: 1fr; }
+  ${directory} > span[title] { align-self: center; }
   ${artifact} { gap: 10px; }
   @supports (corner-shape: superellipse(1.5)) {
     :is(${preview}, ${artifact}) { border-radius: 12.5px; }
@@ -72,9 +91,19 @@ export function registerChatResources(ctx, active) {
     inline-size: 24px;
     block-size: 24px;
     background: currentColor;
-    mask: ${codexMask('artifacts')} center / contain no-repeat;
+    mask: ${codexMask('resourceDocument')} center / 20px no-repeat;
   }
-  ${site} > span:first-child::before { mask-image: ${codexMask('web')}; }
+  ${site} > span:first-child::before { mask-image: ${codexMask('web')}; mask-size: contain; }
+  ${directory} > span:first-child::before { mask-image: ${codexMask('folder')}; mask-size: contain; }
+  ${artifact} > span:first-child > :is(.codicon-browser, .codicon-symbol-color) {
+    inline-size: 24px;
+    block-size: 24px;
+    background: currentColor;
+    mask: ${codexMask('web')} center / contain no-repeat;
+    font-size: 0;
+  }
+  ${artifact} > span:first-child > .codicon-symbol-color { mask-image: ${codexMask('image')}; }
+  ${artifact} > span:first-child > :is(.codicon-browser, .codicon-symbol-color)::before { visibility: hidden; }
   ${preview} > span[title], ${artifact} > span:nth-child(2) > span:first-child {
     color: var(--hcv-text);
     font: 500 var(--conversation-text-font-size, 13px) / 20px var(--hcv-ui-font);
@@ -98,7 +127,7 @@ export function registerChatResources(ctx, active) {
     white-space: nowrap;
   }
   ${preview}:has(> button:last-child:not(:disabled)) { cursor: pointer; }
-  ${download} {
+  ${trailing} {
     grid-area: 1 / 3 / 3 / 4;
     min-block-size: 28px;
     padding: 0 8px;
@@ -108,7 +137,16 @@ export function registerChatResources(ctx, active) {
     color: var(--hcv-muted);
     font: 400 12px/18px var(--hcv-ui-font);
   }
-  ${download} > svg { inline-size: 14px; block-size: 14px; }
+  ${directory} > button { grid-row: 1; }
+  ${reveal} {
+    justify-content: center;
+    gap: 4px;
+    white-space: nowrap;
+  }
+  @container (max-width: 340px) {
+    ${reveal} { min-inline-size: 28px; padding-inline: 0; font-size: 0; gap: 0; }
+  }
+  ${preview} > button > svg { inline-size: 16px; block-size: 16px; }
   ${artifact} > span:nth-child(3) {
     max-inline-size: 40%;
     overflow: hidden;
@@ -122,8 +160,8 @@ export function registerChatResources(ctx, active) {
   ${artifact}:focus-visible > span:nth-child(3) { opacity: 1; }
   /* GnI8 in 904817.6fbcca27bc.js reveals the trailing action on hover or focus. */
   @media (hover: hover) {
-    ${download}:not(:disabled) { opacity: 0; pointer-events: none; }
-    ${preview}:is(:hover, :focus-within) > button[aria-label]:not(:disabled) {
+    ${secondary}:not(:disabled) { opacity: 0; pointer-events: none; }
+    ${preview}:is(:hover, :focus-within) > ${secondaryAction}:not(:last-child):not(:disabled) {
       opacity: 1;
       pointer-events: auto;
     }
@@ -137,25 +175,16 @@ export function registerChatResources(ctx, active) {
     ${artifact} > span:nth-child(3) { opacity: 1; }
   }
   @media (prefers-reduced-motion: reduce) {
-    :is(${preview}, ${artifact}, ${download}, ${artifact} > span:nth-child(3)) { transition: none; }
+    :is(${preview}, ${artifact}, ${secondary}, ${artifact} > span:nth-child(3)) { transition: none; }
   }
-  ${preview}:has(> button:last-child:focus-visible),
-  :is(${artifact}, ${download}, ${imageDownload}):focus-visible,
+  ${withPreview}:has(> button:last-child:focus-visible),
+  :is(${artifact}, ${secondary}, ${reveal}, ${imageDownload}):focus-visible,
   ${generated} > button:first-of-type:focus-visible {
     outline: 2px solid var(--hcv-focus);
     outline-offset: -2px;
   }
   ${open}:focus-visible { outline: none; }
 
-  ${media} {
-    padding: 12px;
-    border: 0;
-    border-radius: 10px;
-    box-shadow: inset 0 0 0 .5px var(--hcv-stroke);
-    background: var(--hcv-panel);
-  }
-  ${media} > span:first-child { color: var(--hcv-muted); font: 500 13px/18px var(--hcv-ui-font); }
-  ${media} > video { border-radius: 8px; }
   ${image} img, ${generated} { border-radius: 12px; }
   ${image} img {
     border: 0;
@@ -170,15 +199,18 @@ export function registerChatResources(ctx, active) {
     background: var(--hcv-panel);
     color: var(--hcv-muted);
   }
-  :is(${download}, ${imageDownload}):not(:disabled):hover {
+  :is(${secondary}, ${reveal}, ${imageDownload}):not(:disabled):hover {
     background: var(--hcv-selected);
     color: var(--hcv-text);
   }
-  ${codexIconRules(`:is(${download}, ${imageDownload}) > svg.tabler-icon-download`, 'download')}
+  ${codexIconRules(`:is(${preview} > button, ${imageDownload}) > svg.tabler-icon-download`, 'download')}
+  ${codexIconRules(`${reveal} > ${revealIcon}`, 'folderOpen')}
 
 }
 `
-  document.head.append(style)
+  mountStyle(ctx, style, { surface: '[data-slot="aui_assistant-message-content"], [data-slot="aui_user-message-root"]', retainAcrossChatTabs: true })
+  registerChatAudio(ctx, active, `${media} > audio`)
+  registerChatVideo(ctx, active, `${media} > video`)
   // Use the real preview button without covering the filename's native tooltip.
   document.addEventListener('click', openFromCard)
   ctx.onDispose(() => {

@@ -1,3 +1,4 @@
+import { chatStyles, mountStyle } from './style-scope.js'
 import { codexIconRules, codexMask } from './codex-reference.js'
 import { registerComposerApproval } from './composer-approval.js'
 import { registerComposerChanges } from './composer-changes.js'
@@ -6,6 +7,12 @@ export function registerComposerLayout(ctx, active) {
   const dock = `${active} [data-slot="composer-dock"]:not([data-popped-out], [data-hud-shell] *)`
   const surface = `${dock} [data-slot="composer-surface"]`
   const fallback = `${active} [data-chat-surface]:not([data-hud-shell] *) .composer-fallback-surface`
+  const statusSection = '[data-slot="status-stack-section"]'
+  const consentIcon = '[data-slot="status-row"] > .status-row-icon > .codicon-graph'
+  const consentSection = `${statusSection}:has(> ${consentIcon})`
+  const consent = `${dock} ${consentSection} > [data-slot="status-row"]`
+  const consentDrawer = `${dock} > .status-drawer:has([data-slot="status-stack-content"] > ${statusSection}:only-child > ${consentIcon})`
+  const attachedComposer = `${consentDrawer}:not([data-collapsed]) + [data-slot="composer-root"]`
   const backing = '> .pointer-events-none.absolute.inset-0.-z-10[aria-hidden]'
   const input = '[class~="[grid-area:input]"]'
   const leading = '[class~="[grid-area:menu]"]'
@@ -56,6 +63,67 @@ export function registerComposerLayout(ctx, active) {
       ${dock} .coding-status-bar { border-block-end-color: transparent; }
       @media (hover: hover) and (pointer: fine) {
         ${dock} [data-slot="status-drawer-toggle"][aria-expanded="false"]:not(:hover, :focus-visible) { opacity: 0; }
+        ${attachedComposer} [data-slot="status-drawer-toggle"]:not(:hover, :focus-visible) { opacity: 0; }
+      }
+      /* The assistant's attached rail in Codex d6fe5799461e.css shares the
+         composer's silhouette. Keep the Hermes drawer and its actions native. */
+      ${consentDrawer} [data-slot="composer-status-stack"] > div {
+        margin-inline: 5px;
+        border-radius: 22px 22px 0 0;
+        border: 0;
+        background: var(--hcv-composer);
+        backdrop-filter: none;
+      }
+      ${attachedComposer} [data-slot="composer-surface"] {
+        border-start-start-radius: 0;
+        border-start-end-radius: 0;
+        box-shadow: none;
+      }
+      ${dock} ${consentSection} { container-type: inline-size; }
+      ${consent} {
+        display: grid;
+        grid-template-columns: 16px minmax(0, 1fr) auto;
+        gap: 6px 8px;
+        padding: 10px 12px 6px;
+        color: var(--hcv-text);
+        font: 13px/18px var(--hcv-ui-font);
+      }
+      ${consent}:hover { background: transparent; }
+      ${consent} > .status-row-icon { grid-column: 1; align-self: start; inline-size: 16px; block-size: 18px; }
+      ${consent} > .status-row-content { grid-column: 2; }
+      ${consent} > .status-row-content > span {
+        overflow: visible;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        font: inherit;
+        color: inherit;
+      }
+      ${consent} > .status-row-content > span > span:first-child { display: block; font-weight: 600; }
+      ${consent} > .status-row-content > span > span:nth-child(2) {
+        display: block;
+        color: var(--hcv-muted);
+        font-size: 12px;
+        line-height: 17px;
+      }
+      ${consent} > .status-row-actions { grid-column: 3; align-self: center; flex-wrap: wrap; gap: 4px; }
+      ${consent} > .status-row-actions > button {
+        min-block-size: 26px;
+        margin-block-start: 0;
+        padding-inline: 8px;
+        border: 1px solid var(--hcv-hairline);
+        border-radius: 8px;
+        background: transparent;
+        color: var(--hcv-text);
+        font: 13px/18px var(--hcv-ui-font);
+      }
+      ${consent} > .status-row-actions > button:last-child { border-color: transparent; color: var(--hcv-muted); }
+      ${consent} > .status-row-actions > button:not(:disabled):hover {
+        background: var(--hcv-dropdown-hover);
+        color: var(--hcv-text);
+      }
+      @container (width < 640px) {
+        ${consent} { grid-template-columns: 16px minmax(0, 1fr); }
+        ${consent} > .status-row-actions { grid-area: 2 / 2; }
       }
       ${surface} [data-slot="composer-fade"] { container-type: inline-size; }
       ${regularGrid} {
@@ -155,8 +223,7 @@ export function registerComposerLayout(ctx, active) {
       }
     }
   `
-  document.head.append(sheet)
-  ctx.onDispose(() => sheet.remove())
+  mountStyle(ctx, sheet, chatStyles)
   registerComposerApproval(ctx, active)
   registerComposerChanges(ctx, active)
 }
