@@ -1,5 +1,6 @@
 import { mountStyle } from './style-scope.js'
 import { codexIconRules } from './codex-reference.js'
+import { settingsLayoutRules } from './settings-layout.js'
 
 const groups = {
   'config:model': 'model',
@@ -17,9 +18,11 @@ const groups = {
   providers: 'bolt',
   gateway: 'globe',
   connections: 'globe',
+  'web-access': 'web',
   keybinds: 'keyboard',
   keys: 'keys',
   sessions: 'archive',
+  plugins: 'plugins',
   about: 'info',
 }
 
@@ -28,14 +31,15 @@ const nativeIcons = {
   cpu: 'model', download: 'download', 'file-image': 'artifacts', 'file-text': 'artifacts',
   'folder-open': 'folderOpen', globe: 'globe', keyboard: 'keyboard', key: 'keys', 'key-round': 'keys', lock: 'lock',
   'message-circle': 'messages', microphone: 'mic', mic: 'mic', monitor: 'desktop', 'device-desktop': 'desktop', network: 'globe',
-  palette: 'palette', paw: 'paw', photo: 'image', 'settings-2': 'sliders', 'shield-lock': 'shield',
+  palette: 'palette', paw: 'paw', photo: 'image', 'settings-2': 'sliders', 'adjustments-horizontal': 'sliders', 'shield-lock': 'shield',
   terminal: 'terminal', 'terminal-2': 'terminal', tool: 'wrench',
   trash: 'trash', 'trash-2': 'trash', users: 'team', 'volume-2': 'audio', wrench: 'wrench',
   bolt: 'bolt', zap: 'bolt', 'info-circle': 'info',
 }
 
 export function registerSettingsStyle(ctx, active) {
-  const settings = `${active}[data-hcv-screen="settings"] [data-overlay-surface]`
+  const screen = `${active}[data-hcv-screen="settings"]`
+  const settings = `${screen} [data-overlay-surface]`
   const rail = `${settings} [data-tour="overlay-nav"]`
   const searchButton = 'button[data-glass-opaque]'
   const searchIcon = 'svg.tabler-icon-search'
@@ -44,21 +48,22 @@ export function registerSettingsStyle(ctx, active) {
   const compact = `${rail} + div button[aria-haspopup="menu"]`
   const settingsMenu = `${active}[data-hcv-screen="settings"] [data-slot="dropdown-menu-content"] [role="menuitem"]`
   const main = `${settings} main`
-  const panels = `${active}[data-hcv-screen="settings"] :is([data-slot="dialog-content"], [data-slot="popover-content"], [data-slot="select-content"], [data-slot="dropdown-menu-content"])`
+  const panels = `${screen} :is([data-slot="dialog-content"], [data-slot="popover-content"], [data-slot="select-content"], [data-slot="dropdown-menu-content"])`
+  const selectPanel = `${screen} [data-slot="select-content"]`
   const system = `${active}[data-hcv-screen="command-center"] [data-overlay-surface] main`
   const preferences = `:is(${main}, ${system})`
   const crumbWrap = `${main} > div:has(> nav > [aria-current="page"])`
-  const crumbs = `:is(${main} > nav:has(> [aria-current="page"]), ${crumbWrap} > nav)`
-  const control = ':is([data-slot="select-trigger"], [data-slot="searchable-select-trigger"], [data-slot="compact-select-trigger"], [data-slot="input"]:not([type="file"],[type="checkbox"],[type="range"],[type="color"]), [data-slot="textarea"])'
-  const rowHost = '[class~="@container"]'
-  const nativeRow = `${rowHost}:has(> .grid.py-3)`
-  const field = '[id^="setting-field-"]'
-  const fieldGroup = `${main} .grid:has(> ${field} > ${rowHost} > .grid.py-3):not(:has(> :not(${field})))`
-  const rowGroup = `${main} :is(div, section):has(> ${rowHost} > .grid.py-3):not(:has(> :not(${rowHost}))):not(:where(${fieldGroup} > *))`
-  const standalone = `${main} ${nativeRow}:not(:where(${rowGroup} > *, ${fieldGroup} > * > *))`
+  const directCrumbs = `${main} > nav:has(> [aria-current="page"])`
+  const crumbs = `:is(${directCrumbs}, ${crumbWrap} > nav)`
+  const triggers = ':is([data-slot="select-trigger"], [data-slot="searchable-select-trigger"], [data-slot="compact-select-trigger"])'
+  const control = `:is(${triggers}, [data-slot="input"]:not([type="file"], [type="checkbox"], [type="range"], [type="color"]), [data-slot="textarea"], [data-slot="combobox-input"])`
+  const surfaces = `:is(${main}, ${panels})`
+  const sectionTitle = `${main} .flex.items-center.gap-2.pt-2:has(> svg.size-4)`
   const segmented = `${main} .inline-grid.grid-flow-col:has(> button[aria-pressed])`
   const searchField = `${main} div.inline-flex:has(> ${searchIcon} ~ input[placeholder])`
-  const mainButtons = `:is(${main}, ${panels}) button[data-variant][data-size]:not([data-size="inline"])`
+  const mainButtons = `${surfaces} :is(button, a[data-slot="button"])[data-variant][data-size]:not([data-size="inline"], [role="switch"])`
+  const compactButton = `${mainButtons}:is([data-size="sm"], [data-size="default"])`
+  const quietButton = `${mainButtons}:is([data-variant="ghost"], [data-variant="text"])`
   const modes = `${main} [id="setting-field-gateway.connection-mode"] > .grid`
   const mode = `${modes} > button`
   const selectable = `${main} button.rounded-lg.border.transition-colors.text-left:not([data-slot], [id="setting-field-gateway.connection-mode"] *)`
@@ -67,7 +72,8 @@ export function registerSettingsStyle(ctx, active) {
   const link = `:is(${preferences}, ${active}[data-hcv-screen="settings"] [data-slot="dialog-content"]) a[href]:not([role="button"], [data-slot="button"])`
   const operationRow = '.flex.items-center.justify-between.gap-3.py-2:has(> div.min-w-0 + button[data-variant="textStrong"])'
   const operation = `${system} section > ${operationRow}`
-  const toggle = `${main} [data-slot="switch"][role="switch"]`
+  const toggle = `${surfaces} [data-slot="switch"][role="switch"]`
+  const focusable = `${surfaces} :is(button, a[href], input, select, textarea, [tabindex="0"])`
   const sheet = document.createElement('style')
   sheet.dataset.hcvSettings = ''
   sheet.textContent = `
@@ -123,7 +129,7 @@ export function registerSettingsStyle(ctx, active) {
     min-block-size: 30px;
     padding-inline: 8px;
     border-radius: 10px;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 400;
     line-height: 20px;
     color: var(--hcv-text);
@@ -134,6 +140,11 @@ export function registerSettingsStyle(ctx, active) {
   ${rail} div[id] > button.row-hover { min-block-size: 30px; font-size: 12px; }
   ${rail} div[id] > button.row-hover > svg { inline-size: 14px; block-size: 14px; }
   ${rail} button[data-tour^="nav-toggle-"] { border-radius: 6px; }
+  ${rail} :is(button.row-hover, button[data-tour^="nav-toggle-"]):focus-visible,
+  ${search}:focus-visible, ${compact}:focus-visible {
+    outline: 2px solid var(--hcv-focus);
+    outline-offset: -2px;
+  }
   ${Object.entries(nativeIcons).map(([native, icon]) => codexIconRules(
     `:is(${rail} button.row-hover, ${compact}, ${settingsMenu}) > svg.tabler-icon-${native}`, icon)).join('')}
   ${codexIconRules(`:is(${rail} button.row-hover, ${compact}, ${settingsMenu}) > .codicon-account`, 'person')}
@@ -147,16 +158,21 @@ export function registerSettingsStyle(ctx, active) {
   ${codexIconRules(`${rail} > div:last-child > button > svg.tabler-icon-upload`, 'upload')}
   ${codexIconRules(`${rail} > div:last-child > button > svg.tabler-icon-refresh`, 'refresh')}
 
-  /* Personalization, 338923.5e5c677ceb.js: 768px including 20px side padding.
-     ZEx5 in 200452.4e72c790d9.js: grouped rows inside a 16px frame. */
+  /* Desktop settings, 150138.9670f4badd.js: 768px including 20px side
+     gutters. ZEx5 + AWNZ.ic, 200452.c015aea25d.js: grouped rows. */
   ${preferences}, ${panels} {
     --hcv-settings-group: light-dark(#f7f7f7, #232323);
-    --hcv-settings-group-stroke: color-mix(in srgb, var(--hcv-text) 8%, transparent);
+    --hcv-settings-group-stroke: color-mix(in srgb, var(--hcv-text) 9%, transparent);
     --hcv-settings-button: color-mix(in srgb, var(--hcv-text) 5%, transparent);
     --hcv-settings-card-radius: 16px;
     --hcv-settings-control-radius: 8px;
+    --hcv-settings-inset: 16px;
+    --hcv-settings-row-gap: 24px;
+    --hcv-settings-row-pad: 12px;
+    --hcv-settings-fade: 150ms cubic-bezier(0, 0, .2, 1);
     font-family: var(--hcv-ui-font);
   }
+  ${system} { --hcv-settings-group-stroke: color-mix(in srgb, var(--hcv-text) 8%, transparent); }
   /* Codex Desktop's named corner scale, limited to settings contents and portals.
      Native utility classes then use the same curve on wrappers and their contents. */
   :is(${main}, ${panels}) {
@@ -173,19 +189,22 @@ export function registerSettingsStyle(ctx, active) {
   ${preferences} :is(div, section, fieldset, pre).rounded-2xl.border { border-radius: 16px; }
   ${main} {
     max-inline-size: 768px;
-    padding-block-start: 32px;
-    padding-block-end: 0;
-    --conversation-text-font-size: 14px;
+    container: hcv-settings-main / inline-size;
+    --hcv-settings-gutter: 20px;
+    padding: 32px 0 0;
+    font-size: 13px;
+    line-height: calc(1.25 / .875);
+    --conversation-text-font-size: 13px;
     --conversation-caption-font-size: 12px;
-    --conversation-caption-line-height: 18px;
+    --conversation-caption-line-height: 16px;
   }
   ${main} > section > div.h-full {
-    padding-inline: 20px;
+    padding-inline: var(--hcv-settings-gutter);
     padding-block-end: 32px;
   }
-  ${crumbWrap} {
-    margin-block-end: 16px;
-    padding-inline: 20px;
+  ${crumbWrap}, ${directCrumbs} {
+    margin-block-end: 20px;
+    padding-inline: var(--hcv-settings-gutter);
   }
   ${crumbs} {
     min-block-size: 30px;
@@ -205,45 +224,25 @@ export function registerSettingsStyle(ctx, active) {
   ${crumbs} > button { font-size: 12px; }
   ${crumbs} > svg:has(+ [aria-current="page"]) { display: none; }
   ${codexIconRules(`${crumbs} > svg`, 'right')}
-  ${main} :is(h1, h2) { font-weight: 600; text-wrap: balance; }
-  ${main} :is(p, label) { overflow-wrap: anywhere; }
-  ${rowGroup}, ${fieldGroup}, ${modes} {
+  ${main} h1 { font-weight: 500; text-wrap: balance; }
+  ${main} h2, ${sectionTitle} {
+    color: var(--hcv-text);
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 20px;
+  }
+  ${sectionTitle} { margin-block-end: 8px; padding-block-start: 0; }
+  ${sectionTitle} > svg { flex: 0 0 auto; inline-size: 16px; block-size: 16px; color: var(--hcv-muted); }
+  ${Object.entries(nativeIcons).map(([native, icon]) =>
+    codexIconRules(`${sectionTitle} > svg.tabler-icon-${native}`, icon)).join('')}
+  ${main} p { overflow-wrap: anywhere; }
+  ${settingsLayoutRules(screen, main)}
+  ${modes} {
     gap: 0;
     min-inline-size: 0;
     border: 1px solid var(--hcv-settings-group-stroke);
     border-radius: var(--hcv-settings-card-radius);
     background: var(--hcv-settings-group);
-  }
-  ${rowGroup}, ${fieldGroup}, ${standalone} { padding-inline: clamp(8px, 2vw, 16px); }
-  ${fieldGroup} > ${field} + ${field},
-  ${main} ${nativeRow} + ${nativeRow} { border-block-start: 1px solid var(--hcv-hairline); }
-  ${standalone} {
-    min-inline-size: 0;
-    border-inline: 1px solid var(--hcv-settings-group-stroke);
-    background: var(--hcv-settings-group);
-  }
-  ${standalone}:not(:where(${nativeRow} + *)) {
-    border-block-start: 1px solid var(--hcv-settings-group-stroke);
-    border-start-start-radius: var(--hcv-settings-card-radius);
-    border-start-end-radius: var(--hcv-settings-card-radius);
-  }
-  ${standalone}:not(:has(+ ${rowHost} > .grid.py-3)) {
-    border-block-end: 1px solid var(--hcv-settings-group-stroke);
-    border-end-start-radius: var(--hcv-settings-card-radius);
-    border-end-end-radius: var(--hcv-settings-card-radius);
-  }
-  ${main} ${nativeRow} > .grid { gap: 12px 24px; padding-block: 12px; }
-  ${main} ${nativeRow} > .grid > div > div:first-child { font-weight: 500; }
-  ${main} ${nativeRow} > .grid:has(> div:nth-child(2) > [role="switch"]:only-child) {
-    grid-template-columns: minmax(0, 1fr) max-content;
-    align-items: center;
-  }
-  @container (min-width: 672px) {
-    ${main} ${nativeRow} > .grid:has(> div + div) {
-      grid-template-columns: minmax(0, 1fr) minmax(0, max-content);
-      align-items: center;
-    }
-    ${main} ${nativeRow} > .grid > div:nth-child(2) { max-inline-size: 244px; }
   }
   ${modes} { grid-template-columns: minmax(0, 1fr); grid-auto-rows: auto; }
   ${mode} {
@@ -271,7 +270,8 @@ export function registerSettingsStyle(ctx, active) {
   ${selectable} { border-color: var(--hcv-hairline); border-radius: 16px; box-shadow: none; }
   ${selectable}.ring-2 { border-color: var(--hcv-stroke); background-color: var(--hcv-hover-menu); }
 
-  /* Button actions and inline documentation have different affordances. */
+  /* Sm6l's toolbar variant: 28px with 8px sides. Quiet secondary
+     actions read as text until hover; the row's main action gets a fill. */
   ${action} {
     min-block-size: 28px;
     max-inline-size: 100%;
@@ -280,12 +280,17 @@ export function registerSettingsStyle(ctx, active) {
     background-color: var(--hcv-settings-button);
     color: var(--hcv-text);
     font-size: 13px;
-    font-weight: 500;
+    font-weight: 400;
     line-height: 18px;
     text-decoration: none;
     white-space: normal;
     overflow-wrap: anywhere;
   }
+  ${main} button[data-variant="text"][data-slot="button"]:not([data-size="inline"]) {
+    background-color: transparent;
+    color: var(--hcv-muted);
+  }
+  ${system} button[data-slot="button"]:is([data-variant="text"], [data-variant="textStrong"]):not([data-size="inline"]) { font-weight: 500; }
   ${action}.text-destructive { color: var(--hcv-error); }
   ${action}:active:not(:disabled) { background-color: color-mix(in srgb, var(--hcv-text) 16%, transparent); }
   ${inlineAction}, ${link} { text-decoration: none; }
@@ -311,20 +316,23 @@ export function registerSettingsStyle(ctx, active) {
     border-end-end-radius: 16px;
   }
 
-  /* Personalization uses the default F0xz switch (189497.6182e00931.js). */
+  /* Personalization uses F0xz (956370.aff5cce818.js). */
   ${toggle} {
+    inline-size: 32px;
     block-size: 20px;
     padding-inline: 2px;
     border: 0;
+    box-shadow: none;
     background-color: color-mix(in srgb, var(--hcv-text) 10%, transparent);
   }
   ${toggle}[data-state="checked"] { background-color: #339cff; }
-  ${toggle} > [data-slot="switch-thumb"] { inline-size: 16px; block-size: 16px; background-color: #fff; }
-  ${toggle}[data-state="checked"] > [data-slot="switch-thumb"] { translate: 12px 0; background-color: #fff; }
+  ${toggle} > [data-slot="switch-thumb"] { inline-size: 16px; block-size: 16px; background-color: #fff; translate: none; }
+  ${toggle}[data-state="checked"] > [data-slot="switch-thumb"] { translate: 12px 0; }
   ${toggle}[data-state="checked"]:dir(rtl) > [data-slot="switch-thumb"] { translate: -12px 0; }
 
-  :is(${main}, ${panels}) ${control} {
-    min-block-size: 32px;
+  ${surfaces} ${control} {
+    min-block-size: 28px;
+    max-inline-size: 100%;
     border: 1px solid var(--hcv-hairline);
     border-radius: var(--hcv-settings-control-radius);
     background: var(--hcv-form-surface);
@@ -333,11 +341,28 @@ export function registerSettingsStyle(ctx, active) {
     line-height: 18px;
     box-shadow: none;
   }
-  ${main} ${control}:is(:focus, :focus-within, [data-state="open"]):not(:disabled, [aria-invalid="true"]) {
+  ${surfaces} ${control}:not(textarea) { block-size: 28px; }
+  ${surfaces} input[role="combobox"][aria-autocomplete="list"] { padding-inline-end: 28px; }
+  ${surfaces} ${control}:is(:focus, :focus-within, [data-state="open"]):not(:disabled, [aria-invalid="true"]) {
     border-color: color-mix(in srgb, var(--hcv-text) 50%, transparent);
   }
-  ${main} ${control}[aria-invalid="true"] { border-color: var(--hcv-error); }
-  ${main} textarea[data-slot="textarea"] { padding-block: 8px; }
+  ${surfaces} ${control}[aria-invalid="true"] { border-color: var(--hcv-error); }
+  ${surfaces} textarea[data-slot="textarea"] { padding-block: 8px; }
+  ${main} input[data-slot="input"][type="number"] { inline-size: min(100%, 96px); }
+  ${surfaces} ${triggers} {
+    min-inline-size: 0;
+    gap: 6px;
+  }
+  ${surfaces} ${triggers} > :is(svg.tabler-icon-chevron-down, .codicon-chevron-down, .codicon-chevron-up),
+  ${main} :has(> input[role="combobox"][aria-autocomplete="list"]) > button > .codicon-chevron-down {
+    inline-size: 14px;
+    block-size: 14px;
+    flex-shrink: 0;
+    color: var(--hcv-muted);
+  }
+  ${codexIconRules(`${surfaces} ${triggers} > :is(svg.tabler-icon-chevron-down, .codicon-chevron-down)`, 'down')}
+  ${codexIconRules(`${surfaces} ${triggers} > .codicon-chevron-up`, 'down')}
+  ${surfaces} ${triggers} > .codicon-chevron-up { rotate: 180deg; }
   ${searchField} {
     min-block-size: 32px;
     border: 1px solid var(--hcv-hairline);
@@ -348,11 +373,13 @@ export function registerSettingsStyle(ctx, active) {
   }
   ${searchField}:focus-within { border-color: var(--hcv-focus); }
   ${searchField} > input:focus-visible { outline: none; }
-  ${segmented} { min-inline-size: 0; max-inline-size: 100%; border-radius: 999px; }
+  ${segmented} { display: inline-flex; flex-wrap: wrap; min-inline-size: 0; max-inline-size: 100%; border-radius: 12px; }
   ${segmented} > button {
     min-block-size: 24px;
+    padding-inline: 6px;
     border-radius: 999px;
     color: var(--hcv-muted);
+    font: 400 12px/16px var(--hcv-ui-font);
   }
   ${segmented} > button[aria-pressed="true"] {
     background: var(--hcv-settings-group);
@@ -360,21 +387,27 @@ export function registerSettingsStyle(ctx, active) {
     box-shadow: 0 0 0 .5px var(--hcv-hairline);
   }
   :is(${main}, ${panels}) [data-slot="badge"] { border-radius: 999px; }
-  ${main} [data-slot="select-trigger"] > [data-slot="select-value"] {
+  ${surfaces} [data-slot="select-trigger"] > [data-slot="select-value"] {
     min-inline-size: 0;
     text-overflow: ellipsis;
   }
   ${mainButtons} {
     border-radius: var(--hcv-popup-button-radius);
+    max-inline-size: 100%;
+    white-space: normal;
   }
-  :is(${mainButtons}, ${segmented} > button):focus-visible {
+  ${compactButton} {
+    block-size: auto;
+    min-block-size: 28px;
+    padding: 4px 8px;
+    font: 400 13px/18px var(--hcv-ui-font);
+  }
+  ${quietButton}[data-size^="icon"] { inline-size: 28px; block-size: 28px; border-radius: 8px; }
+  ${focusable}:focus-visible {
     outline: 2px solid var(--hcv-focus);
     outline-offset: -2px;
   }
-  ${main} button[data-size="sm"]:is([data-variant="default"], [data-variant="outline"], [data-variant="secondary"]) {
-    min-block-size: 28px;
-  }
-  ${main} button:is([data-variant="outline"], [data-variant="secondary"]):not(:disabled) {
+  ${surfaces} button:is([data-variant="outline"], [data-variant="secondary"]):not(:disabled) {
     border-color: var(--hcv-hairline);
   }
   ${settings} button[data-glass-opaque] { font-family: var(--hcv-ui-font); }
@@ -384,29 +417,43 @@ export function registerSettingsStyle(ctx, active) {
       background: var(--hcv-hover-menu);
       color: var(--hcv-text);
     }
-    ${main} ${control}:hover:not(:disabled, :focus, :focus-within, [data-state="open"], [aria-invalid="true"]) { border-color: var(--hcv-stroke); }
+    ${surfaces} ${control}:hover:not(:disabled, :focus, :focus-within, [data-state="open"], [aria-invalid="true"]) { border-color: var(--hcv-stroke); }
     ${mode}:hover:not(:disabled, .ring-2, :active),
-    ${action}:hover:not(:disabled, :active) { background-color: var(--hcv-hover-menu); }
+    ${action}:hover:not(:disabled, :active),
+    ${main} button[data-variant="text"][data-slot="button"]:not([data-size="inline"], :disabled):hover {
+      background-color: var(--hcv-hover-menu);
+      color: var(--hcv-text);
+    }
     ${rail} button.row-hover:not([aria-current]):hover { background-color: var(--hcv-settings-nav-fill); }
   }
   @media (prefers-reduced-motion: no-preference) {
-    ${rail} button.row-hover { transition: background-color 150ms ease, color 150ms ease; }
-    ${preferences} :is(button:not([role="switch"]), ${control}) {
+    ${rail} button.row-hover,
+    ${surfaces} :is(button, ${control}) {
+      transition: color var(--hcv-settings-fade, 150ms ease),
+        background-color var(--hcv-settings-fade, 150ms ease), border-color var(--hcv-settings-fade, 150ms ease);
+    }
+    ${toggle} > [data-slot="switch-thumb"] { transition: translate var(--hcv-settings-fade); }
+    ${system} button:not([role="switch"]) {
       transition: color var(--hcv-enter-time) var(--hcv-ease), background-color var(--hcv-enter-time) var(--hcv-ease),
         border-color var(--hcv-enter-time) var(--hcv-ease), box-shadow var(--hcv-enter-time) var(--hcv-ease);
     }
+    ${selectPanel}[data-state="open"] { animation: hcv-settings-select-in 300ms var(--hcv-enter) both; transform-origin: var(--radix-select-content-transform-origin); }
+    ${selectPanel}[data-state="closed"] { animation: hcv-settings-select-out 200ms var(--hcv-exit) both; transform-origin: var(--radix-select-content-transform-origin); }
+    @keyframes hcv-settings-select-in { from { opacity: 0; scale: .95; } to { opacity: 1; scale: 1; } }
+    @keyframes hcv-settings-select-out { from { opacity: 1; scale: 1; } to { opacity: 0; scale: .95; } }
   }
   @media (prefers-reduced-motion: reduce) {
     ${rail} button.row-hover { transition: none; }
-    ${preferences} :is(button:not([role="switch"]), ${control}) { transition: none; }
+    ${surfaces} :is(button, ${control}, [data-slot="switch-thumb"]) { transition: none; }
+    ${system} button:not([role="switch"]) { transition: none; }
+    ${selectPanel}[data-state] { animation: none; }
   }
   @media (max-width: 760px) {
     ${settings} [data-glass-raised] > div > .grid:has(> [data-tour="overlay-nav"]) {
       grid-template-columns: minmax(0, 1fr);
     }
-    ${main} { padding-block-start: 6px; }
-    ${main} > section > div.h-full { padding-inline: 16px; }
-    ${crumbWrap} { padding-inline: 16px; margin-block-end: 8px; }
+    ${main} { padding-block-start: 8px; --hcv-settings-gutter: 16px; --hcv-settings-inset: 12px; }
+    ${crumbWrap}, ${directCrumbs} { margin-block-end: 12px; }
     ${crumbs} > [aria-current="page"] { font-size: 24px; line-height: 28px; }
     ${search} { background-color: color-mix(in srgb, var(--hcv-text) 8%, var(--hcv-sidebar)); }
   }

@@ -582,6 +582,7 @@ export function projectSidebarStyles(active) {
     font: ${nameFont};
   }
   ${row} button[data-hcv-project-name] { cursor: pointer; }
+  ${row} + div.grid { padding-block-start: 1px; }
   ${project} .hover-marquee-inner { font: ${nameFont}; line-height: 20px; }
   ${project} > [data-hcv-project-empty] {
     padding: 4px 32px;

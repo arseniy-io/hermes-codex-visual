@@ -1,9 +1,8 @@
 import { mountStyle } from './style-scope.js'
 import { codexIconRules } from './codex-reference.js'
+import { settingsRowHost } from './settings-layout.js'
 
 export function registerSettingsSpecial(ctx, active) {
-  const settings = `${active}[data-hcv-screen="settings"] [data-overlay-surface]`
-  const main = `${settings} main`
   const page = tab => `${active}[data-hcv-settings-tab="${tab}"] [data-overlay-surface] main`
 
   const gateways = page('gateway')
@@ -23,9 +22,10 @@ export function registerSettingsSpecial(ctx, active) {
   const keycap = `${shortcuts} [data-slot="kbd"]`
 
   const archiveRow = '[id^="archived-session-"]'
-  const archive = `${main} .grid:has(> ${archiveRow})`
+  const archive = `${page('sessions')} ${archiveRow}`
+  const archiveAction = `${archive} ${settingsRowHost} > .grid > div:nth-child(2) > .flex`
   const pluginRow = 'button[data-testid^="plugin-settings-row-"]'
-  const plugins = `${main} .grid:has(> ${pluginRow})`
+  const plugins = `${page('plugins')} .grid:has(> ${pluginRow})`
   const pluginManage = `${page('plugins')} a[data-slot="button"][href*="capabilities"]`
   const keyRow = '[id^="credential-key-"] > [class~="group/card"]'
   const toolKey = `${page('keys')} ${keyRow}`
@@ -41,7 +41,7 @@ export function registerSettingsSpecial(ctx, active) {
   sheet.textContent = `
 @media (forced-colors: none) {
   /* ZEx5 card surfaces and dividers from Codex 200452.4e72c790d9.js. */
-  ${registryEditor}, ${billingTiles}, ${billingUsage}, ${planTile}, ${archive}, ${plugins}, ${emptyKeys} {
+  ${registryEditor}, ${billingTiles}, ${billingUsage}, ${planTile}, ${plugins}, ${emptyKeys} {
     min-inline-size: 0;
     border: 1px solid var(--hcv-settings-group-stroke);
     border-radius: var(--hcv-settings-card-radius);
@@ -92,11 +92,21 @@ export function registerSettingsSpecial(ctx, active) {
   ${shortcutRow}:focus-within { background-color: var(--hcv-hover-menu); }
   ${keycap} { border-radius: 5px; box-shadow: none; }
 
-  ${archive} { gap: 0; padding-inline: clamp(8px, 2vw, 16px); }
-  ${archive} > ${archiveRow} + ${archiveRow} { border-block-start: 1px solid var(--hcv-hairline); }
+  /* Same button roles as archived chats in Codex; Hermes keeps its own
+     preview, folder and message count, and the native action order. */
+  ${archiveAction} { flex-wrap: wrap; gap: 8px; }
+  ${archiveAction} > button[data-variant="textStrong"] > svg.tabler-icon-archive-off { display: none; }
+  ${archiveAction} > button > svg:is(.tabler-icon-trash, .tabler-icon-trash-2) { inline-size: 16px; block-size: 16px; }
+  ${codexIconRules(`${archiveAction} > button > svg:is(.tabler-icon-trash, .tabler-icon-trash-2)`, 'trash')}
+  ${archive} ${settingsRowHost} > .grid > .min-w-0 > .font-mono {
+    color: var(--hcv-muted);
+    font: 400 12px/16px var(--hcv-ui-font);
+  }
+  ${plugins} { padding-inline: var(--hcv-settings-inset); overflow: visible; }
   ${plugins} > ${pluginRow} {
     min-block-size: 44px;
     border-color: var(--hcv-hairline);
+    padding-inline: 0;
     background-color: transparent;
   }
   ${plugins} > ${pluginRow}:first-child { border-start-start-radius: 15px; border-start-end-radius: 15px; }
@@ -125,5 +135,5 @@ export function registerSettingsSpecial(ctx, active) {
   }
 }
 `
-  mountStyle(ctx, sheet, { screens: ['settings'], tabs: ['gateway', 'billing', 'keybinds', 'about'] })
+  mountStyle(ctx, sheet, { screens: ['settings'], tabs: ['gateway', 'billing', 'keybinds', 'about', 'sessions', 'plugins', 'keys'] })
 }

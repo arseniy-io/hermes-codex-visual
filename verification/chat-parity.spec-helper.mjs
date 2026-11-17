@@ -532,7 +532,7 @@ export async function verifySubagentsParity({ app, page, expect, projectChat, sc
   await expect(tile.getByText(tilePrompt, { exact: true })).toBeAttached()
   await expect(viewport.getByText(tilePrompt, { exact: true })).toHaveCount(0)
   await expect.poll(() => fixture.children.has(tileGoal), { timeout: 35000 }).toBe(true)
-  await expect(tile.getByRole('button', { name: 'Subagent Task Completed: ' + tileGoal, exact: true }))
+  await expect(tile.getByRole('button', { name: 'Субагент завершил работу · ' + tileGoal, exact: true }))
     .toBeAttached({ timeout: 40000 })
   await expect(viewport.getByText('Тестовый чат готов к проверке.', { exact: true })).toBeVisible()
   await verifySubagentsScopeChanged({ page, expect, prior: tileGoal })

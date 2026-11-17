@@ -63,10 +63,13 @@ export function registerStyleScope(ctx, theme) {
   }
 
   const bodyChanges = new MutationObserver(records => {
-    if (watched && records.some(record => record.type === 'childList'
-      ? movedElementMatches(record, watched)
-      : (record.attributeName === 'aria-selected' && record.target.hasAttribute('data-tree-tab')) ||
-        record.target.matches(watched) || record.target.querySelector(watched))) schedule()
+    if (watched && records.some(record => {
+      if (record.type === 'childList') return movedElementMatches(record, watched)
+      // Command pickers change aria-selected on pointer movement. Only pane
+      // tabs use that state to decide which surface styles should be mounted.
+      if (record.attributeName === 'aria-selected') return record.target.hasAttribute('data-tree-tab')
+      return record.target.matches(watched) || record.target.querySelector(watched)
+    })) schedule()
   })
   const themeChanges = new MutationObserver(schedule)
   themeChanges.observe(root, { attributes: true, attributeFilter: ['data-hermes-theme'] })

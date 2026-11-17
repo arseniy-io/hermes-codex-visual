@@ -39,6 +39,7 @@ const tableFocus = process.env.HERMES_VISUAL_FOCUS === 'chat-tables'
 const draftSetupFocus = process.env.HERMES_VISUAL_FOCUS === 'draft-setup'
 const newChatLayoutFocus = process.env.HERMES_VISUAL_FOCUS === 'new-chat-layout'
 const styleScopeFocus = process.env.HERMES_VISUAL_FOCUS === 'style-scope'
+const commandPaletteFocus = process.env.HERMES_VISUAL_FOCUS === 'command-palette'
 const responsivenessFocus = process.env.HERMES_VISUAL_FOCUS === 'responsiveness'
 const performanceFocus = process.env.HERMES_VISUAL_FOCUS === 'deep-performance'
 const sessionNavigationFocus = process.env.HERMES_VISUAL_FOCUS === 'session-navigation'
@@ -58,6 +59,7 @@ const imageParityFocus = process.env.HERMES_VISUAL_FOCUS === 'image-parity'
 const videoParityFocus = process.env.HERMES_VISUAL_FOCUS === 'video-parity'
 const activityComposerFocus = process.env.HERMES_VISUAL_FOCUS === 'activity-composer'
 const activityParityFocus = process.env.HERMES_VISUAL_FOCUS === 'activity-parity'
+const reviewProposalsFocus = process.env.HERMES_VISUAL_FOCUS === 'review-proposals'
 const displayBaseline = process.env.HERMES_VISUAL_DISPLAY_BASELINE === '1'
 const resolveDesktop = createRequire(path.join(fixtureDesktop, 'package.json')).resolve
 const playwright = path.dirname(resolveDesktop('@playwright/test/package.json'))
@@ -162,15 +164,17 @@ async function createTestGateway(sandbox, env, providerUrl) {
 test(`${mode} native desktop smoke`, async () => {
   const delegateFocus = chatParityFocus || subagentsPaneFocus
   const settingsAudit = process.env.HERMES_VISUAL_FOCUS === 'settings-audit'
-  const localModelFocus = turnDiffFocus || summaryLayoutFocus || activityComposerFocus || imageParityFocus || videoParityFocus
+  const localModelFocus = turnDiffFocus || summaryLayoutFocus || activityComposerFocus || imageParityFocus || videoParityFocus || reviewProposalsFocus
     || chatActivityFocus || sidebarWidthFocus || summaryParityFocus || summarySourcesFocus || subagentsPaneFocus
-    || chatHoverFocus || tableFocus
+    || chatHoverFocus || tableFocus || commandPaletteFocus
   if (responsivenessFocus || styleScopeFocus || performanceFocus) test.setTimeout(300000)
   if (settingsAudit || localModelFocus) test.setTimeout(300000)
+  if (activityParityFocus) test.setTimeout(230000)
   if (composerFocus || delegateFocus || draftSetupFocus || densityFocus || process.env.HERMES_VISUAL_FOCUS === 'desktop-surfaces') {
     test.setTimeout(210000)
   }
   const chatParity = delegateFocus || draftSetupFocus ? await import('./chat-parity.spec-helper.mjs') : null
+  const reviewProposals = reviewProposalsFocus ? await import('./review-proposals.spec-helper.mjs') : null
   const chatFixture = delegateFocus ? chatParity.makeChatFixture() : null
   const performanceCheck = performanceFocus ? await import('./deep-performance.spec-helper.mjs') : null
   const dictation = dictationFocus ? await import('./dictation.spec-helper.mjs') : null
@@ -178,6 +182,7 @@ test(`${mode} native desktop smoke`, async () => {
   const chatReference = process.env.HERMES_VISUAL_CHAT_REFERENCE === '1'
   const sandbox = createSandbox('codex-visual')
   if (chatHoverFocus || sessionNavigationFocus) console.log('Isolated chat profile', sandbox.root)
+  if (commandPaletteFocus) console.log('Isolated palette profile', sandbox.root)
   if (summaryParityFocus || summarySourcesFocus || subagentsPaneFocus) console.log('Isolated summary profile', sandbox.root)
   const relativeSandbox = path.relative(fs.realpathSync(os.tmpdir()), fs.realpathSync(sandbox.root))
   assert(
@@ -187,6 +192,7 @@ test(`${mode} native desktop smoke`, async () => {
   const prompt = 'Проверь рабочий чат и покажи короткий ответ.'
   const firstToken = sidebarActivityFocus || projectActivityFocus || sessionNavigationFocus ? Promise.withResolvers() : null
   const voiceRequests = []
+  const translationRequests = []
   const projectFolder = path.join(sandbox.root, 'demo-workspace')
   const resourceFocus = process.env.HERMES_VISUAL_FOCUS === 'chat-resources'
   if (resourceFocus || imageParityFocus) test.setTimeout(290000)
@@ -256,6 +262,10 @@ test(`${mode} native desktop smoke`, async () => {
       }
       if (req.url === '/v1/chat/completions') {
         const request = JSON.parse(data.toString())
+        if (activityParityFocus && request.messages?.[0]?.content?.startsWith?.('Translate each string of the input JSON array')) {
+          translationRequests.push(request)
+          return res.writeHead(400).end('Translation must not run when a thought opens')
+        }
         if (await performanceCheck?.replyToPerformancePrompt(res, request)) return
         if (await tableFixture?.reply(res, request)) return
         if (await composerFixture?.reply(request, (content, tools) => replyToFixture(res, request, content, tools))) return
@@ -332,6 +342,7 @@ test(`${mode} native desktop smoke`, async () => {
       `terminal:\n  cwd: ${JSON.stringify(projectFolder)}\nauxiliary:\n  title_generation:\n    enabled: false\nmcp_servers:\n  Тестовый поиск:\n    url: ${mcpUrl}\n  Тестовые документы:\n    url: ${mcpUrl}`
         + (projectCatalogFixFocus ? `\n  github:\n    url: ${mcpUrl}` : '')
         + (localModelFocus ? `\nmodels_dev:\n  url: ${fixtureUrl}/models-registry.json` : '')
+        + (reviewProposalsFocus ? '\nskills:\n  write_approval: true\nmemory:\n  write_approval: true\n  memory_enabled: true\n  user_profile_enabled: true' : '')
         + (dictationFocus ? `\nstt:\n  enabled: true\n  provider: openai\n  openai:\n    api_key: e2e-mock-key\n    base_url: ${fixtureUrl}/v1\n    model: whisper-1` : ''),
     )
     writeEnvFile(sandbox.hermesHome, 'e2e-mock-key',
@@ -617,6 +628,42 @@ if sys.argv[3] == 'activity-parity':
             {'error': 'fixture browser failed', 'success': False}),
     ])
     db.append_message(sid, 'assistant', 'Проверка оформления закончена.')
+    db.append_message(sid, 'user', 'Покажи старый ход.')
+    db.append_message(sid, 'assistant', None, reasoning='Original text from a saved turn.')
+    db.append_message(sid, 'assistant', 'Старый ход сохранён.')
+    db.append_message(sid, 'user', 'Покажи ход проверки файлов.')
+    thought = ['Сохраняю исходный абзац.', 'Второй абзац с ' + chr(96) + 'inline code' + chr(96) + '.',
+               '## Заметки к проверке', 'Запускаю проверку.', '- Первый пункт готов.', '1. Второй пункт готов.',
+               *[f'Пункт проверки {i} готов.' for i in range(1, 9)]]
+    db.append_message(sid, 'assistant', None, reasoning=(chr(10) * 2).join(thought))
+    append_activity([
+        ('tool_read_1', 'read_file', {'path': str(folder / 'fixture-note.md')}, {'content': 'Первый файл'}),
+        ('tool_read_2', 'read_file', {'path': str(folder / 'fixture-rules.txt')}, {'content': 'Второй файл'}),
+    ])
+    db.append_message(sid, 'assistant', 'Файлы прочитаны. Дальше проверяю правку.')
+    append_activity([
+        ('tool_skill_mixed', 'skill_view', {'name': 'fixture-skill'}, {'success': True, 'content': 'Скилл'}),
+        ('tool_web_read', 'web_extract', {'urls': ['https://example.invalid/']}, {'results': [{'content': 'Страница'}]}),
+        ('tool_web_search', 'web_search', {'query': 'fixture current docs'}, {'results': [{'title': 'Документация'}]}),
+        ('tool_history_search', 'session_search_recall', {'query': 'fixture old notes'}, {'results': []}),
+    ])
+    db.append_message(sid, 'assistant', 'Источники проверены.')
+    append_activity([
+        ('tool_edit_1', 'patch', {'mode': 'replace', 'path': str(folder / 'fixture-note.md'),
+          'old_string': '# Тестовый файл', 'new_string': '# Исправленный файл'},
+         {'success': True, 'diff': chr(10).join(['--- a/fixture-note.md', '+++ b/fixture-note.md', '@@ -1 +1 @@', '-# Тестовый файл', '+# Исправленный файл'])}),
+        ('tool_edit_2', 'patch', {'mode': 'replace', 'path': str(folder / 'fixture-note.md'),
+          'old_string': 'Первая строка', 'new_string': 'Вторая строка'},
+         {'success': True, 'diff': chr(10).join(['--- a/fixture-note.md', '+++ b/fixture-note.md', '@@ -2 +2 @@', '-Первая строка', '+Вторая строка'])}),
+        ('tool_mix_1', 'terminal', {'command': 'echo verify-file'},
+          {'stdout': chr(10).join(['fixture verified', *[f'Проверка {i}: ' + 'длинная строка вывода ' * 8 for i in range(1, 12)]]), 'exit_code': 0}),
+        ('tool_mix_2', 'terminal', {'command': 'echo verify-again'}, {'stdout': 'fixture checked again', 'exit_code': 0}),
+    ])
+    db.append_message(sid, 'assistant', 'Лента проверки файлов готова.')
+    db.append_message(sid, 'user', chr(10).join(['[ASYNC DELEGATION COMPLETE]', '--- RESULT ---', 'Пробный отчёт субагента.']),
+        display_kind='async_delegation_complete', display_metadata={'display_text': 'Subagent Task Completed: Проверка файлов'})
+    db.append_message(sid, 'user', 'На этом всё?')
+    db.append_message(sid, 'assistant', 'Да, проверка завершена.')
 if sys.argv[3] in ('chat-activity', 'image-parity'):
     import base64, json, struct, zlib
     sid = '20261108_124502_aab002'
@@ -706,6 +753,25 @@ if sys.argv[3] == 'display':
         [('user', 'Запрос из старого чата.'), ('assistant', 'Ответ из другого профиля.')],
     )
     other.close()
+if sys.argv[3] == 'settings-audit':
+    from hermes_cli.profiles import create_profile
+    from shutil import copyfile
+    profile = create_profile('visual-settings-long-profile', no_alias=True, no_skills=True)
+    assert profile.is_relative_to(Path(sys.argv[1]).parent)
+    copyfile(config, profile / 'config.yaml')
+    if config.with_name('.env').exists():
+        copyfile(config.with_name('.env'), profile / '.env')
+    for index, title in enumerate((
+        'Архивный чат для проверки',
+        'Длинный заголовок архивного чата об оформлении настроек и действиях в узком окне',
+        'Готовый тестовый разговор',
+    ), 1):
+        sid = f'20261110_09400{index}_aca10{index}'
+        db.create_session(sid, 'desktop', model='mock-model', cwd=sys.argv[2], profile_name='default')
+        db.set_session_title(sid, title)
+        db.append_message(sid, 'user', 'Проверь вид строки в архиве.')
+        db.append_message(sid, 'assistant', 'Штатный тестовый чат с двумя сообщениями.')
+        assert db.set_session_archived(sid, True)
 db.close()
 if sys.argv[3] in ('polish', 'swap-cron', 'shell-surfaces', 'desktop-surfaces'):
     from cron.jobs import create_job
@@ -733,6 +799,7 @@ if sys.argv[3] in ('project-reveal', 'sidebar-activity'):
         empty_folder.mkdir()
         with connect_closing(other / 'projects.db') as conn:
             create_project(conn, name='Пустой проект', slug='empty-project', folders=[str(empty_folder)])
+${reviewProposals?.seedReviewProposals ?? ''}
 `,
         path.join(sandbox.hermesHome, 'projects.db'),
         projectFolder,
@@ -786,7 +853,7 @@ import(pathToFileURL(path.join(desktop, 'dist', 'electron-main.mjs')).href).catc
     app = await _electron.launch({
       executablePath: process.env.HERMES_VISUAL_ELECTRON || findElectron(),
       args: [entry, ...(process.env.HERMES_VISUAL_GPU === '1' ? [] : ['--disable-gpu']),
-        ...(styleScopeFocus || performanceFocus || projectActivityFocus || sessionNavigationFocus || chatHoverFocus
+        ...(styleScopeFocus || performanceFocus || projectActivityFocus || sessionNavigationFocus || chatHoverFocus || commandPaletteFocus
           ? ['--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows'] : []),
         '--no-sandbox',
         ...(dictation ? ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream',
@@ -805,7 +872,7 @@ import(pathToFileURL(path.join(desktop, 'dist', 'electron-main.mjs')).href).catc
     assert.equal(fs.realpathSync(runtime.home), fs.realpathSync(sandbox.hermesHome))
     assert.equal(fs.realpathSync(runtime.userData), fs.realpathSync(sandbox.userDataDir))
     console.log('Isolated Hermes Desktop', runtime.version, 'Electron', runtime.electron)
-    if (responsivenessFocus || styleScopeFocus || performanceFocus || chatHoverFocus) {
+    if (responsivenessFocus || styleScopeFocus || performanceFocus || chatHoverFocus || commandPaletteFocus) {
       const gpu = await app.evaluate(({ app }) => app.getGPUFeatureStatus())
       console.log('GPU compositing', gpu.gpu_compositing)
       if (performanceFocus || chatHoverFocus) assert.equal(gpu.gpu_compositing, 'enabled')
@@ -814,6 +881,7 @@ import(pathToFileURL(path.join(desktop, 'dist', 'electron-main.mjs')).href).catc
     if (identity.hermesHome) {
       assert.equal(fs.realpathSync(identity.hermesHome), fs.realpathSync(sandbox.hermesHome))
     }
+    if (activityParityFocus) console.log('Confirmed isolated renderer', identity.appVersion)
 
     await page.emulateMedia({ colorScheme: 'dark', forcedColors: 'none', reducedMotion: 'reduce' })
     // Match the reference's opaque dark window in this temporary profile only.
@@ -883,9 +951,11 @@ import(pathToFileURL(path.join(desktop, 'dist', 'electron-main.mjs')).href).catc
     const checkCatalog = projectCatalogFixFocus || Boolean(benchmarkReplacement)
     const benchmark = responsivenessFocus || styleScopeFocus || checkCatalog || performanceFocus ? await import('./responsiveness.spec-helper.mjs') : null
     await benchmark?.installCatalogFixture(page, { withArtwork: checkCatalog })
-    await page.reload(contextFocus || tables ? { waitUntil: 'domcontentloaded' } : undefined)
+    await page.reload(contextFocus || tables || activityParityFocus ? { waitUntil: 'domcontentloaded', timeout: 30000 } : undefined)
     await page.setViewportSize({ width: 1440, height: 920 })
+    if (activityParityFocus) console.log('Reloaded activity fixture')
     await waitForChatReady(page, resourceFocus || tableFocus ? 130000 : 75000)
+    if (activityParityFocus) console.log('Activity fixture is ready')
     const navigation = (name) =>
       page.locator(`[data-tour="sidebar-nav-${name}"]`).locator('xpath=ancestor::button[1]')
     const projectChat = (title) => page.locator('[data-sessions-project] button[data-slot="row-button"]')
@@ -944,7 +1014,7 @@ import(pathToFileURL(path.join(desktop, 'dist', 'electron-main.mjs')).href).catc
         if (await installedTab.first().isVisible()) await installedTab.first().click()
       }
       await expect(toggle).toHaveAttribute('aria-checked', String(!enabled), { timeout: 10000 })
-      if (styleScopeFocus || sessionNavigationFocus) await toggle.press('Space')
+      if (styleScopeFocus || sessionNavigationFocus || commandPaletteFocus || settingsAudit) await toggle.press('Space')
       else await toggle.click()
       await expect(toggle).toHaveAttribute('aria-checked', String(enabled))
       await expect(marker).toHaveCount(enabled ? 1 : 0)
@@ -1020,6 +1090,25 @@ import(pathToFileURL(path.join(desktop, 'dist', 'electron-main.mjs')).href).catc
       await themeCard('Codex').click()
       await expect(root).toHaveAttribute('data-hermes-theme', 'codex-workspace')
       await closeSettings()
+      if (commandPaletteFocus) {
+        const { verifyCommandPalette } = await import('./command-palette.spec-helper.mjs')
+        const results = await verifyCommandPalette({
+          page, expect, projectChat, screenshot, openThemeSettings, closeSettings, themeCard,
+          before: process.env.HERMES_VISUAL_PALETTE_BEFORE === '1',
+        })
+        results.runtime = { electron: runtime.electron, renderer: identity.appVersion }
+        results.moduleSha256 = createHash('sha256').update(fs.readFileSync(process.env.HERMES_VISUAL_FIXTURE_PLUGIN)).digest('hex')
+        fs.writeFileSync(path.join(evidence, evidenceVersion + '-command-palette.json'), JSON.stringify(results, null, 2))
+        return
+      }
+      if (reviewProposalsFocus) {
+        const measurements = await reviewProposals.verifyReviewProposals({
+          page, expect, projectChat, screenshot, sandbox, openThemeSettings, closeSettings, themeCard,
+        })
+        fs.writeFileSync(path.join(evidence, evidenceVersion + '-review-proposals.json'),
+          JSON.stringify({ renderer: identity.appVersion, measurements }, null, 2))
+        return
+      }
       if (chatHoverFocus) {
         const { verifyChatHover } = await import('./chat-hover.spec-helper.mjs')
         const { verifyScrollJump } = await import('./scroll-jump.spec-helper.mjs')
@@ -1169,7 +1258,12 @@ import(pathToFileURL(path.join(desktop, 'dist', 'electron-main.mjs')).href).catc
         return
       }
       if (settingsAudit) {
-        await settingsCheck.verifySettingsAudit({ page, expect, screenshot, openThemeSettings, closeSettings, themeCard })
+        const results = await settingsCheck.verifySettingsAudit({
+          page, expect, screenshot, openThemeSettings, closeSettings, themeCard,
+          save: data => fs.writeFileSync(path.join(evidence, evidenceVersion + '-settings.json'),
+            JSON.stringify({ electron: runtime.electron, desktopVersion: identity.appVersion, ...data }, null, 2) + '\n'),
+        })
+        assert(results)
         return
       }
       if (process.env.HERMES_VISUAL_FOCUS === 'window-menu') {
@@ -1194,8 +1288,33 @@ import(pathToFileURL(path.join(desktop, 'dist', 'electron-main.mjs')).href).catc
       }
       if (activityParity) {
         const results = await activityParity.verifyActivityParity({
-          page, app, expect, projectChat, screenshot, openThemeSettings, closeSettings, themeCard,
+          page, app, expect, projectChat, screenshot, openThemeSettings, closeSettings, themeCard, translationRequests,
         })
+        if (process.env.HERMES_VISUAL_ACTIVITY_BEFORE !== '1') {
+          await openThemeSettings()
+          await themeCard('Codex').click()
+          await closeSettings()
+          const timeline = page.locator('[data-slot="aui_turn-pair"]').filter({ hasText: 'Лента проверки файлов готова.' })
+          const steps = timeline.locator('button[data-hcv-turn-line]')
+          if (await steps.getAttribute('aria-expanded') !== 'true') await steps.click()
+          const group = timeline.locator('[data-hcv-activity-group] > button')
+          if (await group.getAttribute('aria-expanded') !== 'true') await group.click()
+          const secondEdit = timeline.locator('[data-hcv-activity-member][data-tool-row]').nth(1)
+          await expect(secondEdit.locator('button[aria-expanded]').first()).toHaveAttribute('aria-expanded', 'false')
+          // The app's file watcher unloads only the isolated plugin.
+          const plugin = path.join(sandbox.hermesHome, 'desktop-plugins', 'hermes-codex-visual', 'plugin.js')
+          fs.renameSync(plugin, plugin + '.withdrawn')
+          await expect(marker).toHaveCount(0, { timeout: 18000 })
+          await expect(page.locator('[data-hcv-activity-group], [data-hcv-activity-member], [data-hcv-activity-label]')).toHaveCount(0)
+          const edits = timeline.locator('[data-tool-row]').filter({ has: page.getByRole('button', { name: /fixture-note\.md.*\+1/ }) })
+          const nativeEdit = edits.nth(1)
+          const nativeToggle = nativeEdit.getByRole('button', { name: /fixture-note\.md.*\+1/ })
+          await expect(nativeToggle).toBeVisible()
+          if (await nativeToggle.getAttribute('aria-expanded') !== 'true') await nativeToggle.click()
+          await expect(nativeToggle).toHaveAttribute('aria-expanded', 'true')
+          await expect(nativeEdit.getByText(/Вторая строка/)).toBeVisible()
+          results.pluginUnloaded = true
+        }
         results.runtime = { electron: runtime.electron, renderer: identity.appVersion }
         results.moduleSha256 = createHash('sha256').update(fs.readFileSync(process.env.HERMES_VISUAL_FIXTURE_PLUGIN)).digest('hex')
         fs.writeFileSync(path.join(evidence, evidenceVersion + '-activity-parity.json'), JSON.stringify(results, null, 2))

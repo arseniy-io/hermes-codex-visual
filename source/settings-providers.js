@@ -9,7 +9,7 @@ export function registerSettingsProviders(ctx, active) {
   const accounts = `${providerMain} section.mb-5.grid.gap-2`
   const account = `${accounts} > :is(button[data-slot="row-button"], div.group.grid:has(> button))`
   const endpointShortcut = `${providerMain} > section > div.h-full > button[data-slot="row-button"]`
-  const keyCard = `${providerMain} [id^="provider-key-"] > [class~="group/card"]`
+  const keyCard = `${providerMain} :is([id^="provider-key-"], .grid.gap-2) > [class~="group/card"]`
   const endpointList = `${providerMain} .space-y-6 > section > .divide-y.rounded-md.border`
   const endpointForm = `${providerMain} .space-y-6 > section > .grid.rounded-md.border.p-3`
   const endpointName = `${endpointList} > .grid > button:first-child`

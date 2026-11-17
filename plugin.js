@@ -82,18 +82,18 @@ function registerStyleScope(ctx, theme2) {
     const surfaces = /* @__PURE__ */ new Map();
     const pending = /* @__PURE__ */ new Set();
     let hasChatTabs;
-    for (const { sheet, anchor, screens, tabs, surface: surface3, visibleSurface, retainAcrossChatTabs } of entries) {
-      let visible = enabled && !screens && !surface3;
+    for (const { sheet, anchor, screens, tabs, surface: surface5, visibleSurface, retainAcrossChatTabs } of entries) {
+      let visible = enabled && !screens && !surface5;
       if (enabled && screens?.includes(screen) && (!tabs || tabs.includes(tab))) visible = true;
-      if (enabled && surface3 && !visible) {
-        pending.add(surface3);
+      if (enabled && surface5 && !visible) {
+        pending.add(surface5);
         if (retainAcrossChatTabs) {
           pending.add(chatTab);
           if (sheet.isConnected) visible = hasChatTabs ??= Boolean(document.querySelector(visibleChatTab));
         }
         if (!visible) {
-          if (!surfaces.has(surface3)) surfaces.set(surface3, Boolean(document.querySelector(visibleSurface)));
-          visible = surfaces.get(surface3);
+          if (!surfaces.has(surface5)) surfaces.set(surface5, Boolean(document.querySelector(visibleSurface)));
+          visible = surfaces.get(surface5);
         }
       }
       if (visible && !sheet.isConnected) anchor.after(sheet);
@@ -117,7 +117,11 @@ function registerStyleScope(ctx, theme2) {
     queueMicrotask(update);
   }
   const bodyChanges = new MutationObserver((records) => {
-    if (watched && records.some((record) => record.type === "childList" ? movedElementMatches(record, watched) : record.attributeName === "aria-selected" && record.target.hasAttribute("data-tree-tab") || record.target.matches(watched) || record.target.querySelector(watched))) schedule();
+    if (watched && records.some((record) => {
+      if (record.type === "childList") return movedElementMatches(record, watched);
+      if (record.attributeName === "aria-selected") return record.target.hasAttribute("data-tree-tab");
+      return record.target.matches(watched) || record.target.querySelector(watched);
+    })) schedule();
   });
   const themeChanges = new MutationObserver(schedule);
   themeChanges.observe(root, { attributes: true, attributeFilter: ["data-hermes-theme"] });
@@ -127,8 +131,8 @@ function registerStyleScope(ctx, theme2) {
   scopes.set(ctx, (sheet, conditions) => {
     const anchor = document.createComment("Hermes Codex Visual style");
     document.head.append(anchor);
-    const surface3 = conditions?.surface;
-    const visibleSurface = surface3 && `:is(${surface3}):not(${hiddenPane}, :is(${hiddenPane}) *)`;
+    const surface5 = conditions?.surface;
+    const visibleSurface = surface5 && `:is(${surface5}):not(${hiddenPane}, :is(${hiddenPane}) *)`;
     entries.push({ sheet, anchor, ...conditions, visibleSurface });
     schedule();
   });
@@ -146,9 +150,9 @@ function registerStyleScope(ctx, theme2) {
 function mountStyle(ctx, sheet, conditions) {
   scopes.get(ctx)(sheet, conditions);
 }
-function mountCSS(ctx, marker3, text, conditions) {
+function mountCSS(ctx, marker4, text, conditions) {
   const sheet = document.createElement("style");
-  sheet.setAttribute(marker3, "");
+  sheet.setAttribute(marker4, "");
   sheet.textContent = text;
   mountStyle(ctx, sheet, conditions);
 }
@@ -295,6 +299,7 @@ var glyphAliases = {
   activityRead: "artifacts",
   activitySearch: "search",
   activityTerminal: "terminal",
+  shellSuccess: "messageCopied",
   chatPreviewComputer: "laptop",
   tableClose: "close",
   tableCopy: "copy",
@@ -366,11 +371,11 @@ import { host as host2 } from "@hermes/plugin-sdk";
 // source/sidebar-recents.js
 import { createElement as h, isValidElement, useSyncExternalStore, version } from "react";
 var sectionActions = ["onResumeSession", "onArchiveSession", "onDeleteSession", "onTogglePin", "onToggleUnread"];
-function committedFiber(element6) {
-  if (!element6 || !version.startsWith("19.")) return null;
-  const keys = Object.keys(element6);
-  let fiber = element6[keys.find((key) => key.startsWith("__reactFiber$"))];
-  const props = element6[keys.find((key) => key.startsWith("__reactProps$"))];
+function committedFiber(element7) {
+  if (!element7 || !version.startsWith("19.")) return null;
+  const keys = Object.keys(element7);
+  let fiber = element7[keys.find((key) => key.startsWith("__reactFiber$"))];
+  const props = element7[keys.find((key) => key.startsWith("__reactProps$"))];
   if (!props) return null;
   if (fiber?.memoizedProps !== props) fiber = fiber?.alternate;
   return fiber?.memoizedProps === props ? fiber : null;
@@ -384,22 +389,22 @@ function nativeDraftWorkspaceAction(sidebar2) {
   }
   return null;
 }
-function nativeWorktreePath(button4) {
-  for (let node3 = committedFiber(button4); node3; node3 = node3.return) {
+function nativeWorktreePath(button5) {
+  for (let node3 = committedFiber(button5); node3; node3 = node3.return) {
     if (typeof node3.memoizedProps?.repoPath === "string") return node3.memoizedProps.repoPath;
   }
   return "";
 }
-function groupingAction(element6) {
-  if (Array.isArray(element6)) {
-    for (const child of element6) {
+function groupingAction(element7) {
+  if (Array.isArray(element7)) {
+    for (const child of element7) {
       const action = groupingAction(child);
       if (action) return action;
     }
     return null;
   }
-  if (!isValidElement(element6)) return null;
-  const { children, onValueChange } = element6.props;
+  if (!isValidElement(element7)) return null;
+  const { children, onValueChange } = element7.props;
   if (typeof onValueChange === "function" && Array.isArray(children) && children.some((option) => option?.props?.option?.id === "project")) return onValueChange;
   return groupingAction(children);
 }
@@ -443,7 +448,7 @@ function nativeProjectActivity(tree) {
     const value = hook.queue.getSnapshot();
     if (!value || Object.getPrototypeOf(value) !== Object.prototype) continue;
     const statuses = Object.values(value);
-    if (!statuses.length || !statuses.every((status) => dotStates.has(status))) continue;
+    if (!statuses.length || !statuses.every((status2) => dotStates.has(status2))) continue;
     if (states) return activity;
     states = value;
   }
@@ -483,10 +488,10 @@ function createRecentRows() {
     },
     update(tree, container, empty) {
       const source = readNativeList(tree);
-      const flat = tree?.dataset.sessionsMode === "flat";
-      if (!source || flat && (source.props.grouping !== "date" || source.props.groups?.length)) return null;
+      const flat2 = tree?.dataset.sessionsMode === "flat";
+      if (!source || flat2 && (source.props.grouping !== "date" || source.props.groups?.length)) return null;
       if (snapshot?.container !== container || snapshot?.props !== source.props || snapshot?.group !== source.group || snapshot?.empty !== empty) {
-        set({ ...source, container, empty, flat });
+        set({ ...source, container, empty, flat: flat2 });
       }
       return source.group;
     },
@@ -498,9 +503,9 @@ function createRecentRows() {
 function NativeRecentRows({ rows }) {
   const snapshot = useSyncExternalStore(rows.subscribe, rows.get);
   if (!snapshot) return null;
-  const { section: section2, props, container, empty, flat } = snapshot;
+  const { section: section2, props, container, empty, flat: flat2 } = snapshot;
   const sessions = props.sessions;
-  const children = h(section2, flat ? {
+  const children = h(section2, flat2 ? {
     ...props,
     grouping: "none",
     showProfileTags: new Set(sessions.map((session) => session.profile)).size > 1
@@ -536,9 +541,9 @@ var localDrag = "data-hcv-reordering-sidebar";
 var lifted = "data-hcv-sidebar-lifted";
 function sessionRows(list) {
   const chats = [];
-  for (const row4 of list.children) {
-    const button4 = row4.querySelector(rowButton);
-    for (let fiber = committedFiber(button4); fiber; fiber = fiber.return) {
+  for (const row5 of list.children) {
+    const button5 = row5.querySelector(rowButton);
+    for (let fiber = committedFiber(button5); fiber; fiber = fiber.return) {
       const props = fiber.memoizedProps;
       const session = props?.session;
       if (typeof session?.id !== "string" || typeof props.onResume !== "function") continue;
@@ -546,8 +551,8 @@ function sessionRows(list) {
       const profile2 = session.profile || "default";
       const lineage = session._lineage_root_id ?? session.id;
       const key = JSON.stringify([profile2, lineage]);
-      if (props.branchStem && parent) parent.rows.push(row4);
-      else chats.push({ key, id: session.id, profile: profile2, anchor: row4, button: button4, rows: [row4] });
+      if (props.branchStem && parent) parent.rows.push(row5);
+      else chats.push({ key, id: session.id, profile: profile2, anchor: row5, button: button5, rows: [row5] });
       break;
     }
   }
@@ -596,7 +601,7 @@ function attachSidebarOrder(content, storage) {
   let clearClick;
   function restore(list) {
     list.removeAttribute(ordered);
-    for (const row4 of list.children) row4.style.removeProperty(orderProperty);
+    for (const row5 of list.children) row5.style.removeProperty(orderProperty);
     styled.delete(list);
   }
   function register(list, items2, key, kind, nativeOrder) {
@@ -609,8 +614,8 @@ function attachSidebarOrder(content, storage) {
       let index = 0;
       list.setAttribute(ordered, kind);
       const children = [...list.children];
-      const reordered = children.map((row4) => itemRows.has(row4) ? remaining[index++] : row4);
-      reordered.forEach((row4, rank) => row4.style.setProperty(orderProperty, String(rank)));
+      const reordered = children.map((row5) => itemRows.has(row5) ? remaining[index++] : row5);
+      reordered.forEach((row5, rank) => row5.style.setProperty(orderProperty, String(rank)));
       styled.add(list);
     } else if (styled.has(list)) restore(list);
     lists.set(list, { key, kind, items: ranked, nativeOrder });
@@ -624,14 +629,14 @@ function attachSidebarOrder(content, storage) {
         if (list) register(list, sessionRows(list), "sidebar-chat-order:" + JSON.stringify([...scope3, project2]), "chat");
       }
       const projectGroups = /* @__PURE__ */ new Map();
-      for (const { item, row: row4, name, id: id2 } of bindings.projects) {
+      for (const { item, row: row5, name, id: id2 } of bindings.projects) {
         if (id2 === "__no_project__") continue;
         const list = item.parentElement;
         if (!projectGroups.has(list)) projectGroups.set(list, []);
-        projectGroups.get(list).push({ key: id2, anchor: row4, button: name, rows: [item] });
+        projectGroups.get(list).push({ key: id2, anchor: row5, button: name, rows: [item] });
       }
       for (const [list, items2] of projectGroups) {
-        const positions = new Map([...list.children].map((row4, index) => [row4, index]));
+        const positions = new Map([...list.children].map((row5, index) => [row5, index]));
         items2.sort((a, b) => positions.get(a.rows[0]) - positions.get(b.rows[0]));
         const reorder = nativeProjectOrder(items2[0].rows[0]);
         register(list, items2, "sidebar-project-order:" + JSON.stringify(scope3), "project", reorder);
@@ -722,7 +727,7 @@ function attachSidebarOrder(content, storage) {
     let timer;
     const reset = () => {
       clearTimeout(timer);
-      window.removeEventListener("click", block, true);
+      window.removeEventListener("click", block2, true);
       window.removeEventListener("pointerup", disarm, true);
       window.removeEventListener("pointerdown", reset, true);
       clearClick = void 0;
@@ -730,14 +735,14 @@ function attachSidebarOrder(content, storage) {
     const disarm = (event) => {
       if (event.pointerId === pointer) timer = setTimeout(reset, 0);
     };
-    const block = (event) => {
+    const block2 = (event) => {
       if (!event.detail) return;
       event.preventDefault();
       event.stopImmediatePropagation();
       reset();
     };
     clearClick = reset;
-    window.addEventListener("click", block, true);
+    window.addEventListener("click", block2, true);
     window.addEventListener("pointerdown", reset, true);
     if (afterRelease) timer = setTimeout(reset, 0);
     else window.addEventListener("pointerup", disarm, true);
@@ -781,13 +786,13 @@ function attachSidebarOrder(content, storage) {
     if (drag || !event.isPrimary || event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || !(event.target instanceof Element) || event.target.closest('[contenteditable="true"]')) return;
     const name = event.target.closest("[data-hcv-project-name]");
     const project2 = event.target.closest("[data-hcv-project-row]");
-    const button4 = event.target.closest(rowButton);
+    const button5 = event.target.closest(rowButton);
     if (!name && event.target.closest('[data-row-actions], [data-reorder-handle], [data-slot="switch"]')) return;
-    let list = (project2 ?? button4)?.parentElement;
+    let list = (project2 ?? button5)?.parentElement;
     while (list && list !== content && !lists.has(list)) list = list.parentElement;
     const entry = lists.get(list);
     if (!entry || entry.items.length < 2) return;
-    const item = entry.items.find((item2) => project2 ? item2.anchor === project2 : item2.button === button4);
+    const item = entry.items.find((item2) => project2 ? item2.anchor === project2 : item2.button === button5);
     if (!item) return;
     if (project2) event.stopPropagation();
     const rect = item.anchor.getBoundingClientRect();
@@ -924,7 +929,7 @@ function setMarquee(label3, motion2) {
   const { distance, fontSize } = motion2;
   const travel = distance / (fontSize * 2);
   const hold = 0.35;
-  const duration3 = hold + travel;
+  const duration4 = hold + travel;
   const stops = ["0.0000 0.0000%"];
   for (let index = 0; index <= 32; index++) {
     const t = index / 32;
@@ -934,11 +939,11 @@ function setMarquee(label3, motion2) {
     const third = t ** 3;
     const x = first * 0.49 + second * 0.7 + third;
     const y = first * 0.6 + second + third;
-    const percent = (hold + travel * x) / duration3 * 100;
+    const percent = (hold + travel * x) / duration4 * 100;
     stops.push(`${y.toFixed(4)} ${percent.toFixed(4)}%`);
   }
   label3.style.setProperty(marqueeDistance, `${distance}px`);
-  label3.style.setProperty(marqueeDuration, `${duration3.toFixed(3)}s`);
+  label3.style.setProperty(marqueeDuration, `${duration4.toFixed(3)}s`);
   label3.style.setProperty(marqueeTiming, `linear(${stops.join(", ")})`);
 }
 function trackTitleOverflow({ marquee = false } = {}) {
@@ -1000,10 +1005,10 @@ function trackTitleOverflow({ marquee = false } = {}) {
     if (renamed.length) update(renamed);
   };
 }
-function sidebarMarqueeStyles(row4) {
-  const viewport = `${row4} .hover-marquee`;
+function sidebarMarqueeStyles(row5) {
+  const viewport = `${row5} .hover-marquee`;
   const content = ".hover-marquee-inner";
-  const hover = `${row4}:hover .hover-marquee[${overflowing}]`;
+  const hover = `${row5}:hover .hover-marquee[${overflowing}]`;
   return `
   ${viewport} {
     --hcv-title-fade-start: .571429em;
@@ -1089,8 +1094,8 @@ function showStatus(indicator, kind, t) {
     const label3 = t(kind);
     if (indicator.getAttribute("aria-label") !== label3) indicator.setAttribute("aria-label", label3);
   }
-  const hidden = !kind;
-  if (indicator.hidden !== hidden) indicator.hidden = hidden;
+  const hidden2 = !kind;
+  if (indicator.hidden !== hidden2) indicator.hidden = hidden2;
 }
 function blockSize(node3) {
   const style = getComputedStyle(node3);
@@ -1100,13 +1105,13 @@ function blockSize(node3) {
     paddingBlockEnd: style.paddingBlockEnd
   };
 }
-function disclosure(button4, native, region, regionId, timing = sectionMotion) {
-  const direct = button4 === native;
-  const toggle2 = typeof native === "function" ? native : () => {
-    if (native.isConnected) native.click();
+function disclosure(button5, native2, region, regionId, timing = sectionMotion) {
+  const direct = button5 === native2;
+  const toggle2 = typeof native2 === "function" ? native2 : () => {
+    if (native2.isConnected) native2.click();
   };
-  const initialExpanded = button4.getAttribute("aria-expanded");
-  const initialControls = button4.getAttribute("aria-controls");
+  const initialExpanded = button5.getAttribute("aria-expanded");
+  const initialControls = button5.getAttribute("aria-controls");
   let pending = false;
   let forwarding = false;
   let motion2;
@@ -1135,12 +1140,12 @@ function disclosure(button4, native, region, regionId, timing = sectionMotion) {
   function play(node3, opening, from, startOpacity) {
     cancel();
     if (!node3.isConnected || media()) {
-      if (!opening && button4.isConnected) toggleRegion();
+      if (!opening && button5.isConnected) toggleRegion();
       return;
     }
     const natural = blockSize(node3);
     if (!node3.offsetHeight) {
-      if (!opening && button4.isConnected) toggleRegion();
+      if (!opening && button5.isConnected) toggleRegion();
       return;
     }
     const wasInert = node3.inert;
@@ -1158,7 +1163,7 @@ function disclosure(button4, native, region, regionId, timing = sectionMotion) {
     const current = motion2 = { node: node3, height, fade, closing: !opening, wasInert };
     height.onfinish = () => {
       if (motion2 !== current) return;
-      if (!opening && button4.isConnected && region() === node3) toggleRegion();
+      if (!opening && button5.isConnected && region() === node3) toggleRegion();
       cancel();
     };
   }
@@ -1175,17 +1180,17 @@ function disclosure(button4, native, region, regionId, timing = sectionMotion) {
     const dimensions = blockSize(node3);
     const opacity = Number(getComputedStyle(node3).opacity);
     const opening = Boolean(motion2?.closing);
-    button4.setAttribute("aria-expanded", String(opening));
+    button5.setAttribute("aria-expanded", String(opening));
     play(node3, opening, dimensions, opacity);
   }
   function onReducedMotion(event) {
     if (!event.matches || !motion2) return;
-    const closing = motion2.closing && motion2.node === region();
+    const closing2 = motion2.closing && motion2.node === region();
     cancel();
-    if (closing && button4.isConnected) toggleRegion();
+    if (closing2 && button5.isConnected) toggleRegion();
   }
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
-  button4.addEventListener("click", onClick, direct);
+  button5.addEventListener("click", onClick, direct);
   reducedMotion.addEventListener("change", onReducedMotion);
   return {
     sync() {
@@ -1203,21 +1208,21 @@ function disclosure(button4, native, region, regionId, timing = sectionMotion) {
         }
       }
       const expanded = Boolean(node3 && !motion2?.closing);
-      if (button4.getAttribute("aria-expanded") !== String(expanded)) button4.setAttribute("aria-expanded", String(expanded));
+      if (button5.getAttribute("aria-expanded") !== String(expanded)) button5.setAttribute("aria-expanded", String(expanded));
       const controlId = node3?.id;
-      if (controlId && button4.getAttribute("aria-controls") !== controlId) button4.setAttribute("aria-controls", controlId);
-      else if (!controlId) button4.removeAttribute("aria-controls");
+      if (controlId && button5.getAttribute("aria-controls") !== controlId) button5.setAttribute("aria-controls", controlId);
+      else if (!controlId) button5.removeAttribute("aria-controls");
     },
     dispose() {
       cancel();
       restoreId();
-      button4.removeEventListener("click", onClick, direct);
+      button5.removeEventListener("click", onClick, direct);
       reducedMotion.removeEventListener("change", onReducedMotion);
       if (direct) {
-        if (initialExpanded === null) button4.removeAttribute("aria-expanded");
-        else button4.setAttribute("aria-expanded", String(Boolean(region())));
-        if (initialControls === null) button4.removeAttribute("aria-controls");
-        else button4.setAttribute("aria-controls", initialControls);
+        if (initialExpanded === null) button5.removeAttribute("aria-expanded");
+        else button5.setAttribute("aria-expanded", String(Boolean(region())));
+        if (initialControls === null) button5.removeAttribute("aria-controls");
+        else button5.setAttribute("aria-controls", initialControls);
       }
     }
   };
@@ -1243,17 +1248,17 @@ function openNativeRename(entry, alive) {
   }
   requestAnimationFrame(select);
 }
-function positionSidebarPreview(card, rect) {
+function positionSidebarPreview(card2, rect) {
   const gap = codexReference.sidebar.previewOffset;
-  const width = card.offsetWidth;
+  const width = card2.offsetWidth;
   const fitsRight = rect.right + width + gap + 8 <= innerWidth;
   const left = fitsRight ? rect.right + gap : rect.left - width - gap;
-  card.style.left = `${Math.max(8, Math.min(innerWidth - width - 8, left))}px`;
-  card.style.top = `${Math.max(8, Math.min(innerHeight - card.offsetHeight - 8, rect.top))}px`;
+  card2.style.left = `${Math.max(8, Math.min(innerWidth - width - 8, left))}px`;
+  card2.style.top = `${Math.max(8, Math.min(innerHeight - card2.offsetHeight - 8, rect.top))}px`;
 }
 function projectPreview(content, t) {
-  const card = el("section", { "data-hcv-project-preview": "" });
-  card.hidden = true;
+  const card2 = el("section", { "data-hcv-project-preview": "" });
+  card2.hidden = true;
   const title = el("span");
   const heading = el("header");
   heading.append(glyph("folder"), title);
@@ -1270,8 +1275,8 @@ function projectPreview(content, t) {
   edit3.append(glyph("settings"), editLabel);
   const footer = el("div", { "data-hcv-project-preview-edit": "" });
   footer.append(edit3);
-  card.append(summary2, folder, footer);
-  document.body.append(card);
+  card2.append(summary2, folder, footer);
+  document.body.append(card2);
   let hovered;
   let showing;
   let timer;
@@ -1285,13 +1290,13 @@ function projectPreview(content, t) {
     hovered = void 0;
     showing?.row.removeAttribute("data-hcv-preview-open");
     showing = void 0;
-    card.hidden = true;
+    card2.hidden = true;
   }
   function position2() {
     if (!showing || !showing.row.isConnected || !content.isConnected) return close2();
     const rect = showing.row.getBoundingClientRect();
     if (rect.bottom <= 0 || rect.top >= innerHeight) return close2();
-    positionSidebarPreview(card, rect);
+    positionSidebarPreview(card2, rect);
   }
   async function projectData(id2) {
     const connection = host2.state.connectionId.get();
@@ -1318,7 +1323,7 @@ function projectPreview(content, t) {
     showing?.row.removeAttribute("data-hcv-preview-open");
     showing = entry;
     entry.row.setAttribute("data-hcv-preview-open", "");
-    card.setAttribute("aria-label", t("projectDetails"));
+    card2.setAttribute("aria-label", t("projectDetails"));
     editLabel.textContent = t("renameProject");
     title.textContent = entry.name.textContent;
     const trigger = entry.row.querySelector(projectMenu);
@@ -1326,7 +1331,7 @@ function projectPreview(content, t) {
     sessions.hidden = true;
     folder.hidden = true;
     footer.hidden = !trigger || Boolean(project2?.isAuto || project2?.isNoProject);
-    card.hidden = false;
+    card2.hidden = false;
     if (!project2) position2();
     const data = project2 ?? await projectData(entry.id);
     if (!alive || showing !== entry || !data) return;
@@ -1346,7 +1351,7 @@ function projectPreview(content, t) {
     delay = setTimeout(close2, 110);
   }
   function onPointerDown(event) {
-    if (!card.contains(event.target)) close2();
+    if (!card2.contains(event.target)) close2();
   }
   function onEscape(event) {
     if (event.key === "Escape" && showing) close2();
@@ -1356,8 +1361,8 @@ function projectPreview(content, t) {
     close2();
     openNativeRename(entry, () => alive && entry?.row.isConnected);
   });
-  card.addEventListener("pointerenter", () => clearTimeout(delay));
-  card.addEventListener("pointerleave", deferClose);
+  card2.addEventListener("pointerenter", () => clearTimeout(delay));
+  card2.addEventListener("pointerleave", deferClose);
   document.addEventListener("pointerdown", onPointerDown, true);
   document.addEventListener("keydown", onEscape, true);
   content.addEventListener("scroll", close2, true);
@@ -1398,7 +1403,7 @@ function projectPreview(content, t) {
       window.removeEventListener("resize", close2);
       document.removeEventListener("pointerdown", onPointerDown, true);
       document.removeEventListener("keydown", onEscape, true);
-      card.remove();
+      card2.remove();
     }
   };
 }
@@ -1434,24 +1439,24 @@ function attachProjects(content, t, storage) {
   function syncSection(tree) {
     const filter = tree?.querySelector(':scope > [data-slot="sidebar-group"] > div button:has(> .codicon-list-filter)');
     const group2 = filter?.closest('[data-slot="sidebar-group"]');
-    const header = group2?.firstElementChild;
-    const native = header?.querySelector(":scope > button:not([data-hcv-section-toggle])");
-    if (section2?.native !== native) clearSection();
-    if (!native) return;
+    const header2 = group2?.firstElementChild;
+    const native2 = header2?.querySelector(":scope > button:not([data-hcv-section-toggle])");
+    if (section2?.native !== native2) clearSection();
+    if (!native2) return;
     if (!section2) {
-      const button4 = el("button", { type: "button", "data-hcv-section-toggle": "" });
+      const button5 = el("button", { type: "button", "data-hcv-section-toggle": "" });
       const label3 = document.createTextNode("");
-      const status = projectStatus();
-      button4.append(label3, glyph("sidebarDisclosure"));
-      native.before(button4);
-      native.setAttribute("data-hcv-native-project-action", "");
+      const status2 = projectStatus();
+      button5.append(label3, glyph("sidebarDisclosure"));
+      native2.before(button5);
+      native2.setAttribute("data-hcv-native-project-action", "");
       group2.setAttribute("data-hcv-projects-section", "");
-      header.setAttribute("data-hcv-projects-header", "");
-      const actions = native.nextElementSibling;
+      header2.setAttribute("data-hcv-projects-header", "");
+      const actions = native2.nextElementSibling;
       actions?.setAttribute("data-hcv-projects-actions", "");
-      header.append(status);
+      header2.append(status2);
       const region = () => group2.querySelector(':scope > [data-slot="sidebar-group-content"]');
-      section2 = { native, button: button4, group: group2, header, actions, label: label3, status, motion: disclosure(button4, native, region, "hcv-projects-list") };
+      section2 = { native: native2, button: button5, group: group2, header: header2, actions, label: label3, status: status2, motion: disclosure(button5, native2, region, "hcv-projects-list") };
     }
     const text = t("projects");
     if (section2.label.data !== text) section2.label.data = text;
@@ -1491,11 +1496,11 @@ function attachProjects(content, t, storage) {
       const seen = /* @__PURE__ */ new Set();
       const projectLists = [];
       for (const item of tree?.querySelectorAll(folderRows) || []) {
-        const row4 = item.querySelector(':scope > [class~="group/workspace"]');
-        const link2 = row4?.querySelector(':scope > div > button[data-slot="row-button"]');
+        const row5 = item.querySelector(':scope > [class~="group/workspace"]');
+        const link2 = row5?.querySelector(':scope > div > button[data-slot="row-button"]');
         const text = link2?.textContent.trim();
         if (!text) continue;
-        const toggle2 = row4.querySelector(":scope > div > button[data-row-actions]:has(> .codicon-chevron-right)");
+        const toggle2 = row5.querySelector(":scope > div > button[data-row-actions]:has(> .codicon-chevron-right)");
         const id2 = item.dataset.sessionsProject;
         const emptyKey = !toggle2 && id2 && id2 !== "home" ? JSON.stringify(["emptyProjectOpen", host2.state.connectionId.get(), host2.state.profile.get(), id2]) : null;
         seen.add(item);
@@ -1515,10 +1520,10 @@ function attachProjects(content, t, storage) {
             ...expandable ? { type: "button", "data-row-actions": "" } : {},
             "data-hcv-project-name": ""
           }, text);
-          const status = projectStatus();
+          const status2 = projectStatus();
           link2.before(name);
-          row4.append(status);
-          row4.setAttribute("data-hcv-project-row", "");
+          row5.append(status2);
+          row5.setAttribute("data-hcv-project-row", "");
           link2.setAttribute("data-hcv-native-project-action", "");
           toggle2?.setAttribute("data-hcv-native-project-action", "");
           const region = empty ? () => empty.hidden ? null : empty : () => item.querySelector(":scope > div.grid:not([data-hcv-project-row])");
@@ -1533,7 +1538,7 @@ function attachProjects(content, t, storage) {
             };
           }
           const motion2 = action ? disclosure(name, action, region, `hcv-project-${encodeURIComponent(id2)}`) : null;
-          entry = { item, row: row4, name, link: link2, toggle: toggle2, id: id2, region, motion: motion2, status, empty, emptyKey };
+          entry = { item, row: row5, name, link: link2, toggle: toggle2, id: id2, region, motion: motion2, status: status2, empty, emptyKey };
           entry.detach = preview3.attach(entry);
           rows.set(item, entry);
           if (restoreFocus && expandable) name.focus({ preventScroll: true });
@@ -1556,7 +1561,7 @@ function attachProjects(content, t, storage) {
             section2.button.click();
           }
         } else {
-          const entry = [...rows.values()].find((row4) => row4.id === reveal.id);
+          const entry = [...rows.values()].find((row5) => row5.id === reveal.id);
           if (entry) {
             reveal = void 0;
             if (entry.name.ariaExpanded === "false") entry.name.click();
@@ -1576,19 +1581,19 @@ function attachProjects(content, t, storage) {
 }
 function projectSidebarStyles(active2) {
   const section2 = `${active2} ${projectSection}`;
-  const header = `${active2} ${sectionHeader}`;
+  const header2 = `${active2} ${sectionHeader}`;
   const toggle2 = `${sectionHeader} > [data-hcv-section-toggle]`;
   const caret = '[data-hcv-icon="sidebarDisclosure"]';
-  const row4 = `${active2} ${projectRow}`;
+  const row5 = `${active2} ${projectRow}`;
   const preview3 = `${active2} ${previewCard}`;
   const project2 = `${active2} ${folderRows}`;
   const nameFont = "430 14px/21px var(--hcv-ui-font)";
-  const actions = `${header} ${sectionActions2}`;
-  const rowActions = `${row4} > [data-row-actions]`;
+  const actions = `${header2} ${sectionActions2}`;
+  const rowActions = `${row5} > [data-row-actions]`;
   const rowAction = `${rowActions} button`;
-  const status = "[data-hcv-project-status]";
+  const status2 = "[data-hcv-project-status]";
   const unread = '[data-hcv-project-status="unread"]:not([hidden])';
-  const unreadHeader = `${header}:has(> ${unread})`;
+  const unreadHeader = `${header2}:has(> ${unread})`;
   const readAction = "button:has(> .codicon-check-all)";
   return `
   ${sidebarOrderStyles(active2)}
@@ -1602,8 +1607,8 @@ function projectSidebarStyles(active2) {
     overflow: clip;
     transform-origin: center bottom;
   }
-  ${row4} > div:has(> [data-hcv-project-name]) { gap: 8px; padding-block: 0; }
-  ${row4} [data-hcv-project-name] {
+  ${row5} > div:has(> [data-hcv-project-name]) { gap: 8px; padding-block: 0; }
+  ${row5} [data-hcv-project-name] {
     min-inline-size: 0;
     flex: 1 1 auto;
     align-self: stretch;
@@ -1616,7 +1621,8 @@ function projectSidebarStyles(active2) {
     color: var(--hcv-text);
     font: ${nameFont};
   }
-  ${row4} button[data-hcv-project-name] { cursor: pointer; }
+  ${row5} button[data-hcv-project-name] { cursor: pointer; }
+  ${row5} + div.grid { padding-block-start: 1px; }
   ${project2} .hover-marquee-inner { font: ${nameFont}; line-height: 20px; }
   ${project2} > [data-hcv-project-empty] {
     padding: 4px 32px;
@@ -1624,8 +1630,8 @@ function projectSidebarStyles(active2) {
     font: ${nameFont};
   }
   ${project2} > [data-hcv-project-empty] > span { opacity: .5; }
-  ${row4} { position: relative; }
-  ${row4}:is(:hover, [data-hcv-preview-open], [data-state="open"], :has(> [data-row-actions] button[data-state="open"])) {
+  ${row5} { position: relative; }
+  ${row5}:is(:hover, [data-hcv-preview-open], [data-state="open"], :has(> [data-row-actions] button[data-state="open"])) {
     background-color: var(--hcv-sidebar-highlight);
   }
   ${rowActions} { padding-inline-end: 4px; }
@@ -1639,12 +1645,12 @@ function projectSidebarStyles(active2) {
     border-color: transparent; background: transparent; box-shadow: none; color: var(--hcv-text);
   }
   ${rowAction} > .codicon { font-size: 14px !important; }
-  ${row4}:has(> ${status}:not([hidden])) { padding-inline-end: 23px; }
-  ${row4} > ${status} {
+  ${row5}:has(> ${status2}:not([hidden])) { padding-inline-end: 23px; }
+  ${row5} > ${status2} {
     position: absolute; inset-inline-end: 5px; inset-block-start: 50%; translate: 0 -50%;
   }
-  ${row4}:has(> [data-row-actions]):is(:hover, :has(:focus-visible, [data-state="open"]), [data-hcv-preview-open], [data-state="open"]) > ${status} { opacity: 0; }
-  ${header} { min-block-size: 32px; padding: 0 4px 0 8px; column-gap: 0; }
+  ${row5}:has(> [data-row-actions]):is(:hover, :has(:focus-visible, [data-state="open"]), [data-hcv-preview-open], [data-state="open"]) > ${status2} { opacity: 0; }
+  ${header2} { min-block-size: 32px; padding: 0 4px 0 8px; column-gap: 0; }
   ${active2} ${toggle2} {
     display: flex; align-items: center; gap: 4px; min-block-size: 28px;
     flex: 1 1 0; min-inline-size: 0; align-self: stretch;
@@ -1655,7 +1661,7 @@ function projectSidebarStyles(active2) {
   ${active2} ${toggle2}[aria-expanded="false"] ${caret} { rotate: -90deg; opacity: 1; }
   ${section2}:hover ${toggle2} ${caret}, ${active2} ${toggle2}:focus-visible ${caret} { opacity: 1; }
   ${actions} button { opacity: 0; inline-size: 26px; block-size: 26px; border-radius: 7px; }
-  ${header}:is(:hover, :focus-within) ${sectionActions2} button,
+  ${header2}:is(:hover, :focus-within) ${sectionActions2} button,
   ${actions}:has(button:is([aria-expanded="true"], [data-state="open"])) button { opacity: 1; }
   ${actions} > :has(.codicon-list-filter) { order: -1; }
   ${actions} > ${readAction} { display: none; }
@@ -1756,11 +1762,11 @@ function scopeOf(node3) {
   return { connectionId: host3.state.connectionId.get(), profile: host3.state.profile.get() };
 }
 function attachChatPreview(content) {
-  const card = element("div", "data-hcv-chat-preview");
-  card.id = "hcv-sidebar-chat-preview";
-  card.setAttribute("role", "tooltip");
-  card.hidden = true;
-  const header = element("div", "data-hcv-chat-preview-header");
+  const card2 = element("div", "data-hcv-chat-preview");
+  card2.id = "hcv-sidebar-chat-preview";
+  card2.setAttribute("role", "tooltip");
+  card2.hidden = true;
+  const header2 = element("div", "data-hcv-chat-preview-header");
   const subject = element("div", "data-hcv-chat-preview-subject");
   const title = element("span", "data-hcv-chat-preview-title");
   const computer = element("span", "data-hcv-chat-preview-computer");
@@ -1769,26 +1775,26 @@ function attachChatPreview(content) {
   const folderLabel = document.createElement("span");
   folder.append(folderLabel);
   subject.append(title, computer);
-  header.append(subject, age);
-  card.append(header, folder);
-  document.body.append(card);
+  header2.append(subject, age);
+  card2.append(header2, folder);
+  document.body.append(card2);
   const mouse = matchMedia("(any-hover: hover) and (any-pointer: fine)");
   let pending;
   let timer;
   let open;
-  let button4;
+  let button5;
   let description;
   function close2() {
     clearTimeout(timer);
     pending = null;
     open?.removeAttribute("data-hcv-chat-preview-open");
     open = null;
-    if (button4?.getAttribute("aria-describedby") === [description, card.id].filter(Boolean).join(" ")) {
-      if (description) button4.setAttribute("aria-describedby", description);
-      else button4.removeAttribute("aria-describedby");
+    if (button5?.getAttribute("aria-describedby") === [description, card2.id].filter(Boolean).join(" ")) {
+      if (description) button5.setAttribute("aria-describedby", description);
+      else button5.removeAttribute("aria-describedby");
     }
-    button4 = null;
-    card.hidden = true;
+    button5 = null;
+    card2.hidden = true;
   }
   function setAge(dateTime) {
     age.textContent = ageLabel(dateTime);
@@ -1803,7 +1809,7 @@ function attachChatPreview(content) {
       close2();
       return;
     }
-    positionSidebarPreview(card, rect);
+    positionSidebarPreview(card2, rect);
   }
   async function show(target) {
     if (pending !== target || !target.isConnected || target.closest("[inert], [hidden]")) return;
@@ -1821,10 +1827,10 @@ function attachChatPreview(content) {
     setAge(target.querySelector("time[datetime]")?.dateTime ?? target.dataset.hcvPreviewTime ?? "");
     open = target;
     open.setAttribute("data-hcv-chat-preview-open", "");
-    button4 = target.querySelector("button:has(.hover-marquee-inner)") ?? (target.matches("button") ? target : null);
-    description = button4?.getAttribute("aria-describedby");
-    button4?.setAttribute("aria-describedby", [description, card.id].filter(Boolean).join(" "));
-    card.hidden = false;
+    button5 = target.querySelector("button:has(.hover-marquee-inner)") ?? (target.matches("button") ? target : null);
+    description = button5?.getAttribute("aria-describedby");
+    button5?.setAttribute("aria-describedby", [description, card2.id].filter(Boolean).join(" "));
+    card2.hidden = false;
     position2();
     const sessionId = target.querySelector(marker)?.dataset.hcvPreviewSession ?? target.dataset.hcvPreviewSession;
     if (!age.hidden || !sessionId || !connectionId || !profile2) return;
@@ -1894,54 +1900,54 @@ function attachChatPreview(content) {
       document.removeEventListener("pointerdown", close2, true);
       document.removeEventListener("keydown", onEscape, true);
       window.removeEventListener("resize", close2);
-      card.remove();
+      card2.remove();
     }
   };
 }
 function chatPreviewStyles(active2) {
-  const card = `${active2} ${preview}`;
+  const card2 = `${active2} ${preview}`;
   return `
-  ${card} {
+  ${card2} {
     position: fixed; z-index: 48; inline-size: min(320px, calc(100vw - 16px));
     box-sizing: border-box; padding: 6px 8px; display: flex; flex-direction: column; gap: 4px;
     border-radius: 12px; background: var(--hcv-menu); color: var(--hcv-text);
     box-shadow: 0 0 0 .5px var(--hcv-hairline), 0 8px 16px -4px #00000030;
     font: 430 13px/20px var(--hcv-ui-font); pointer-events: none;
   }
-  ${card}[hidden], ${card} [hidden] { display: none; }
+  ${card2}[hidden], ${card2} [hidden] { display: none; }
   ${active2}:has([data-hcv-chat-preview-open] .hover-marquee[data-state$="open"])
     [data-slot="tooltip-content"]:is([data-side="left"], [data-side="right"]) { visibility: hidden; }
-  ${card} [data-hcv-chat-preview-header] {
+  ${card2} [data-hcv-chat-preview-header] {
     display: flex; align-items: baseline; gap: 12px; padding-block-end: 2px; min-inline-size: 0;
   }
-  ${card} [data-hcv-chat-preview-subject] {
+  ${card2} [data-hcv-chat-preview-subject] {
     display: flex; flex: 1; min-inline-size: 0; align-items: start; gap: 4px;
   }
-  ${card} [data-hcv-chat-preview-title] {
+  ${card2} [data-hcv-chat-preview-title] {
     display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3;
     min-inline-size: 0; overflow: hidden; overflow-wrap: anywhere; font: 500 14px/20px var(--hcv-ui-font);
   }
-  ${card} [data-hcv-chat-preview-computer] {
+  ${card2} [data-hcv-chat-preview-computer] {
     flex: none; margin-block-start: 3px; inline-size: 14px; block-size: 14px;
     background: var(--hcv-sidebar-heading); mask: ${codexMask("chatPreviewComputer")} center / contain no-repeat;
   }
-  ${card} [data-hcv-chat-preview-age] {
+  ${card2} [data-hcv-chat-preview-age] {
     flex: none; color: var(--hcv-sidebar-heading); font-size: 12px; white-space: nowrap;
   }
-  ${card} [data-hcv-chat-preview-project] {
+  ${card2} [data-hcv-chat-preview-project] {
     display: flex; min-inline-size: 0; align-items: center; gap: 6px;
     overflow: hidden; white-space: nowrap;
   }
-  ${card} [data-hcv-chat-preview-project] > span { overflow: hidden; text-overflow: ellipsis; }
-  ${card} [data-hcv-chat-preview-project]::before {
+  ${card2} [data-hcv-chat-preview-project] > span { overflow: hidden; text-overflow: ellipsis; }
+  ${card2} [data-hcv-chat-preview-project]::before {
     content: ''; flex: none; inline-size: 16px; block-size: 16px;
     background: var(--hcv-muted); mask: ${codexMask("folder")} center / contain no-repeat;
   }
   @supports (corner-shape: superellipse(1.5)) {
-    ${card} { border-radius: 15px; corner-shape: superellipse(1.5); }
+    ${card2} { border-radius: 15px; corner-shape: superellipse(1.5); }
   }
   @media (prefers-reduced-motion: no-preference) {
-    ${card}:not([hidden]) { animation: hcv-chat-preview-in 150ms ${codexReference.enter}; }
+    ${card2}:not([hidden]) { animation: hcv-chat-preview-in 150ms ${codexReference.enter}; }
     @keyframes hcv-chat-preview-in { from { opacity: 0; } }
   }
   `;
@@ -1977,7 +1983,7 @@ function attachNativeCron(content) {
   let nextId = 0;
   const rows = /* @__PURE__ */ new Map();
   function dispose() {
-    for (const row4 of rows.values()) row4.dispose();
+    for (const row5 of rows.values()) row5.dispose();
     rows.clear();
     section2?.dispose();
     section2 = void 0;
@@ -2000,27 +2006,27 @@ function attachNativeCron(content) {
       if (!group2) return;
       section2.sync();
       const visible = new Set(group2.querySelectorAll(`${nativeRows} ${nativeRowToggle}`));
-      for (const [button4, row4] of rows) {
-        if (visible.has(button4)) continue;
-        row4.dispose();
-        rows.delete(button4);
+      for (const [button5, row5] of rows) {
+        if (visible.has(button5)) continue;
+        row5.dispose();
+        rows.delete(button5);
       }
-      for (const button4 of visible) {
-        if (!rows.has(button4)) {
-          const shell = button4.parentElement;
-          rows.set(button4, disclosure(button4, button4, () => shell.nextElementSibling, `hcv-native-cron-runs-${++nextId}`, motion));
+      for (const button5 of visible) {
+        if (!rows.has(button5)) {
+          const shell = button5.parentElement;
+          rows.set(button5, disclosure(button5, button5, () => shell.nextElementSibling, `hcv-native-cron-runs-${++nextId}`, motion));
         }
-        rows.get(button4).sync();
+        rows.get(button5).sync();
       }
     },
     dispose
   };
 }
 function attachSidebarCron(content, storage) {
-  const native = attachNativeCron(content);
+  const native2 = attachNativeCron(content);
   const ru = document.documentElement.matches(":lang(ru)");
   const area = element2("section", { "data-hcv-cron-sidebar": "" });
-  const header = element2("header");
+  const header2 = element2("header");
   const toggle2 = element2("button", { type: "button", "aria-controls": "hcv-cron-sidebar-list" }, ru ? "Cron-\u0437\u0430\u0434\u0430\u0447\u0438" : "Cron jobs");
   toggle2.append(glyph2("right"));
   const all = element2("button", { type: "button", "data-hcv-cron-manage": "" });
@@ -2029,11 +2035,11 @@ function attachSidebarCron(content, storage) {
   all.title = allLabel;
   all.append(glyph2("schedule"));
   all.addEventListener("click", () => host4.navigate("/cron"));
-  header.append(toggle2, all);
+  header2.append(toggle2, all);
   const details = element2("div", { id: "hcv-cron-sidebar-list", "data-hcv-cron-body": "" });
   const list = element2("div", { "data-hcv-cron-list": "" });
   details.append(list);
-  area.append(header, details);
+  area.append(header2, details);
   let open = storage.get("cron-preview-open", false) === true;
   let generation = 0;
   function updateDisclosure() {
@@ -2063,12 +2069,12 @@ function attachSidebarCron(content, storage) {
       named.sort((a, b) => nextRun(a) - nextRun(b) || a.label.localeCompare(b.label));
       list.replaceChildren();
       for (const job of named.slice(0, 3)) {
-        const row4 = element2("button", { type: "button", title: job.label, "data-hcv-cron-job": "" });
-        row4.append(glyph2("schedule"), element2("span", { "data-hcv-cron-label": "" }, job.label), glyph2("right"));
-        row4.addEventListener("click", () => {
+        const row5 = element2("button", { type: "button", title: job.label, "data-hcv-cron-job": "" });
+        row5.append(glyph2("schedule"), element2("span", { "data-hcv-cron-label": "" }, job.label), glyph2("right"));
+        row5.addEventListener("click", () => {
           if (isCurrent() && !manageSidebarCronJob(content.querySelector(projects), job.id)) host4.navigate("/cron");
         });
-        list.append(row4);
+        list.append(row5);
       }
       if (!named.length) note(ru ? "\u0412 \u044D\u0442\u043E\u043C \u043F\u0440\u043E\u0444\u0438\u043B\u0435 \u043D\u0435\u0442 \u0437\u0430\u0434\u0430\u0447" : "No tasks in this profile");
     } catch {
@@ -2088,7 +2094,7 @@ function attachSidebarCron(content, storage) {
   const stopCron = host4.onEvent?.("cron.changed", load);
   return {
     sync() {
-      native.sync();
+      native2.sync();
       const tree = content.querySelector(`:scope > ${projects}`);
       if (!tree || !content.querySelector('[data-tour="sidebar-nav-cron"]')) {
         if (area.isConnected) {
@@ -2104,7 +2110,7 @@ function attachSidebarCron(content, storage) {
     },
     dispose() {
       ++generation;
-      native.dispose();
+      native2.dispose();
       stopProfile();
       stopConnection();
       stopCron?.();
@@ -2116,12 +2122,12 @@ function sidebarCronStyles(active2) {
   const section2 = `${active2} [data-hcv-cron-sidebar]`;
   const stock = `${active2} ${nativeSection}`;
   const heading = `${stock} > div > button[class~="group/section-label"]`;
-  const row4 = `${stock} ${nativeRows}`;
+  const row5 = `${stock} ${nativeRows}`;
   const rowLabel = `${nativeRowToggle} > .truncate`;
-  const trailing = `${row4} > [data-row-actions] > div`;
+  const trailing = `${row5} > [data-row-actions] > div`;
   const rowCaret = `${nativeRowToggle} > .codicon-chevron-right`;
-  const caret = `${row4} ${rowCaret}`;
-  const run = `${row4} + div > button`;
+  const caret = `${row5} ${rowCaret}`;
+  const run = `${row5} + div > button`;
   return `
   ${section2} { flex: none; padding: 2px 5px 4px; }
   ${section2} > header { display: flex; align-items: center; justify-content: space-between; min-block-size: 28px; }
@@ -2144,22 +2150,22 @@ function sidebarCronStyles(active2) {
   ${section2} p { margin: 0; padding: 4px 6px; color: var(--hcv-muted); font-size: 12px; }
 
   ${heading} { min-block-size: 26px; padding-inline: 0 6px; gap: 6px; border-radius: 7px; }
-  ${heading}:is(:hover, :focus-visible), ${row4}:is(:hover, :focus-within), ${run}:is(:hover, :focus-visible) {
+  ${heading}:is(:hover, :focus-visible), ${row5}:is(:hover, :focus-within), ${run}:is(:hover, :focus-visible) {
     background-color: var(--hcv-hover);
     color: var(--hcv-text);
   }
-  ${row4} { border-radius: 8px; }
-  ${heading}:is(:hover, :focus-visible) > span, ${row4}:is(:hover, :focus-within) ${rowLabel} {
+  ${row5} { border-radius: 8px; }
+  ${heading}:is(:hover, :focus-visible) > span, ${row5}:is(:hover, :focus-within) ${rowLabel} {
     color: var(--hcv-text);
   }
-  ${row4} ${nativeRowToggle} { border-radius: inherit; }
-  ${row4} ${nativeRowToggle}:focus-visible { background-color: transparent; box-shadow: none; }
+  ${row5} ${nativeRowToggle} { border-radius: inherit; }
+  ${row5} ${nativeRowToggle}:focus-visible { background-color: transparent; box-shadow: none; }
   ${trailing} { display: grid; align-items: center; }
   ${trailing} > :is(span, div) { grid-area: 1 / 1; justify-self: end; }
   ${trailing} > span { display: inline; }
   ${trailing} > div { display: flex; gap: 2px; opacity: 0; pointer-events: none; }
-  ${row4}:is(:hover, :focus-within) > [data-row-actions] > div > span { opacity: 0; }
-  ${row4}:is(:hover, :focus-within) > [data-row-actions] > div > div { opacity: 1; pointer-events: auto; }
+  ${row5}:is(:hover, :focus-within) > [data-row-actions] > div > span { opacity: 0; }
+  ${row5}:is(:hover, :focus-within) > [data-row-actions] > div > div { opacity: 1; pointer-events: auto; }
   ${trailing} button { inline-size: 24px; block-size: 24px; border-radius: 7px; }
   ${trailing} button:is(:hover, :focus-visible):enabled { color: var(--hcv-text); background-color: var(--hcv-hover); }
   ${stock} button:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }
@@ -2170,8 +2176,8 @@ function sidebarCronStyles(active2) {
   ${heading} > .codicon-chevron-right { opacity: 1; }
   ${heading} > .codicon-chevron-right, ${caret} { rotate: 0deg; transform: none; transition: none; }
   ${heading}[aria-expanded="true"] > .codicon-chevron-right,
-  ${row4} > button[aria-expanded="true"] > .codicon-chevron-right { opacity: 1; rotate: 90deg; }
-  ${row4}:is(:hover, :focus-within) ${rowCaret} { opacity: 1; }
+  ${row5} > button[aria-expanded="true"] > .codicon-chevron-right { opacity: 1; rotate: 90deg; }
+  ${row5}:is(:hover, :focus-within) ${rowCaret} { opacity: 1; }
   @media (any-hover: none) {
     ${trailing} > span { opacity: 0; }
     ${trailing} > div { opacity: 1; pointer-events: auto; }
@@ -2179,10 +2185,10 @@ function sidebarCronStyles(active2) {
   @media (prefers-reduced-motion: no-preference) {
     ${section2} [data-hcv-cron-body] { transition: grid-template-rows ${motion.heightTime}ms ${motion.ease}, opacity 150ms ${motion.ease}; }
     ${section2} [data-hcv-cron-icon="right"] { transition: rotate 150ms var(--hcv-enter); }
-    ${section2} button, ${heading}, ${row4}, ${trailing} button, ${run} {
+    ${section2} button, ${heading}, ${row5}, ${trailing} button, ${run} {
       transition: background-color 120ms var(--hcv-ease), color 120ms var(--hcv-ease);
     }
-    ${heading} > span, ${row4} ${rowLabel} { transition: color 120ms var(--hcv-ease); }
+    ${heading} > span, ${row5} ${rowLabel} { transition: color 120ms var(--hcv-ease); }
     ${section2} [data-hcv-cron-job] > [data-hcv-cron-icon="right"], ${trailing} > :is(span, div) {
       transition: opacity 120ms var(--hcv-ease);
     }
@@ -2257,8 +2263,8 @@ function visibleControl(selector) {
   );
 }
 function newChat() {
-  const native = visibleControl(newChatSelector);
-  if (native) native.click();
+  const native2 = visibleControl(newChatSelector);
+  if (native2) native2.click();
   else host5.newChat();
 }
 function openGrouping() {
@@ -2267,16 +2273,16 @@ function openGrouping() {
   trigger.focus({ preventScroll: true });
   trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
 }
-function edit(command) {
+function edit(command2) {
   const input = visibleControl('[data-chat-surface][data-composer-target="main"] [data-slot="composer-rich-input"]');
   if (!input) return;
   input.focus();
-  if (command === "selectAll") document.execCommand(command);
+  if (command2 === "selectAll") document.execCommand(command2);
   else input.dispatchEvent(new KeyboardEvent("keydown", {
     key: "z",
     code: "KeyZ",
     ctrlKey: true,
-    shiftKey: command === "redo",
+    shiftKey: command2 === "redo",
     bubbles: true,
     cancelable: true
   }));
@@ -2433,25 +2439,25 @@ function appendIcon(node3, name) {
   node3.append(glyph3);
 }
 function sidebarButton(label3, symbol, onClick) {
-  const button4 = element3("button", { type: "button", "aria-label": label3, title: label3 });
-  appendIcon(button4, symbol);
-  if (onClick) button4.addEventListener("click", onClick);
-  return button4;
+  const button5 = element3("button", { type: "button", "aria-label": label3, title: label3 });
+  appendIcon(button5, symbol);
+  if (onClick) button5.addEventListener("click", onClick);
+  return button5;
 }
 function recentsControl(groupId, rows, t) {
   const area = element3("div", { "data-hcv-recents": "" });
   const id2 = `hcv-recents-${groupId}`;
-  const body = element3("div", { id: id2, "data-hcv-recents-body": "" });
+  const body2 = element3("div", { id: id2, "data-hcv-recents-body": "" });
   const list = element3("div", { "data-hcv-recents-list": "" });
   const fallback = element3("div", { "data-hcv-recents-fallback": "", hidden: "" });
-  body.append(list, fallback);
-  body.inert = true;
-  const button4 = element3("button", { type: "button", "aria-expanded": "false", "aria-controls": id2 });
+  body2.append(list, fallback);
+  body2.inert = true;
+  const button5 = element3("button", { type: "button", "aria-expanded": "false", "aria-controls": id2 });
   const label3 = document.createTextNode("");
-  button4.dataset.hcvRecentsToggle = "";
-  button4.append(label3);
-  appendIcon(button4, "sidebarDisclosure");
-  const header = element3("div", { "data-hcv-recents-header": "" });
+  button5.dataset.hcvRecentsToggle = "";
+  button5.append(label3);
+  appendIcon(button5, "sidebarDisclosure");
+  const header2 = element3("div", { "data-hcv-recents-header": "" });
   const actions = element3("div", { "data-hcv-recents-actions": "" });
   const popup = element3("div", { popover: "auto", "data-hcv-recents-menu": "" });
   const more = sidebarButton(t("recentActions"), "more", () => {
@@ -2490,16 +2496,16 @@ function recentsControl(groupId, rows, t) {
   });
   popup.append(refresh, all);
   actions.append(more, add);
-  header.append(button4, actions);
+  header2.append(button5, actions);
   let generation = 0;
   let nativeUpdates;
   const close2 = () => {
     ++generation;
     clearInterval(nativeUpdates);
     area.removeAttribute("data-hcv-recents-open");
-    body.inert = true;
+    body2.inert = true;
     fallback.removeAttribute("aria-busy");
-    button4.setAttribute("aria-expanded", "false");
+    button5.setAttribute("aria-expanded", "false");
     dismiss();
   };
   const reset = () => {
@@ -2511,8 +2517,8 @@ function recentsControl(groupId, rows, t) {
     const request = ++generation;
     clearInterval(nativeUpdates);
     area.setAttribute("data-hcv-recents-open", "");
-    body.inert = false;
-    button4.setAttribute("aria-expanded", "true");
+    body2.inert = false;
+    button5.setAttribute("aria-expanded", "true");
     const update = () => rows.update(area.parentElement, list, t("recentEmpty"));
     if (update()) {
       list.hidden = false;
@@ -2541,15 +2547,15 @@ function recentsControl(groupId, rows, t) {
       fallback.textContent = "";
       for (const session of (result.recents?.sessions ?? []).filter((session2) => session2.id && !session2.pinned).slice(0, 12)) {
         const title = session.title?.trim() || t("untitledChat");
-        const row4 = element3("button", { type: "button", title });
+        const row5 = element3("button", { type: "button", title });
         const label4 = element3("span", { class: "hover-marquee" });
         label4.append(element3("span", { class: "hover-marquee-inner" }, title));
-        row4.append(label4);
+        row5.append(label4);
         const seconds = Number(session.last_active || session.started_at);
         const date = new Date(seconds * 1e3);
-        row4.dataset.hcvPreviewSession = session.id;
-        if (seconds > 0 && Number.isFinite(date.getTime())) row4.dataset.hcvPreviewTime = date.toISOString();
-        row4.addEventListener("click", async () => {
+        row5.dataset.hcvPreviewSession = session.id;
+        if (seconds > 0 && Number.isFinite(date.getTime())) row5.dataset.hcvPreviewTime = date.toISOString();
+        row5.addEventListener("click", async () => {
           if (!current()) return;
           try {
             await host5.openSession(session.id);
@@ -2557,7 +2563,7 @@ function recentsControl(groupId, rows, t) {
             if (current()) fallback.textContent = t("recentOpenError");
           }
         });
-        fallback.append(row4);
+        fallback.append(row5);
       }
       if (!fallback.childElementCount) fallback.textContent = t("recentEmpty");
     } catch {
@@ -2566,11 +2572,11 @@ function recentsControl(groupId, rows, t) {
       if (current()) fallback.removeAttribute("aria-busy");
     }
   }
-  button4.addEventListener("click", () => {
+  button5.addEventListener("click", () => {
     if (area.hasAttribute("data-hcv-recents-open")) close2();
     else void show();
   });
-  area.append(header, body, popup);
+  area.append(header2, body2, popup);
   return {
     area,
     localize,
@@ -2667,8 +2673,8 @@ function attachSidebarHeader(group2, t) {
   group2.setAttribute("data-hcv-sidebar-shell", "");
   let terminalEmpty;
   function syncTerminal() {
-    const surface3 = group2.querySelector(`:scope > [data-panel-header] ${selectedTerminal}`) && document.querySelector("[data-persistent-terminal]:not(:has(> [data-terminal]))");
-    if (!surface3) {
+    const surface5 = group2.querySelector(`:scope > [data-panel-header] ${selectedTerminal}`) && document.querySelector("[data-persistent-terminal]:not(:has(> [data-terminal]))");
+    if (!surface5) {
       terminalEmpty?.remove();
       return;
     }
@@ -2678,11 +2684,11 @@ function attachSidebarHeader(group2, t) {
     }
     const shortcut = newTerminalShortcut();
     const [title, description, keys] = terminalEmpty.children;
-    const copy6 = [t("noTerminals"), t(shortcut ? "terminalShortcut" : "terminalUnbound"), shortcut || ""];
+    const copy7 = [t("noTerminals"), t(shortcut ? "terminalShortcut" : "terminalUnbound"), shortcut || ""];
     for (const [index, node3] of [title, description, keys].entries()) {
-      if (node3.textContent !== copy6[index]) node3.textContent = copy6[index];
+      if (node3.textContent !== copy7[index]) node3.textContent = copy7[index];
     }
-    if (terminalEmpty.parentElement !== surface3) surface3.append(terminalEmpty);
+    if (terminalEmpty.parentElement !== surface5) surface5.append(terminalEmpty);
   }
   return {
     group: group2,
@@ -2723,15 +2729,15 @@ function flatRecents(recentRows, t) {
       localizeFlatHeader();
     }
   }
-  function syncFlatList(flat) {
-    const nativeFlat = flat && recentRows.update(flat, flatList);
+  function syncFlatList(flat2) {
+    const nativeFlat = flat2 && recentRows.update(flat2, flatList);
     if (nativeFlat) {
       if (flatList.nextElementSibling !== nativeFlat) nativeFlat.before(flatList);
     } else {
       recentRows.clear(flatList);
       flatList.remove();
     }
-    const root = nativeFlat && flatList.firstElementChild ? flatList : flat;
+    const root = nativeFlat && flatList.firstElementChild ? flatList : flat2;
     updateFlatHeader(root?.querySelector(':scope > [data-slot="sidebar-group"] > :first-child:has(button > .codicon-list-filter) > button'));
   }
   return { sync: syncFlatList, localize: localizeFlatHeader };
@@ -2828,7 +2834,7 @@ function attachSidebar(content, group2, recentRows, t, { search }) {
     content,
     group: group2,
     localize,
-    sync(flat) {
+    sync(flat2) {
       const input = content.querySelector(':scope > div > div > input[type="text"][placeholder]');
       const field = input?.parentElement?.parentElement;
       if (field !== searchField) {
@@ -2847,8 +2853,8 @@ function attachSidebar(content, group2, recentRows, t, { search }) {
         recent.reset();
         tree.append(recent.area);
       } else if (!tree && recent.area.isConnected) recent.remove();
-      chooseGrouping = flat && projectGroupingAction(flat.querySelector(filterButton));
-      if (chooseGrouping && projectsButton.parentElement !== flat) flat.prepend(projectsButton);
+      chooseGrouping = flat2 && projectGroupingAction(flat2.querySelector(filterButton));
+      if (chooseGrouping && projectsButton.parentElement !== flat2) flat2.prepend(projectsButton);
       else if (!chooseGrouping) projectsButton.remove();
       const projectsToggle = tree?.querySelector("[data-hcv-projects-header] [data-hcv-section-toggle]");
       if (projectRequest && projectsToggle) {
@@ -2857,7 +2863,7 @@ function attachSidebar(content, group2, recentRows, t, { search }) {
         if (projectsToggle.getAttribute("aria-expanded") === "false") projectsToggle.click();
         if (keepRecentOpen) void recent.show();
         if (restoreFocus) projectsToggle.focus({ preventScroll: true });
-      } else if (!tree && !flat) {
+      } else if (!tree && !flat2) {
         projectRequest = void 0;
       }
       sidebarMenu2.sync();
@@ -2888,20 +2894,20 @@ function sidebarFills() {
   return (content) => {
     const labels12 = content?.querySelectorAll('[data-sidebar="menu-button"] > [data-tour^="sidebar-nav-"]') ?? [];
     const buttons = new Set(Array.from(labels12, (label3) => label3.parentElement));
-    for (const [button4, fill] of fills) {
-      if (buttons.has(button4) && fill.parentElement === button4) continue;
+    for (const [button5, fill] of fills) {
+      if (buttons.has(button5) && fill.parentElement === button5) continue;
       fill.remove();
-      button4.removeEventListener("pointermove", skipHiddenTooltip);
-      button4.removeAttribute("data-hcv-sidebar-nav");
-      fills.delete(button4);
+      button5.removeEventListener("pointermove", skipHiddenTooltip);
+      button5.removeAttribute("data-hcv-sidebar-nav");
+      fills.delete(button5);
     }
-    for (const button4 of buttons) {
-      if (fills.has(button4)) continue;
+    for (const button5 of buttons) {
+      if (fills.has(button5)) continue;
       const fill = element3("span", { "data-hcv-sidebar-fill": "", "aria-hidden": "true" });
-      button4.prepend(fill);
-      button4.addEventListener("pointermove", skipHiddenTooltip, { passive: false });
-      button4.setAttribute("data-hcv-sidebar-nav", "");
-      fills.set(button4, fill);
+      button5.prepend(fill);
+      button5.addEventListener("pointermove", skipHiddenTooltip, { passive: false });
+      button5.setAttribute("data-hcv-sidebar-nav", "");
+      fills.set(button5, fill);
     }
   };
 }
@@ -2915,7 +2921,7 @@ function registerSidebar(ctx, active2, recentRows) {
   let cron;
   let projectContent;
   let mounted;
-  let header;
+  let header2;
   let anchors = [];
   let measuredWidth = 0;
   let measure = true;
@@ -2978,16 +2984,16 @@ function registerSidebar(ctx, active2, recentRows) {
       mounted.remove();
       mounted = void 0;
     }
-    if (header && (header.group !== group2 || !compatible)) {
-      header.remove();
-      header = void 0;
+    if (header2 && (header2.group !== group2 || !compatible)) {
+      header2.remove();
+      header2 = void 0;
     }
-    if (compatible && !header) header = attachSidebarHeader(group2, ctx.i18n.t);
-    header?.sync(content);
-    if (header && content && !mounted) mounted = attachSidebar(content, group2, recentRows, ctx.i18n.t, header);
-    const flat = sidebar2?.querySelector(flatSelector);
-    mounted?.sync(flat);
-    flatList.sync(flat);
+    if (compatible && !header2) header2 = attachSidebarHeader(group2, ctx.i18n.t);
+    header2?.sync(content);
+    if (header2 && content && !mounted) mounted = attachSidebar(content, group2, recentRows, ctx.i18n.t, header2);
+    const flat2 = sidebar2?.querySelector(flatSelector);
+    mounted?.sync(flat2);
+    flatList.sync(flat2);
   };
   const schedule = () => {
     if (queued === void 0) queued = requestAnimationFrame(sync);
@@ -2998,8 +3004,8 @@ function registerSidebar(ctx, active2, recentRows) {
       activityFrame = 0;
       if (queued !== void 0 || !contrast.matches || !document.documentElement.matches(active2)) return;
       projects2?.syncActivity();
-      const flat = projectContent?.querySelector(flatSelector);
-      if (flat) flatList.sync(flat);
+      const flat2 = projectContent?.querySelector(flatSelector);
+      if (flat2) flatList.sync(flat2);
     });
   });
   ctx.i18n.onLocaleChange(() => {
@@ -3031,7 +3037,7 @@ function registerSidebar(ctx, active2, recentRows) {
         return measureAndSync();
       }
       if (needsSync) continue;
-      needsSync = Boolean(target.closest(sideSelector) || header?.group.contains(target) || type === "childList" && !target.closest("[data-tree-group]") && movedElementMatches(record, '[data-slot="dropdown-menu-content"]') && projectContent?.querySelector('button[aria-haspopup="menu"][aria-expanded="true"]'));
+      needsSync = Boolean(target.closest(sideSelector) || header2?.group.contains(target) || type === "childList" && !target.closest("[data-tree-group]") && movedElementMatches(record, '[data-slot="dropdown-menu-content"]') && projectContent?.querySelector('button[aria-haspopup="menu"][aria-expanded="true"]'));
     }
     if (needsSync) schedule();
   });
@@ -3058,7 +3064,7 @@ function registerSidebar(ctx, active2, recentRows) {
     mounted?.remove();
     flatList.sync(void 0);
     syncFills(null);
-    header?.remove();
+    header2?.remove();
     projects2?.dispose();
     chatPreview?.dispose();
     cron?.dispose();
@@ -3076,14 +3082,14 @@ function registerWorkspaceChrome(ctx, themeName2) {
   const sidebarTab = `${sidebarStrip} > [role="tablist"] > [role="tab"]:has(> .pane-tab-content)`;
   const sidebarTerminal = `${active2}:has([data-hcv-sidebar-shell] > [data-panel-header] ${selectedTerminal}) [data-persistent-terminal]`;
   const sidebarRow = `${active2} ${sideSelector} [data-sessions-mode] .row-hover:not([class~="group/workspace"])`;
-  const flat = `${active2} ${sideSelector} [data-sessions-mode="flat"]`;
+  const flat2 = `${active2} ${sideSelector} [data-sessions-mode="flat"]`;
   const rowMore = '[data-row-actions] > button[aria-haspopup="menu"]:has(> .codicon-kebab-vertical)';
   const recentsButton = "[data-hcv-recents-actions] button, [data-hcv-recents-menu] button, [data-hcv-recents-fallback] button";
   const recentToggle = "[data-hcv-recents-toggle]";
   const caret = '[data-hcv-icon="sidebarDisclosure"]';
   const flatRecent = "[data-hcv-flat-recent]";
   const flatCaret = `${flatRecent} > .codicon-chevron-right`;
-  const flatGroup = `${flat} [data-slot="sidebar-group"]`;
+  const flatGroup = `${flat2} [data-slot="sidebar-group"]`;
   const flatOpenGroup = `${flatGroup}:has(> [data-slot="sidebar-group-content"])`;
   const neutralHeadings = `${side} :is([data-hcv-recents-toggle], [data-hcv-show-projects], [data-hcv-flat-recent])`;
   const chromeButton = `${shell} :is([data-hcv-history] button, [data-hcv-sidebar-bar] button, ${recentsButton})`;
@@ -3104,15 +3110,15 @@ function registerWorkspaceChrome(ctx, themeName2) {
   ${projectSidebarStyles(active2)}
   ${chatPreviewStyles(active2)}
   ${sidebarCronStyles(active2)}
-  ${flat} [data-hcv-flat-list] { display: contents; }
-  ${flat} [data-hcv-flat-list]:has(> [data-slot="sidebar-group"]) + [data-slot="sidebar-group"] { display: none; }
-  ${flat} ${flatRecent} { flex: 1 1 0; align-self: stretch; }
-  ${codexIconRules(`${flat} ${flatCaret}`, "sidebarDisclosure")}
-  ${flat} ${flatCaret} { rotate: -90deg; opacity: 1; }
+  ${flat2} [data-hcv-flat-list] { display: contents; }
+  ${flat2} [data-hcv-flat-list]:has(> [data-slot="sidebar-group"]) + [data-slot="sidebar-group"] { display: none; }
+  ${flat2} ${flatRecent} { flex: 1 1 0; align-self: stretch; }
+  ${codexIconRules(`${flat2} ${flatCaret}`, "sidebarDisclosure")}
+  ${flat2} ${flatCaret} { rotate: -90deg; opacity: 1; }
   ${flatOpenGroup} ${flatCaret} { rotate: none; opacity: 0; }
   ${flatOpenGroup}:hover ${flatCaret}, ${flatOpenGroup} ${flatRecent}:focus-visible > .codicon-chevron-right { opacity: 1; }
-  ${flat} [data-hcv-flat-recent] > span:has(> .dither) { display: none; }
-  ${flat} [data-hcv-flat-recent]::before {
+  ${flat2} [data-hcv-flat-recent] > span:has(> .dither) { display: none; }
+  ${flat2} [data-hcv-flat-recent]::before {
     content: attr(data-hcv-flat-recent);
     padding-inline-start: 8px;
     font: 500 13px/18px var(--hcv-ui-font);
@@ -3464,7 +3470,7 @@ function registerWorkspaceChrome(ctx, themeName2) {
     ${side} [data-hcv-recents-actions] { opacity: 1; pointer-events: auto; }
   }
   @media (prefers-reduced-motion: no-preference) {
-    ${side} ${recentToggle} ${caret}, ${flat} ${flatCaret} { transition: opacity 150ms var(--hcv-enter), rotate 150ms var(--hcv-enter); }
+    ${side} ${recentToggle} ${caret}, ${flat2} ${flatCaret} { transition: opacity 150ms var(--hcv-enter), rotate 150ms var(--hcv-enter); }
     ${side} [data-hcv-recents-actions] { transition: opacity 150ms var(--hcv-ease); }
     ${side} [data-hcv-recents-body] {
       transition: grid-template-rows ${codexReference.disclosure.heightTime}ms ${codexReference.disclosure.ease}, opacity ${codexReference.disclosure.exitTime}ms ${codexReference.disclosure.ease};
@@ -3539,18 +3545,18 @@ var mediaEvents = [
   "error"
 ];
 function node(tag, className) {
-  const element6 = document.createElement(tag);
-  if (className) element6.className = className;
-  return element6;
+  const element7 = document.createElement(tag);
+  if (className) element7.className = className;
+  return element7;
 }
 function clock(seconds) {
   const time = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
   return `${Math.floor(time / 60)}:${String(time % 60).padStart(2, "0")}`;
 }
-function attachPlayer(card, audio) {
-  const nativeTitle = card.firstElementChild;
+function attachPlayer(card2, audio) {
+  const nativeTitle = card2.firstElementChild;
   const player = node("span");
-  const header = node("span", "hcv-audio-header");
+  const header2 = node("span", "hcv-audio-header");
   const glyph3 = node("span", "hcv-audio-glyph");
   const info = node("span", "hcv-audio-info");
   const title = node("span", "hcv-audio-title");
@@ -3575,18 +3581,18 @@ function attachPlayer(card, audio) {
   glyph3.setAttribute("aria-hidden", "true");
   player.setAttribute(controls, "");
   info.append(title, subtitle);
-  header.append(glyph3, info, play, options);
+  header2.append(glyph3, info, play, options);
   timeline.append(seek, time);
-  player.append(header, timeline);
-  card.insertBefore(player, audio);
-  card.setAttribute(mark, "");
+  player.append(header2, timeline);
+  card2.insertBefore(player, audio);
+  card2.setAttribute(mark, "");
   function sync() {
     const ru = document.documentElement.lang.startsWith("ru");
     const name = nativeTitle.textContent.trim();
     const unavailable = !!audio.error;
     const playing = !audio.paused && !audio.ended;
-    const duration3 = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 0;
-    const position2 = Math.min(audio.currentTime, duration3);
+    const duration4 = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 0;
+    const position2 = Math.min(audio.currentTime, duration4);
     const labelChanged = name !== currentName || ru !== currentLocale;
     if (labelChanged) {
       title.title = title.textContent = name;
@@ -3608,14 +3614,14 @@ function attachPlayer(card, audio) {
       play.setAttribute("aria-label", `${action} ${name}`);
       currentPlaying = playing;
     }
-    if (duration3 !== currentDuration || unavailable !== currentError) {
-      seek.disabled = unavailable || duration3 <= 0;
-      seek.max = String(duration3 || 1);
-      currentDuration = duration3;
+    if (duration4 !== currentDuration || unavailable !== currentError) {
+      seek.disabled = unavailable || duration4 <= 0;
+      seek.max = String(duration4 || 1);
+      currentDuration = duration4;
       currentError = unavailable;
     }
     seek.value = String(position2);
-    const progress = `${clock(position2)} / ${clock(duration3)}`;
+    const progress = `${clock(position2)} / ${clock(duration4)}`;
     if (time.textContent !== progress) time.textContent = progress;
   }
   play.addEventListener("click", () => {
@@ -3628,7 +3634,7 @@ function attachPlayer(card, audio) {
     sync();
   }, { signal });
   options.addEventListener("click", () => {
-    const expanded = card.toggleAttribute("data-hcv-audio-expanded");
+    const expanded = card2.toggleAttribute("data-hcv-audio-expanded");
     options.setAttribute("aria-expanded", String(expanded));
   }, { signal });
   for (const event of mediaEvents) audio.addEventListener(event, sync, { signal });
@@ -3636,19 +3642,19 @@ function attachPlayer(card, audio) {
   return () => {
     listeners.abort();
     player.remove();
-    card.removeAttribute(mark);
-    card.removeAttribute("data-hcv-audio-expanded");
+    card2.removeAttribute(mark);
+    card2.removeAttribute("data-hcv-audio-expanded");
   };
 }
 function registerChatAudio(ctx, active2, selector) {
   const root = document.documentElement;
   const forcedColors = window.matchMedia("(forced-colors: active)");
   const players = /* @__PURE__ */ new Map();
-  const card = `${active2} [${mark}]`;
+  const card2 = `${active2} [${mark}]`;
   const waveform = localAssets?.icons.resourceAudioLight && localAssets?.icons.resourceAudioDark ? `background: light-dark(${svgMask(localAssets.icons.resourceAudioLight)}, ${svgMask(localAssets.icons.resourceAudioDark)}) center / contain no-repeat;` : `background: var(--hcv-focus); mask: ${codexMask("audio")} center / contain no-repeat;`;
   mountCSS(ctx, "data-hcv-chat-audio", `
 @media (forced-colors: none) {
-  ${card} {
+  ${card2} {
     display: flex;
     flex-direction: column;
     box-sizing: border-box;
@@ -3663,18 +3669,18 @@ function registerChatAudio(ctx, active2, selector) {
     color: var(--hcv-text);
   }
   @supports (corner-shape: superellipse(1.5)) {
-    ${card}, ${card} .hcv-audio-glyph { border-radius: 12.5px; }
+    ${card2}, ${card2} .hcv-audio-glyph { border-radius: 12.5px; }
   }
-  ${card} > span:first-child, ${card}:not([data-hcv-audio-expanded]) > audio { display: none; }
-  ${card} > [${controls}] { display: block; }
-  ${card} > audio { box-sizing: border-box; padding: 0 12px 8px; }
-  ${card} .hcv-audio-header {
+  ${card2} > span:first-child, ${card2}:not([data-hcv-audio-expanded]) > audio { display: none; }
+  ${card2} > [${controls}] { display: block; }
+  ${card2} > audio { box-sizing: border-box; padding: 0 12px 8px; }
+  ${card2} .hcv-audio-header {
     display: flex;
     align-items: center;
     gap: 4px;
     padding: 6px;
   }
-  ${card} .hcv-audio-glyph {
+  ${card2} .hcv-audio-glyph {
     display: grid;
     place-items: center;
     flex: none;
@@ -3683,29 +3689,29 @@ function registerChatAudio(ctx, active2, selector) {
     border-radius: 10px;
     background: var(--hcv-hover);
   }
-  ${card} .hcv-audio-glyph::before {
+  ${card2} .hcv-audio-glyph::before {
     content: '';
     inline-size: 24px;
     block-size: 24px;
     ${waveform}
   }
-  ${card} .hcv-audio-info {
+  ${card2} .hcv-audio-info {
     display: grid;
     flex: 1;
     min-inline-size: 0;
     margin-inline: 6px;
   }
-  ${card} :is(.hcv-audio-title, .hcv-audio-subtitle) {
+  ${card2} :is(.hcv-audio-title, .hcv-audio-subtitle) {
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
   }
-  ${card} .hcv-audio-title { font: 500 var(--conversation-text-font-size, 13px)/20px var(--hcv-ui-font); }
-  ${card} :is(.hcv-audio-subtitle, .hcv-audio-timeline) {
+  ${card2} .hcv-audio-title { font: 500 var(--conversation-text-font-size, 13px)/20px var(--hcv-ui-font); }
+  ${card2} :is(.hcv-audio-subtitle, .hcv-audio-timeline) {
     color: var(--hcv-muted);
     font: 400 calc(var(--conversation-text-font-size, 13px) - 1px)/18px var(--hcv-ui-font);
   }
-  ${card} :is(.hcv-audio-play, .hcv-audio-options) {
+  ${card2} :is(.hcv-audio-play, .hcv-audio-options) {
     display: grid;
     place-items: center;
     flex: none;
@@ -3718,26 +3724,26 @@ function registerChatAudio(ctx, active2, selector) {
     color: var(--hcv-muted);
     cursor: pointer;
   }
-  ${card} .hcv-audio-play {
+  ${card2} .hcv-audio-play {
     inline-size: 32px;
     block-size: 32px;
     border-radius: 50%;
     background: color-mix(in srgb, var(--hcv-text) 5%, transparent);
     color: var(--hcv-text);
   }
-  ${card} .hcv-audio-play:not(:disabled):hover { background: color-mix(in srgb, var(--hcv-text) 10%, transparent); }
-  ${card} .hcv-audio-options:hover { color: var(--hcv-text); }
-  ${card} .hcv-audio-play:disabled { opacity: .4; cursor: default; }
-  ${card} :is(.hcv-audio-play, .hcv-audio-options)::before {
+  ${card2} .hcv-audio-play:not(:disabled):hover { background: color-mix(in srgb, var(--hcv-text) 10%, transparent); }
+  ${card2} .hcv-audio-options:hover { color: var(--hcv-text); }
+  ${card2} .hcv-audio-play:disabled { opacity: .4; cursor: default; }
+  ${card2} :is(.hcv-audio-play, .hcv-audio-options)::before {
     content: '';
     inline-size: 16px;
     block-size: 16px;
     background: currentColor;
     mask: ${codexMask("resourcePlay")} center / contain no-repeat;
   }
-  ${card} .hcv-audio-play[data-playing="true"]::before { mask-image: ${codexMask("resourcePause")}; }
-  ${card} .hcv-audio-options::before { mask-image: ${codexMask("resourceMore")}; }
-  ${card} .hcv-audio-timeline {
+  ${card2} .hcv-audio-play[data-playing="true"]::before { mask-image: ${codexMask("resourcePause")}; }
+  ${card2} .hcv-audio-options::before { mask-image: ${codexMask("resourceMore")}; }
+  ${card2} .hcv-audio-timeline {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -3745,7 +3751,7 @@ function registerChatAudio(ctx, active2, selector) {
     border-block-start: 1px solid var(--hcv-hairline);
     font-variant-numeric: tabular-nums;
   }
-  ${card} .hcv-audio-timeline input {
+  ${card2} .hcv-audio-timeline input {
     flex: 1;
     min-inline-size: 0;
     block-size: 20px;
@@ -3753,8 +3759,8 @@ function registerChatAudio(ctx, active2, selector) {
     accent-color: var(--hcv-focus);
     cursor: pointer;
   }
-  ${card} .hcv-audio-timeline input:disabled { opacity: .4; cursor: default; }
-  ${card} :is(.hcv-audio-play, .hcv-audio-options, input):focus-visible {
+  ${card2} .hcv-audio-timeline input:disabled { opacity: .4; cursor: default; }
+  ${card2} :is(.hcv-audio-play, .hcv-audio-options, input):focus-visible {
     outline: 2px solid var(--hcv-focus);
     outline-offset: 1px;
   }
@@ -3904,70 +3910,70 @@ function saveVideo(video, filename) {
   link2.download = filename;
   link2.click();
 }
-function attachPlayer2(card, video) {
+function attachPlayer2(card2, video) {
   const controller = new AbortController();
   const { signal } = controller;
   const locale = /^ru\b/i.test(document.documentElement.lang) ? "ru" : "en";
-  const copy6 = labels[locale];
+  const copy7 = labels[locale];
   const formatPercent = new Intl.NumberFormat(locale, { style: "percent" });
   const formatRate = new Intl.NumberFormat(locale);
-  const filename = card.firstElementChild?.textContent.trim() || copy6.video;
+  const filename = card2.firstElementChild?.textContent.trim() || copy7.video;
   const nativeAttrs = ["controls", "tabindex", "preload", "aria-label"].map((name) => [name, video.getAttribute(name)]);
   const controls2 = element4("span", "hcv-video-controls");
-  const row4 = element4("span", "hcv-video-row");
+  const row5 = element4("span", "hcv-video-row");
   const actions = element4("span", "hcv-video-actions");
   const time = element4("span", "hcv-video-time");
-  const status = element4("span", "hcv-video-status");
-  status.setAttribute("role", "status");
-  status.hidden = true;
-  status.textContent = copy6.error;
-  const play = control(copy6.play, "play");
-  const seek = range(copy6.seek, 1, 0.1);
-  const volume = control(copy6.volume, "volume");
-  const mute = control(copy6.mute, "volume");
-  const volumeRange = range(copy6.volume, 1, 0.01);
-  const sound = popover(volume, "hcv-video-sound", copy6.volume, "dialog");
+  const status2 = element4("span", "hcv-video-status");
+  status2.setAttribute("role", "status");
+  status2.hidden = true;
+  status2.textContent = copy7.error;
+  const play = control(copy7.play, "play");
+  const seek = range(copy7.seek, 1, 0.1);
+  const volume = control(copy7.volume, "volume");
+  const mute = control(copy7.mute, "volume");
+  const volumeRange = range(copy7.volume, 1, 0.01);
+  const sound = popover(volume, "hcv-video-sound", copy7.volume, "dialog");
   sound.append(mute, volumeRange);
-  const options = control(copy6.options, "more");
-  const menu = popover(options, "hcv-video-menu", copy6.options, "menu");
-  const save = menuItem(copy6.save);
+  const options = control(copy7.options, "more");
+  const menu = popover(options, "hcv-video-menu", copy7.options, "menu");
+  const save = menuItem(copy7.save);
   const separator = document.createElement("hr");
   separator.setAttribute("role", "separator");
   const heading = element4("span", "hcv-video-menu-label");
-  heading.textContent = copy6.speed;
+  heading.textContent = copy7.speed;
   const speedItems = rates.map((rate) => menuItem(`${formatRate.format(rate)}\xD7`, "menuitemradio"));
   const items2 = [save, ...speedItems];
   menu.append(save, separator, heading, ...speedItems);
-  const pip = document.pictureInPictureEnabled && !video.disablePictureInPicture ? menuItem(copy6.pictureInPicture) : null;
+  const pip = document.pictureInPictureEnabled && !video.disablePictureInPicture ? menuItem(copy7.pictureInPicture) : null;
   if (pip) {
     menu.append(pip);
     items2.push(pip);
   }
-  const fullscreen = control(copy6.fullscreen, "fullscreen");
+  const fullscreen = control(copy7.fullscreen, "fullscreen");
   actions.append(volume, sound, options, menu);
   if (document.fullscreenEnabled) actions.append(fullscreen);
-  row4.append(play, seek, time, actions);
-  controls2.append(row4, status);
+  row5.append(play, seek, time, actions);
+  controls2.append(row5, status2);
   video.after(controls2);
-  card.setAttribute("data-hcv-video", "");
+  card2.setAttribute("data-hcv-video", "");
   video.controls = false;
   video.tabIndex = 0;
   video.preload = "metadata";
   video.setAttribute("aria-label", filename);
   const listen = (el2, type, fn, extra) => el2.addEventListener(type, fn, { signal, ...extra });
-  const duration3 = () => Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
+  const duration4 = () => Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
   let drag = null;
   let wasFullscreen = false;
   async function run(action) {
-    status.hidden = true;
+    status2.hidden = true;
     try {
       await action();
     } catch {
-      status.hidden = false;
+      status2.hidden = false;
     }
   }
   function updateTime() {
-    const total = duration3();
+    const total = duration4();
     const current = Math.min(video.currentTime, total);
     const progress = `${clock2(current)} / ${clock2(total)}`;
     if (time.textContent !== progress) time.textContent = progress;
@@ -3978,7 +3984,7 @@ function attachPlayer2(card, video) {
   function updatePlayback() {
     const playing = !video.paused && !video.ended;
     play.dataset.icon = playing ? "pause" : "play";
-    play.setAttribute("aria-label", playing ? copy6.pause : copy6.play);
+    play.setAttribute("aria-label", playing ? copy7.pause : copy7.play);
   }
   function updateVolume() {
     const level = video.muted ? 0 : video.volume;
@@ -4026,13 +4032,13 @@ function attachPlayer2(card, video) {
     video.muted = false;
     updateVolume();
   });
-  for (const [panel2, button4, role] of [[sound, volume, "dialog"], [menu, options, "menu"]]) {
+  for (const [panel2, button5, role] of [[sound, volume, "dialog"], [menu, options, "menu"]]) {
     listen(panel2, "beforetoggle", (event) => {
       if (event.newState === "open") panel2.setAttribute("role", role);
     });
     listen(panel2, "toggle", () => {
       const open = panel2.matches(":popover-open");
-      button4.setAttribute("aria-expanded", open);
+      button5.setAttribute("aria-expanded", open);
       if (!open) panel2.removeAttribute("role");
       else if (panel2 === menu) items2[0].focus({ preventScroll: true });
     });
@@ -4071,27 +4077,27 @@ function attachPlayer2(card, video) {
     video.playbackRate = rates[i];
   });
   if (pip) choose(pip, () => document.pictureInPictureElement === video ? document.exitPictureInPicture() : video.requestPictureInPicture());
-  const toggleFullscreen = () => run(() => document.fullscreenElement === card ? document.exitFullscreen() : card.requestFullscreen());
+  const toggleFullscreen = () => run(() => document.fullscreenElement === card2 ? document.exitFullscreen() : card2.requestFullscreen());
   listen(fullscreen, "click", toggleFullscreen);
-  listen(card, "fullscreenchange", () => {
-    const enabled = document.fullscreenElement === card;
+  listen(card2, "fullscreenchange", () => {
+    const enabled = document.fullscreenElement === card2;
     fullscreen.dataset.icon = enabled ? "exitFullscreen" : "fullscreen";
-    fullscreen.setAttribute("aria-label", enabled ? copy6.exitFullscreen : copy6.fullscreen);
+    fullscreen.setAttribute("aria-label", enabled ? copy7.exitFullscreen : copy7.fullscreen);
     if (enabled) {
-      card.setAttribute("role", "dialog");
-      card.setAttribute("aria-label", filename);
+      card2.setAttribute("role", "dialog");
+      card2.setAttribute("aria-label", filename);
       video.focus({ preventScroll: true });
     } else if (wasFullscreen) {
       fullscreen.focus({ preventScroll: true });
-      card.removeAttribute("role");
-      card.removeAttribute("aria-label");
+      card2.removeAttribute("role");
+      card2.removeAttribute("aria-label");
     }
     wasFullscreen = enabled;
   });
-  listen(card, "keydown", (event) => {
+  listen(card2, "keydown", (event) => {
     if (event.key !== "Escape") return;
     const panel2 = [sound, menu].find((el2) => el2.matches(":popover-open"));
-    if (!panel2 && document.fullscreenElement !== card) return;
+    if (!panel2 && document.fullscreenElement !== card2) return;
     event.preventDefault();
     event.stopPropagation();
     if (panel2) {
@@ -4110,16 +4116,16 @@ function attachPlayer2(card, video) {
   updateSpeed();
   return () => {
     controller.abort();
-    if (document.fullscreenElement === card) void document.exitFullscreen().catch(() => {
+    if (document.fullscreenElement === card2) void document.exitFullscreen().catch(() => {
     });
     if (wasFullscreen) {
-      card.removeAttribute("role");
-      card.removeAttribute("aria-label");
+      card2.removeAttribute("role");
+      card2.removeAttribute("aria-label");
     }
     if (drag?.resume && video.isConnected) void video.play().catch(() => {
     });
     controls2.remove();
-    card.removeAttribute("data-hcv-video");
+    card2.removeAttribute("data-hcv-video");
     for (const [name, value] of nativeAttrs) {
       if (value === null) video.removeAttribute(name);
       else video.setAttribute(name, value);
@@ -4128,7 +4134,7 @@ function attachPlayer2(card, video) {
 }
 function registerChatVideo(ctx, active2, selector) {
   if (!HTMLElement.prototype.showPopover || !CSS.supports("bottom", "anchor(top)")) return;
-  const card = `${active2} ${cardSelector}`;
+  const card2 = `${active2} ${cardSelector}`;
   const iconRules2 = Object.entries({
     play: "videoPlay",
     pause: "videoPause",
@@ -4137,9 +4143,9 @@ function registerChatVideo(ctx, active2, selector) {
     more: "videoMore",
     fullscreen: "videoFullscreen",
     exitFullscreen: "videoExitFullscreen"
-  }).map(([icon8, mask2]) => `${card} .hcv-video-button[data-icon="${icon8}"]::before { mask-image: ${codexMask(mask2)}; }`).join("\n");
+  }).map(([icon8, mask2]) => `${card2} .hcv-video-button[data-icon="${icon8}"]::before { mask-image: ${codexMask(mask2)}; }`).join("\n");
   mountCSS(ctx, "data-hcv-chat-video", `
-  ${card} {
+  ${card2} {
     --hcv-video-surface: light-dark(#fff, #181818);
     --hcv-video-ink: light-dark(#181818, #dfdfdf);
     --hcv-video-secondary: light-dark(#666, #a1a1a1);
@@ -4165,8 +4171,8 @@ function registerChatVideo(ctx, active2, selector) {
     box-shadow: 0 2px 4px -1px #00000014;
     anchor-scope: --hcv-video-volume-anchor, --hcv-video-options-anchor;
   }
-  ${card} > span:first-child { display: none; }
-  ${card} > video {
+  ${card2} > span:first-child { display: none; }
+  ${card2} > video {
     display: block;
     flex: 1 1 auto;
     box-sizing: border-box;
@@ -4180,7 +4186,7 @@ function registerChatVideo(ctx, active2, selector) {
     object-fit: contain;
     cursor: pointer;
   }
-  ${card}:fullscreen {
+  ${card2}:fullscreen {
     inline-size: 100%;
     block-size: 100%;
     max-inline-size: none;
@@ -4189,8 +4195,8 @@ function registerChatVideo(ctx, active2, selector) {
     border-radius: 0;
     box-shadow: none;
   }
-  ${card}:fullscreen > video { border-radius: 0; }
-  ${card} .hcv-video-controls {
+  ${card2}:fullscreen > video { border-radius: 0; }
+  ${card2} .hcv-video-controls {
     container: hcv-video-controls / inline-size;
     flex: none;
     border-block-start: 1px solid var(--hcv-video-divider);
@@ -4198,7 +4204,7 @@ function registerChatVideo(ctx, active2, selector) {
     font: 400 12px/16px var(--hcv-ui-font);
     user-select: none;
   }
-  ${card} .hcv-video-row {
+  ${card2} .hcv-video-row {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -4206,15 +4212,15 @@ function registerChatVideo(ctx, active2, selector) {
     block-size: 40px;
     padding-inline: 8px;
   }
-  ${card} .hcv-video-actions {
+  ${card2} .hcv-video-actions {
     display: flex;
     flex: none;
     align-items: center;
     gap: 6px;
     margin-inline-start: auto;
   }
-  ${card} .hcv-video-time { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
-  ${card} .hcv-video-button {
+  ${card2} .hcv-video-time { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  ${card2} .hcv-video-button {
     position: relative;
     display: grid;
     flex: none;
@@ -4230,8 +4236,8 @@ function registerChatVideo(ctx, active2, selector) {
     color: var(--hcv-video-secondary);
     cursor: pointer;
   }
-  ${card} .hcv-video-button:is(:hover, [aria-expanded="true"]) { background: var(--hcv-video-hover); }
-  ${card} .hcv-video-button::before {
+  ${card2} .hcv-video-button:is(:hover, [aria-expanded="true"]) { background: var(--hcv-video-hover); }
+  ${card2} .hcv-video-button::before {
     content: "";
     inline-size: 16px;
     block-size: 16px;
@@ -4239,7 +4245,7 @@ function registerChatVideo(ctx, active2, selector) {
     mask: none center / contain no-repeat;
   }
   ${iconRules2}
-  ${card} .hcv-video-button::after {
+  ${card2} .hcv-video-button::after {
     position: absolute;
     z-index: 1;
     inset-inline-end: 0;
@@ -4258,12 +4264,12 @@ function registerChatVideo(ctx, active2, selector) {
     visibility: hidden;
     transition: visibility 0s;
   }
-  ${card} .hcv-video-row > .hcv-video-button::after { inset-inline: 0 auto; }
-  ${card} .hcv-video-button:not([aria-expanded="true"]):is(:hover, :focus-visible)::after {
+  ${card2} .hcv-video-row > .hcv-video-button::after { inset-inline: 0 auto; }
+  ${card2} .hcv-video-button:not([aria-expanded="true"]):is(:hover, :focus-visible)::after {
     visibility: visible;
     transition-delay: 150ms;
   }
-  ${card} .hcv-video-range {
+  ${card2} .hcv-video-range {
     appearance: none;
     flex: 1 1 0;
     min-inline-size: 0;
@@ -4276,14 +4282,14 @@ function registerChatVideo(ctx, active2, selector) {
     cursor: pointer;
     touch-action: none;
   }
-  ${card} .hcv-video-range:disabled { opacity: .4; cursor: default; }
-  ${card} .hcv-video-range::-webkit-slider-runnable-track {
+  ${card2} .hcv-video-range:disabled { opacity: .4; cursor: default; }
+  ${card2} .hcv-video-range::-webkit-slider-runnable-track {
     --fill: calc(8px + (100% - 16px) * var(--hcv-video-position, 0));
     block-size: 2px;
     border-radius: 999px;
     background: linear-gradient(to right, var(--hcv-video-ink) var(--fill), var(--hcv-video-track) var(--fill));
   }
-  ${card} .hcv-video-range::-webkit-slider-thumb {
+  ${card2} .hcv-video-range::-webkit-slider-thumb {
     appearance: none;
     box-sizing: border-box;
     inline-size: 16px;
@@ -4295,17 +4301,17 @@ function registerChatVideo(ctx, active2, selector) {
     box-shadow: var(--hcv-video-thumb-shadow);
     outline: none;
   }
-  ${card} :is(video, .hcv-video-button, .hcv-video-menu-item):focus-visible {
+  ${card2} :is(video, .hcv-video-button, .hcv-video-menu-item):focus-visible {
     outline: 2px solid var(--hcv-focus);
     outline-offset: -2px;
   }
-  ${card} .hcv-video-range:focus { outline: none; }
-  ${card} .hcv-video-range:focus-visible:not(:active)::-webkit-slider-thumb {
+  ${card2} .hcv-video-range:focus { outline: none; }
+  ${card2} .hcv-video-range:focus-visible:not(:active)::-webkit-slider-thumb {
     box-shadow: 0 0 0 2px var(--hcv-video-ring), var(--hcv-video-thumb-shadow);
   }
-  ${card} .hcv-video-actions > [data-icon="more"] { anchor-name: --hcv-video-options-anchor; }
-  ${card} .hcv-video-actions > :is([data-icon="volume"], [data-icon="muted"]) { anchor-name: --hcv-video-volume-anchor; }
-  ${card} .hcv-video-popover {
+  ${card2} .hcv-video-actions > [data-icon="more"] { anchor-name: --hcv-video-options-anchor; }
+  ${card2} .hcv-video-actions > :is([data-icon="volume"], [data-icon="muted"]) { anchor-name: --hcv-video-volume-anchor; }
+  ${card2} .hcv-video-popover {
     position: fixed;
     inset: auto;
     right: anchor(right);
@@ -4322,22 +4328,22 @@ function registerChatVideo(ctx, active2, selector) {
     box-shadow: 0 4px 12px #0003, inset 0 0 0 .5px #ffffff12;
     color: var(--hcv-video-ink);
   }
-  ${card} .hcv-video-sound {
+  ${card2} .hcv-video-sound {
     position-anchor: --hcv-video-volume-anchor;
     inline-size: 168px;
     align-items: center;
     gap: 8px;
   }
-  ${card} .hcv-video-sound:popover-open { display: flex; }
-  ${card} .hcv-video-menu {
+  ${card2} .hcv-video-sound:popover-open { display: flex; }
+  ${card2} .hcv-video-menu {
     position-anchor: --hcv-video-options-anchor;
     inline-size: max-content;
     overflow-y: auto;
     font-size: 13px;
     line-height: 1.43;
   }
-  ${card} .hcv-video-menu-item, ${card} .hcv-video-menu-label { padding: 4px 8px; }
-  ${card} .hcv-video-menu-item {
+  ${card2} .hcv-video-menu-item, ${card2} .hcv-video-menu-label { padding: 4px 8px; }
+  ${card2} .hcv-video-menu-item {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -4352,24 +4358,24 @@ function registerChatVideo(ctx, active2, selector) {
     text-align: start;
     cursor: pointer;
   }
-  ${card} .hcv-video-menu-item:is(:hover, :focus-visible) { background: color-mix(in srgb, currentColor 10%, transparent); }
-  ${card} .hcv-video-menu-item[aria-checked="true"]::after {
+  ${card2} .hcv-video-menu-item:is(:hover, :focus-visible) { background: color-mix(in srgb, currentColor 10%, transparent); }
+  ${card2} .hcv-video-menu-item[aria-checked="true"]::after {
     content: "";
     inline-size: 14px;
     block-size: 14px;
     background: currentColor;
     mask: ${codexMask("check")} center / contain no-repeat;
   }
-  ${card} .hcv-video-menu-label { display: block; color: var(--hcv-video-secondary); }
-  ${card} .hcv-video-menu hr {
+  ${card2} .hcv-video-menu-label { display: block; color: var(--hcv-video-secondary); }
+  ${card2} .hcv-video-menu hr {
     margin: 4px;
     border: 0;
     border-block-start: 1px solid var(--hcv-video-track);
   }
-  ${card} .hcv-video-status:not([hidden]) { display: block; padding: 0 8px 8px; }
+  ${card2} .hcv-video-status:not([hidden]) { display: block; padding: 0 8px 8px; }
   @container hcv-video-controls (width < 320px) {
-    ${card} .hcv-video-row { block-size: auto; padding-block: 4px; }
-    ${card} .hcv-video-row > .hcv-video-range { order: -1; flex-basis: 100%; }
+    ${card2} .hcv-video-row { block-size: auto; padding-block: 4px; }
+    ${card2} .hcv-video-row > .hcv-video-range { order: -1; flex-basis: 100%; }
   }
   `, { surface: cardSelector });
   const root = document.documentElement;
@@ -4383,8 +4389,8 @@ function registerChatVideo(ctx, active2, selector) {
     }
     for (const video of document.querySelectorAll(selector)) {
       if (players.has(video) || !video.controls) continue;
-      const card2 = video.parentElement;
-      players.set(video, { card: card2, remove: attachPlayer2(card2, video) });
+      const card3 = video.parentElement;
+      players.set(video, { card: card3, remove: attachPlayer2(card3, video) });
     }
   }
   function clear() {
@@ -4443,8 +4449,8 @@ function registerChatResources(ctx, active2) {
   function openFromCard(event) {
     const target = event.target;
     if (event.defaultPrevented || forcedColors.matches || !(target instanceof Element) || target.closest("button")) return;
-    const card = target.closest(preview3);
-    if (card && document.getSelection()?.isCollapsed !== false) card.lastElementChild.click();
+    const card2 = target.closest(preview3);
+    if (card2 && document.getSelection()?.isCollapsed !== false) card2.lastElementChild.click();
   }
   const style = document.createElement("style");
   style.dataset.hcvChatResources = "";
@@ -4663,8 +4669,8 @@ function SummarySection({ kind, title, expanded, onToggle, action, children, ...
     )
   );
 }
-function summarySectionStyles(card) {
-  const section2 = card + " > [data-hcv-summary-section]";
+function summarySectionStyles(card2) {
+  const section2 = card2 + " > [data-hcv-summary-section]";
   return `
 ${section2} + [data-hcv-summary-section] {
   border-block-start: .5px solid var(--hcv-hairline);
@@ -4761,34 +4767,34 @@ function viewAllIcon() {
 function connectorRows(connectors) {
   return (connectors ?? []).map(({ name }) => ({ kind: "source", key: name, name }));
 }
-function sourceLabel(row4, copy6) {
-  return row4.name || ({ image: copy6.image, folder: copy6.folder, link: copy6.link }[row4.kind] ?? copy6.file);
+function sourceLabel(row5, copy7) {
+  return row5.name || ({ image: copy7.image, folder: copy7.folder, link: copy7.link }[row5.kind] ?? copy7.file);
 }
-function sourceDescription(row4, copy6) {
-  if (row4.kind === "source") return copy6.connector;
-  if (!row4.attached) return copy6.fromChat;
-  return row4.kind === "link" ? copy6.provided : copy6.attached;
+function sourceDescription(row5, copy7) {
+  if (row5.kind === "source") return copy7.connector;
+  if (!row5.attached) return copy7.fromChat;
+  return row5.kind === "link" ? copy7.provided : copy7.attached;
 }
-function SourceRow({ row: row4, expanded = false, copy: copy6, onOpenSource, onConnectors }) {
-  const name = sourceLabel(row4, copy6);
-  const open = row4.kind === "source" ? onConnectors && (() => onConnectors(row4.name)) : row4.action && onOpenSource && (() => onOpenSource(row4));
+function SourceRow({ row: row5, expanded = false, copy: copy7, onOpenSource, onConnectors }) {
+  const name = sourceLabel(row5, copy7);
+  const open = row5.kind === "source" ? onConnectors && (() => onConnectors(row5.name)) : row5.action && onOpenSource && (() => onOpenSource(row5));
   const props = { className: "hcv-source-row", title: name };
-  const content = h5("span", { className: "hcv-source-leading", "aria-hidden": true }, row4.thumbnail ? h5("img", { className: "hcv-source-thumbnail", src: row4.thumbnail, alt: "", draggable: false }) : icon2(row4.kind));
+  const content = h5("span", { className: "hcv-source-leading", "aria-hidden": true }, row5.thumbnail ? h5("img", { className: "hcv-source-thumbnail", src: row5.thumbnail, alt: "", draggable: false }) : icon2(row5.kind));
   const text = h5(
     "span",
     { className: "hcv-source-text" },
     h5("span", { className: "hcv-source-title", dir: "auto" }, name),
-    expanded && row4.meta && h5("span", { className: "hcv-source-meta", dir: "auto" }, row4.meta)
+    expanded && row5.meta && h5("span", { className: "hcv-source-meta", dir: "auto" }, row5.meta)
   );
   return h5(
     "li",
-    { "data-hcv-source-row": row4.kind },
+    { "data-hcv-source-row": row5.kind },
     h5(open ? "button" : "div", open ? { ...props, type: "button", "aria-label": name, onClick: open } : props, content, text),
-    expanded && h5("p", { className: "hcv-source-description" }, sourceDescription(row4, copy6))
+    expanded && h5("p", { className: "hcv-source-description" }, sourceDescription(row5, copy7))
   );
 }
 function sourceList(rows, props) {
-  return rows.map((row4) => h5(SourceRow, { ...props, key: `${row4.kind}:${row4.key}`, row: row4 }));
+  return rows.map((row5) => h5(SourceRow, { ...props, key: `${row5.kind}:${row5.key}`, row: row5 }));
 }
 function openComposerMenu(getChat) {
   const chat3 = getChat?.();
@@ -4802,7 +4808,7 @@ function openComposerMenu(getChat) {
 }
 function CompactSources({ rows = [], connectors, loading, onExpand, onConnectors, onOpenSource, getChat, disclosure: disclosure2 }) {
   const { locale } = useI18n();
-  const copy6 = labels2[locale] || labels2.en;
+  const copy7 = labels2[locale] || labels2.en;
   const [menuOpen, setMenuOpen] = useState2(false);
   const movingFocus = useRef2(false);
   const items2 = [...rows, ...connectorRows(connectors)];
@@ -4817,8 +4823,8 @@ function CompactSources({ rows = [], connectors, loading, onExpand, onConnectors
     h5(DropdownMenuTrigger2, { asChild: true }, h5("button", {
       type: "button",
       className: "hcv-sources-add",
-      "aria-label": copy6.add,
-      title: copy6.addHint
+      "aria-label": copy7.add,
+      title: copy7.addHint
     }, icon2("plus"))),
     h5(
       DropdownMenuContent2,
@@ -4831,43 +4837,43 @@ function CompactSources({ rows = [], connectors, loading, onExpand, onConnectors
           movingFocus.current = false;
         }
       },
-      h5(DropdownMenuItem2, { disabled: !onConnectors, onSelect: () => menuAction(() => onConnectors()) }, icon2("plugins"), copy6.plugins),
-      h5(DropdownMenuItem2, { disabled: !getChat, onSelect: () => menuAction(() => openComposerMenu(getChat)) }, icon2("attach"), copy6.attach)
+      h5(DropdownMenuItem2, { disabled: !onConnectors, onSelect: () => menuAction(() => onConnectors()) }, icon2("plugins"), copy7.plugins),
+      h5(DropdownMenuItem2, { disabled: !getChat, onSelect: () => menuAction(() => openComposerMenu(getChat)) }, icon2("attach"), copy7.attach)
     )
   );
   return h5(
     SummarySection,
-    { ...disclosure2, kind: "sources", title: copy6.title, action: add, "data-hcv-sources-compact": "" },
+    { ...disclosure2, kind: "sources", title: copy7.title, action: add, "data-hcv-sources-compact": "" },
     items2.length ? [
-      h5("ul", { key: "list", "aria-label": copy6.title }, sourceList(items2.slice(0, 3), { copy: copy6, onOpenSource, onConnectors })),
+      h5("ul", { key: "list", "aria-label": copy7.title }, sourceList(items2.slice(0, 3), { copy: copy7, onOpenSource, onConnectors })),
       h5(
         "button",
         { key: "expand", type: "button", className: "hcv-source-row hcv-sources-all", onClick: onExpand },
         h5("span", { className: "hcv-source-leading" }, viewAllIcon()),
-        h5("span", null, copy6.showAll)
+        h5("span", null, copy7.showAll)
       )
-    ] : loading ? h5("p", { role: "status", className: "hcv-sources-state" }, copy6.loading) : h5("button", { type: "button", className: "hcv-source-row hcv-sources-empty", onClick: showMenu }, copy6.addHint)
+    ] : loading ? h5("p", { role: "status", className: "hcv-sources-state" }, copy7.loading) : h5("button", { type: "button", className: "hcv-source-row hcv-sources-empty", onClick: showMenu }, copy7.addHint)
   );
 }
 function CompactSummaryItems({ kind, rows, onOpenSource, disclosure: disclosure2 }) {
   const { locale } = useI18n();
-  const copy6 = labels2[locale] || labels2.en;
+  const copy7 = labels2[locale] || labels2.en;
   if (!rows.length) return null;
   return h5(
     SummarySection,
-    { ...disclosure2, kind, title: copy6[kind], "data-hcv-summary-items": "" },
-    h5("ul", { "aria-label": copy6[kind] }, sourceList(rows, { copy: copy6, onOpenSource }))
+    { ...disclosure2, kind, title: copy7[kind], "data-hcv-summary-items": "" },
+    h5("ul", { "aria-label": copy7[kind] }, sourceList(rows, { copy: copy7, onOpenSource }))
   );
 }
 function SourcesPane({ rows = [], connectors, loading, onConnectors, onOpenSource }) {
   const { locale } = useI18n();
-  const copy6 = labels2[locale] || labels2.en;
+  const copy7 = labels2[locale] || labels2.en;
   const items2 = [...rows, ...connectorRows(connectors)];
   return h5(
     "div",
     { "data-hcv-sources-pane": "" },
-    items2.length ? h5("ul", { "aria-label": copy6.title }, ...sourceList(items2, { expanded: true, copy: copy6, onOpenSource, onConnectors })) : h5("p", { role: "status", className: "hcv-sources-state" }, loading ? copy6.loading : connectors == null ? copy6.unavailable : copy6.empty),
-    onConnectors && h5("button", { type: "button", className: "hcv-sources-connectors", onClick: () => onConnectors() }, icon2("source"), copy6.connectors)
+    items2.length ? h5("ul", { "aria-label": copy7.title }, ...sourceList(items2, { expanded: true, copy: copy7, onOpenSource, onConnectors })) : h5("p", { role: "status", className: "hcv-sources-state" }, loading ? copy7.loading : connectors == null ? copy7.unavailable : copy7.empty),
+    onConnectors && h5("button", { type: "button", className: "hcv-sources-connectors", onClick: () => onConnectors() }, icon2("source"), copy7.connectors)
   );
 }
 function registerSummarySources(ctx, active2) {
@@ -5004,7 +5010,7 @@ function useChatSources(getChat, scopeKey3, enabled) {
     if (!enabled) return;
     let frame = 0;
     let chat3 = null;
-    let body = null;
+    let body2 = null;
     const content = new MutationObserver((records) => {
       if (records.some(({ type, target, addedNodes, removedNodes }) => type === "attributes" && target.matches("a, img") || target.closest(sourceContainer) || [addedNodes, removedNodes].some((nodes) => Array.prototype.some.call(
         nodes,
@@ -5012,7 +5018,7 @@ function useChatSources(getChat, scopeKey3, enabled) {
       )))) queue();
     });
     const mounts = new MutationObserver((records) => {
-      if (!chat3?.isConnected || !body?.isConnected || records.some((record) => [...record.addedNodes, ...record.removedNodes].some(
+      if (!chat3?.isConnected || !body2?.isConnected || records.some((record) => [...record.addedNodes, ...record.removedNodes].some(
         (node3) => node3 instanceof Element && (node3.matches(transcript) || node3.querySelector(transcript))
       ))) queue();
     });
@@ -5020,23 +5026,23 @@ function useChatSources(getChat, scopeKey3, enabled) {
       frame = 0;
       chat3 = getChat();
       const next = chat3?.querySelector(transcript);
-      if (next !== body) {
+      if (next !== body2) {
         content.disconnect();
-        body?.removeEventListener("load", queue, true);
-        body = next;
-        if (body) {
-          content.observe(body, { childList: true, subtree: true, attributes: true, attributeFilter: ["href", "src", "alt", "title"] });
-          body.addEventListener("load", queue, true);
+        body2?.removeEventListener("load", queue, true);
+        body2 = next;
+        if (body2) {
+          content.observe(body2, { childList: true, subtree: true, attributes: true, attributeFilter: ["href", "src", "alt", "title"] });
+          body2.addEventListener("load", queue, true);
         }
       }
       const unique = /* @__PURE__ */ new Map();
-      for (const node3 of [...body?.querySelectorAll(candidates) || []].reverse()) {
-        const row4 = sourceFrom(node3);
-        const key = row4 && `${row4.kind}:${row4.key}`;
-        if (key && !unique.has(key)) unique.set(key, row4);
+      for (const node3 of [...body2?.querySelectorAll(candidates) || []].reverse()) {
+        const row5 = sourceFrom(node3);
+        const key = row5 && `${row5.kind}:${row5.key}`;
+        if (key && !unique.has(key)) unique.set(key, row5);
       }
       const rows = [...unique.values()];
-      setSnapshot((old) => old?.scopeKey === scopeKey3 && old.rows.length === rows.length && rows.every((row4, i) => row4.action === old.rows[i].action && row4.key === old.rows[i].key && row4.name === old.rows[i].name && row4.thumbnail === old.rows[i].thumbnail && row4.kind === old.rows[i].kind && row4.meta === old.rows[i].meta && row4.attached === old.rows[i].attached && row4.section === old.rows[i].section) ? old : { scopeKey: scopeKey3, rows });
+      setSnapshot((old) => old?.scopeKey === scopeKey3 && old.rows.length === rows.length && rows.every((row5, i) => row5.action === old.rows[i].action && row5.key === old.rows[i].key && row5.name === old.rows[i].name && row5.thumbnail === old.rows[i].thumbnail && row5.kind === old.rows[i].kind && row5.meta === old.rows[i].meta && row5.attached === old.rows[i].attached && row5.section === old.rows[i].section) ? old : { scopeKey: scopeKey3, rows });
     }
     function queue() {
       if (!frame) frame = requestAnimationFrame(collect);
@@ -5047,7 +5053,7 @@ function useChatSources(getChat, scopeKey3, enabled) {
       if (frame) cancelAnimationFrame(frame);
       mounts.disconnect();
       content.disconnect();
-      body?.removeEventListener("load", queue, true);
+      body2?.removeEventListener("load", queue, true);
     };
   }, [getChat, scopeKey3, enabled]);
   return enabled && snapshot?.scopeKey === scopeKey3 ? snapshot.rows : [];
@@ -5124,9 +5130,9 @@ var labels3 = {
     status: { running: "Working", queued: "Waiting", dispatched: "Dispatched", failed: "Failed", interrupted: "Interrupted" }
   }
 };
-var finished = ({ status }) => ["completed", "failed", "interrupted"].includes(status);
+var finished = ({ status: status2 }) => ["completed", "failed", "interrupted"].includes(status2);
 var recency = (agent) => agent.updatedAt ?? agent.finishedAt ?? agent.startedAt ?? 0;
-var goalLabel = (agent, copy6) => agent.goal || copy6.fallback;
+var goalLabel = (agent, copy7) => agent.goal || copy7.fallback;
 var normalizeProfile = (name) => (name || "default").trim().toLowerCase() || "default";
 function formatDuration(seconds) {
   const whole = Math.max(0, Math.floor(seconds));
@@ -5154,14 +5160,14 @@ function AgentAvatar({ agent, dark: dark2, avatarUrl: avatarUrl2 }) {
 function Glyph({ name }) {
   return h6("span", { "aria-hidden": true, "data-hcv-subagent-glyph": name, style: codexIconStyle(name) });
 }
-function trailingLabel(agent, now, lang, copy6) {
+function trailingLabel(agent, now, lang, copy7) {
   if (agent.status === "running" && agent.startedAt) return formatDuration((now - agent.startedAt) / 1e3);
   if (agent.status === "completed" && agent.finishedAt) {
     return h6("time", { dateTime: new Date(agent.finishedAt).toISOString() }, relativeTime(agent.finishedAt, now, lang));
   }
-  return copy6.status[agent.status] || null;
+  return copy7.status[agent.status] || null;
 }
-function AgentGroup({ name, title, agents, limit, empty, copy: copy6, now, lang, dark: dark2, avatarUrl: avatarUrl2, select, trailing }) {
+function AgentGroup({ name, title, agents, limit, empty, copy: copy7, now, lang, dark: dark2, avatarUrl: avatarUrl2, select, trailing }) {
   const [expanded, setExpanded] = useState4(false);
   if (!agents.length && !empty) return null;
   const shown = expanded ? agents : agents.slice(0, limit);
@@ -5170,8 +5176,8 @@ function AgentGroup({ name, title, agents, limit, empty, copy: copy6, now, lang,
     { "data-hcv-subagent-group": name },
     h6("h2", null, h6("span", null, title + " \xB7 " + agents.length), trailing && h6("small", null, trailing)),
     agents.length ? h6("ul", null, shown.map((agent) => {
-      const goal = goalLabel(agent, copy6);
-      const preview3 = !finished(agent) && (agent.activity?.at(-1) || (agent.status === "running" ? copy6.status.running : ""));
+      const goal = goalLabel(agent, copy7);
+      const preview3 = !finished(agent) && (agent.activity?.at(-1) || (agent.status === "running" ? copy7.status.running : ""));
       return h6(
         "li",
         { key: agent.id },
@@ -5191,14 +5197,14 @@ function AgentGroup({ name, title, agents, limit, empty, copy: copy6, now, lang,
               "span",
               { "data-hcv-subagent-row-title": "" },
               h6("span", { "data-hcv-subagent-name": "", title: goal, dir: "auto" }, goal),
-              h6("span", { "data-hcv-subagent-trailing": "" }, trailingLabel(agent, now, lang, copy6))
+              h6("span", { "data-hcv-subagent-trailing": "" }, trailingLabel(agent, now, lang, copy7))
             ),
             preview3 && h6("span", { "data-hcv-subagent-preview": "", title: preview3, dir: "auto" }, preview3)
           )
         )
       );
     })) : h6("p", { "data-hcv-subagent-empty": "" }, empty),
-    !expanded && agents.length > limit && h6("button", { type: "button", "data-hcv-subagent-more": "", onClick: () => setExpanded(true) }, copy6.more(agents.length - limit))
+    !expanded && agents.length > limit && h6("button", { type: "button", "data-hcv-subagent-more": "", onClick: () => setExpanded(true) }, copy7.more(agents.length - limit))
   );
 }
 function textFromContent(value) {
@@ -5212,7 +5218,7 @@ function savedResponse(rows) {
     timestamp: message.timestamp
   })).filter((message) => message.text);
 }
-function useChildResponse({ subagentId, childSession, status, model }, scope3) {
+function useChildResponse({ subagentId, childSession, status: status2, model }, scope3) {
   const [snapshot, setSnapshot] = useState4(null);
   const key = JSON.stringify([scope3, subagentId, childSession]);
   useEffect3(() => {
@@ -5240,12 +5246,12 @@ function useChildResponse({ subagentId, childSession, status, model }, scope3) {
           }, 8e3);
           if (!sameOwner()) return;
           const rows = history3?.available === true && history3.subagent_id === subagentId && Array.isArray(history3.rows) ? history3.rows : [];
-          const steps = rows.filter((row4) => row4?.role === "tool" && typeof row4.name === "string").map((row4) => row4.name).slice(-40);
+          const steps = rows.filter((row5) => row5?.role === "tool" && typeof row5.name === "string").map((row5) => row5.name).slice(-40);
           const start = rows[0]?.timestamp;
           const end = rows.at(-1)?.timestamp;
           const elapsed = history3?.running === false && history3.next_cursor == null && Number.isFinite(start) && Number.isFinite(end) && end > start ? end - start : void 0;
           const child = rows.length && typeof history3.child_session_id === "string" ? history3.child_session_id : null;
-          const saved = { key, status, messages: savedResponse(rows), steps, elapsed, child };
+          const saved = { key, status: status2, messages: savedResponse(rows), steps, elapsed, child };
           setSnapshot(saved);
           if (!model && child && child !== parent && window.hermesDesktop?.api) {
             const query2 = new URLSearchParams({ profile: targetProfile });
@@ -5262,7 +5268,7 @@ function useChildResponse({ subagentId, childSession, status, model }, scope3) {
       }
       if (!sameOwner()) return;
       if (!childSession || !window.hermesDesktop?.api) {
-        setSnapshot({ key, status, messages: [] });
+        setSnapshot({ key, status: status2, messages: [] });
         return;
       }
       const query = new URLSearchParams({ profile: targetProfile, order: "latest", limit: "80", include_compacted: "true" });
@@ -5273,15 +5279,15 @@ function useChildResponse({ subagentId, childSession, status, model }, scope3) {
       if (!sameOwner()) return;
       const history2 = result?.messages ?? result?.data;
       const available = Array.isArray(history2) && (!result.profile || normalizeProfile(result.profile) === normalizeProfile(targetProfile));
-      setSnapshot({ key, status, messages: available ? savedResponse(history2) : [] });
+      setSnapshot({ key, status: status2, messages: available ? savedResponse(history2) : [] });
     }
     void read().catch(() => {
-      if (sameOwner()) setSnapshot({ key, status, messages: [] });
+      if (sameOwner()) setSnapshot({ key, status: status2, messages: [] });
     });
     return () => {
       current = false;
     };
-  }, [subagentId, childSession, scope3, status, key, model]);
+  }, [subagentId, childSession, scope3, status2, key, model]);
   return snapshot?.key === key ? snapshot : null;
 }
 var markdownComponents = {
@@ -5298,7 +5304,7 @@ function responseMarkdown(text) {
     return text;
   }
 }
-function AgentDetail({ agent, scope: scope3, now, copy: copy6, lang, dark: dark2, avatarUrl: avatarUrl2, onBack, nativeActions: nativeActions2, openNativeAgent: openNativeAgent2 }) {
+function AgentDetail({ agent, scope: scope3, now, copy: copy7, lang, dark: dark2, avatarUrl: avatarUrl2, onBack, nativeActions: nativeActions2, openNativeAgent: openNativeAgent2 }) {
   const back = useRef3(null);
   useLayoutEffect2(() => {
     back.current?.focus({ preventScroll: true });
@@ -5307,8 +5313,8 @@ function AgentDetail({ agent, scope: scope3, now, copy: copy6, lang, dark: dark2
   const completed = finished(agent);
   const model = [agent.model || snapshot?.model, agent.effort && reasoningEffortLabel(agent.effort)].filter(Boolean).join(" \xB7 ");
   const elapsed = agent.durationSeconds ?? snapshot?.elapsed ?? (agent.startedAt && ((agent.finishedAt || now) - agent.startedAt) / 1e3);
-  const durationLabel = elapsed == null ? null : (completed || snapshot?.elapsed != null ? copy6.worked : copy6.elapsed)(formatDuration(elapsed));
-  const statusLabel = copy6.status[agent.status];
+  const durationLabel = elapsed == null ? null : (completed || snapshot?.elapsed != null ? copy7.worked : copy7.elapsed)(formatDuration(elapsed));
+  const statusLabel = copy7.status[agent.status];
   const activity = snapshot?.steps?.length ? snapshot.steps : agent.activity || [];
   const source = snapshot?.messages.length ? "transcript" : agent.summary ? "summary" : void 0;
   const result = source === "transcript" ? snapshot.messages : source === "summary" ? [{ text: agent.summary }] : [];
@@ -5318,12 +5324,12 @@ function AgentDetail({ agent, scope: scope3, now, copy: copy6, lang, dark: dark2
   const destinations = nativeActions2(openable, scope3);
   const readsHistory = agent.subagentId || agent.childSession && window.hermesDesktop?.api;
   const loading = Boolean(readsHistory && (!snapshot || snapshot.status !== agent.status));
-  const label3 = goalLabel(agent, copy6);
+  const label3 = goalLabel(agent, copy7);
   const actions = (result.length > 0 || destinations.length > 0) && h6(
     "div",
     { "data-hcv-subagent-actions": "" },
     result.length > 0 && h6(CopyButton, {
-      label: copy6.copy,
+      label: copy7.copy,
       text: result.map(({ text }) => text).join("\n\n"),
       appearance: "icon",
       buttonSize: "icon-sm"
@@ -5334,8 +5340,8 @@ function AgentDetail({ agent, scope: scope3, now, copy: copy6, lang, dark: dark2
         key: action,
         type: "button",
         "data-hcv-subagent-native": action,
-        "aria-label": copy6[action],
-        title: copy6[action],
+        "aria-label": copy7[action],
+        title: copy7[action],
         onClick: () => openNativeAgent2(openable, scope3, action)
       },
       h6(Glyph, { name: action === "native" ? "open" : "chatTab" })
@@ -5355,8 +5361,8 @@ function AgentDetail({ agent, scope: scope3, now, copy: copy6, lang, dark: dark2
       h6("button", {
         ref: back,
         type: "button",
-        "aria-label": copy6.back,
-        title: copy6.back,
+        "aria-label": copy7.back,
+        title: copy7.back,
         "data-hcv-subagent-back": "",
         onClick: onBack
       }, h6(Glyph, { name: "back" })),
@@ -5373,12 +5379,12 @@ function AgentDetail({ agent, scope: scope3, now, copy: copy6, lang, dark: dark2
         activity.length ? h6(
           "details",
           { "data-hcv-subagent-activity-log": "" },
-          h6("summary", null, durationLabel || copy6.activity, h6(Glyph, { name: "right" })),
+          h6("summary", null, durationLabel || copy7.activity, h6(Glyph, { name: "right" })),
           h6("ul", null, activity.map((text, index) => h6("li", { key: index, dir: "auto" }, text)))
         ) : durationLabel && h6("p", { "data-hcv-subagent-meta": "" }, durationLabel),
         h6(
           "div",
-          { role: "group", "aria-label": copy6.result, "data-hcv-subagent-result": "", "data-source": source },
+          { role: "group", "aria-label": copy7.result, "data-hcv-subagent-result": "", "data-source": source },
           result.length ? result.map(({ text }, index) => h6(
             "div",
             { key: index, dir: "auto" },
@@ -5389,7 +5395,7 @@ function AgentDetail({ agent, scope: scope3, now, copy: copy6, lang, dark: dark2
               mode: "static",
               parseIncompleteMarkdown: false
             }, responseMarkdown(text))
-          )) : h6("p", { role: "status", "data-hcv-subagent-empty": "" }, loading ? copy6.loading : !completed && statusLabel ? statusLabel : copy6.noResult)
+          )) : h6("p", { role: "status", "data-hcv-subagent-empty": "" }, loading ? copy7.loading : !completed && statusLabel ? statusLabel : copy7.noResult)
         ),
         actions
       )
@@ -5397,13 +5403,13 @@ function AgentDetail({ agent, scope: scope3, now, copy: copy6, lang, dark: dark2
   );
 }
 function AgentPane({ agents, scope: scope3, lang, dark: dark2, avatarUrl: avatarUrl2, nativeActions: nativeActions2, openNativeAgent: openNativeAgent2 }) {
-  const copy6 = labels3[lang];
+  const copy7 = labels3[lang];
   const [selected, setSelected] = useState4(null);
   const pane = useRef3(null);
   const returning = useRef3(null);
   const [now, setNow] = useState4(Date.now);
   const agent = agents.find((item) => item.id === selected);
-  const running = agents.some(({ status, startedAt }) => status === "running" && startedAt);
+  const running = agents.some(({ status: status2, startedAt }) => status2 === "running" && startedAt);
   const clock3 = running ? 1e3 : agents.some(({ finishedAt }) => finishedAt) ? 6e4 : 0;
   useEffect3(() => {
     if (!clock3) return;
@@ -5417,19 +5423,19 @@ function AgentPane({ agents, scope: scope3, lang, dark: dark2, avatarUrl: avatar
   useLayoutEffect2(() => {
     if (!agent && returning.current !== null) {
       const rows = Array.from(pane.current?.querySelectorAll("[data-hcv-subagent-row]") || []);
-      const row4 = rows.find((item) => item.dataset.hcvSubagentRow === returning.current) ?? rows[0];
+      const row5 = rows.find((item) => item.dataset.hcvSubagentRow === returning.current) ?? rows[0];
       returning.current = null;
-      row4?.focus({ preventScroll: true });
+      row5?.focus({ preventScroll: true });
     }
   }, [agent]);
   const ordered2 = [...agents].sort((first, second) => recency(second) - recency(first));
   const active2 = ordered2.filter((item) => !finished(item));
   const done = ordered2.filter(finished);
-  const waiting = active2.filter(({ status }) => status === "queued").length;
-  const group2 = { copy: copy6, now, lang, dark: dark2, avatarUrl: avatarUrl2, select: setSelected };
+  const waiting = active2.filter(({ status: status2 }) => status2 === "queued").length;
+  const group2 = { copy: copy7, now, lang, dark: dark2, avatarUrl: avatarUrl2, select: setSelected };
   return h6(
     "section",
-    { ref: pane, "data-hcv-subagents-pane": "", "aria-label": copy6.title },
+    { ref: pane, "data-hcv-subagents-pane": "", "aria-label": copy7.title },
     h6(
       "div",
       { "data-hcv-subagent-list": "", hidden: Boolean(agent) },
@@ -5439,13 +5445,13 @@ function AgentPane({ agents, scope: scope3, lang, dark: dark2, avatarUrl: avatar
         h6(AgentGroup, {
           ...group2,
           name: "active",
-          title: copy6.active,
+          title: copy7.active,
           agents: active2,
           limit: 4,
-          empty: copy6.noActive,
-          trailing: waiting ? copy6.waitingCount(waiting) : null
+          empty: copy7.noActive,
+          trailing: waiting ? copy7.waitingCount(waiting) : null
         }),
-        h6(AgentGroup, { ...group2, name: "done", title: copy6.done, agents: done, limit: 10 })
+        h6(AgentGroup, { ...group2, name: "done", title: copy7.done, agents: done, limit: 10 })
       )
     ),
     agent && h6(AgentDetail, {
@@ -5453,7 +5459,7 @@ function AgentPane({ agents, scope: scope3, lang, dark: dark2, avatarUrl: avatar
       agent,
       scope: scope3,
       now,
-      copy: copy6,
+      copy: copy7,
       lang,
       dark: dark2,
       avatarUrl: avatarUrl2,
@@ -5613,8 +5619,8 @@ var prompt = '[data-slot="aui_user-message-root"][data-message-id]';
 var generated = "[data-hcv-agent-rows]";
 var agentAvatar = "data-hcv-delegate-avatar";
 var notice = '[data-slot="aui_system-message-root"] [data-slot="aui_background-result"]';
-var final = (status) => ["completed", "failed", "interrupted"].includes(status);
-var isActive = ({ status }) => status === "running" || status === "queued";
+var final = (status2) => ["completed", "failed", "interrupted"].includes(status2);
+var isActive = ({ status: status2 }) => status2 === "running" || status2 === "queued";
 var tidy = (text) => typeof text === "string" ? text.trim().replace(/\s+/g, " ") : "";
 var prose = (text) => typeof text === "string" ? text.trim() : "";
 var duration = (value) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : void 0;
@@ -5695,9 +5701,9 @@ function resultObject(value) {
   }
 }
 function settledStatus(value) {
-  const status = tidy(value);
-  if (!status || ["ok", "success", "completed"].includes(status)) return "completed";
-  return ["interrupted", "cancelled", "canceled"].includes(status) ? "interrupted" : "failed";
+  const status2 = tidy(value);
+  if (!status2 || ["ok", "success", "completed"].includes(status2)) return "completed";
+  return ["interrupted", "cancelled", "canceled"].includes(status2) ? "interrupted" : "failed";
 }
 function dispatchIds(result) {
   const ids = result?.subagent_ids;
@@ -5707,46 +5713,46 @@ function dispatchIds(result) {
   const indexes = Array.from(goals.keys()).filter((index) => !refused.has(index));
   return indexes.length === ids.length ? new Map(indexes.map((index, i) => [index, tidy(ids[i])])) : /* @__PURE__ */ new Map();
 }
-function readCard(card, cardIndex) {
-  const call = committedFiber(card)?.return?.memoizedProps;
+function readCard(card2, cardIndex) {
+  const call = committedFiber(card2)?.return?.memoizedProps;
   const callId = tidy(call?.toolCallId);
   const args = resultObject(call?.args);
   const result = resultObject(call?.result);
   const savedIds = dispatchIds(result);
   const results = Array.isArray(result?.results) ? result.results.map(resultObject) : [];
-  const turnId = getPrompt(card.closest(pair));
-  return [...card.children].flatMap((entry, index) => {
+  const turnId = getPrompt(card2.closest(pair));
+  return [...card2.children].flatMap((entry, index) => {
     const scaffold = entry.querySelector(":scope > [data-conversation-scaffold]");
-    const button4 = scaffold?.querySelector(":scope > button");
+    const button5 = scaffold?.querySelector(":scope > button");
     const glyph3 = scaffold?.firstElementChild;
-    if (!button4 || !glyph3) return [];
-    const goal = tidy(args?.tasks?.[index]?.goal || index === 0 && args?.goal) || tidy(button4.textContent);
-    const native = committedFiber(entry)?.return?.memoizedProps?.row;
-    const stored = results.find((row4) => row4?.task_index === index) ?? (results[index]?.task_index == null ? results[index] : null);
-    const refused = Array.isArray(result?.refused) && result.refused.find((row4) => row4?.task_index === index);
+    if (!button5 || !glyph3) return [];
+    const goal = tidy(args?.tasks?.[index]?.goal || index === 0 && args?.goal) || tidy(button5.textContent);
+    const native2 = committedFiber(entry)?.return?.memoizedProps?.row;
+    const stored = results.find((row5) => row5?.task_index === index) ?? (results[index]?.task_index == null ? results[index] : null);
+    const refused = Array.isArray(result?.refused) && result.refused.find((row5) => row5?.task_index === index);
     const outcome = stored || refused;
-    const status = outcome ? settledStatus(outcome.status) : native?.status || (glyph3.querySelector('[role="status"]') ? "running" : glyph3.querySelector("svg.text-destructive") ? "failed" : glyph3.querySelector("svg[aria-label]") ? "completed" : "dispatched");
-    const nativeSession = tidy(native?.sessionId);
+    const status2 = outcome ? settledStatus(outcome.status) : native2?.status || (glyph3.querySelector('[role="status"]') ? "running" : glyph3.querySelector("svg.text-destructive") ? "failed" : glyph3.querySelector("svg[aria-label]") ? "completed" : "dispatched");
+    const nativeSession = tidy(native2?.sessionId);
     const childSession = tidy(stored?.child_session_id || stored?.session_id) || (!stored ? nativeSession : "");
     const subagentId = tidy(stored?.subagent_id) || savedIds.get(index);
     const seed = JSON.stringify(callId ? [callId, index] : [turnId, cardIndex, index, goal]);
     return [{
       id: subagentId || seed,
       seed,
-      nativeId: tidy(native?.id),
+      nativeId: tidy(native2?.id),
       nativeSession,
       goal,
-      status,
+      status: status2,
       childSession,
       subagentId,
-      model: tidy(stored ? stored.model : native?.model),
-      durationSeconds: duration(stored ? stored.duration_seconds : native?.durationSeconds),
+      model: tidy(stored ? stored.model : native2?.model),
+      durationSeconds: duration(stored ? stored.duration_seconds : native2?.durationSeconds),
       effort: tidy(stored?.reasoning_effort),
       summary: prose(outcome?.summary) || prose(outcome?.error),
       activity: noActivity,
-      started: status === "running" || status === "completed",
-      button: button4,
-      canOpen: !button4.disabled && (!stored || Boolean(childSession && nativeSession === childSession))
+      started: status2 === "running" || status2 === "completed",
+      button: button5,
+      canOpen: !button5.disabled && (!stored || Boolean(childSession && nativeSession === childSession))
     }];
   });
 }
@@ -5759,17 +5765,17 @@ function applyStoredReceipts(rowsByCard) {
     if (kind === "Tasks" && !batch) continue;
     const goals = batch ? batch[1] : text;
     const count = batch ? Number(batch[2]) : 1;
-    const matches = [...rowsByCard].filter(([card, entries]) => card.closest(transcript2) === target.closest(transcript2) && Boolean(card.compareDocumentPosition(target) & Node.DOCUMENT_POSITION_FOLLOWING) && entries.length === count && entries.every((row4) => row4.status === "dispatched") && entries.map((row4) => row4.goal).join("; ") === goals);
+    const matches = [...rowsByCard].filter(([card2, entries]) => card2.closest(transcript2) === target.closest(transcript2) && Boolean(card2.compareDocumentPosition(target) & Node.DOCUMENT_POSITION_FOLLOWING) && entries.length === count && entries.every((row5) => row5.status === "dispatched") && entries.map((row5) => row5.goal).join("; ") === goals);
     if (matches.length !== 1) continue;
     const receipt = committedFiber(target)?.return?.memoizedProps;
     const receiptButton = target.querySelector("[data-conversation-scaffold] button");
     const dateTime = target.querySelector("time[datetime]")?.dateTime;
-    for (const row4 of matches[0][1]) {
-      row4.started = true;
-      row4.status = outcome === "Completed" ? "completed" : outcome === "Cancelled" || outcome === "Interrupted" ? "interrupted" : "failed";
-      row4.finishedAt = dateTime ? timestamp(Date.parse(dateTime)) : void 0;
-      if (count === 1 && !row4.summary) row4.summary = prose(receipt?.report);
-      row4.receiptButton = receiptButton;
+    for (const row5 of matches[0][1]) {
+      row5.started = true;
+      row5.status = outcome === "Completed" ? "completed" : outcome === "Cancelled" || outcome === "Interrupted" ? "interrupted" : "failed";
+      row5.finishedAt = dateTime ? timestamp(Date.parse(dateTime)) : void 0;
+      if (count === 1 && !row5.summary) row5.summary = prose(receipt?.report);
+      row5.receiptButton = receiptButton;
     }
   }
 }
@@ -5812,45 +5818,45 @@ function activityRows(agents) {
   ]).filter(([, list]) => list.length);
 }
 function activitySignature(agents, lang, dark2) {
-  return JSON.stringify([lang, dark2, agents.map(({ id: id2, seed, goal, status, started }) => [id2, seed, goal, status, started])]);
+  return JSON.stringify([lang, dark2, agents.map(({ id: id2, seed, goal, status: status2, started }) => [id2, seed, goal, status2, started])]);
 }
 function renderActivity(state, agents, lang, dark2) {
   const signature = activitySignature(agents, lang, dark2);
   if (signature === state.signature) return;
   state.signature = signature;
-  const copy6 = labels4[lang];
+  const copy7 = labels4[lang];
   const format = new Intl.ListFormat(lang);
   const rows = activityRows(agents).map(([kind, list]) => {
-    const row4 = document.createElement("span");
-    row4.setAttribute("data-hcv-agent-activity", kind);
-    const icons2 = document.createElement("span");
-    icons2.setAttribute("data-hcv-agent-icons", "");
-    icons2.setAttribute("aria-hidden", "true");
+    const row5 = document.createElement("span");
+    row5.setAttribute("data-hcv-agent-activity", kind);
+    const icons3 = document.createElement("span");
+    icons3.setAttribute("data-hcv-agent-icons", "");
+    icons3.setAttribute("aria-hidden", "true");
     const shown = list.length <= 3 ? list : list.slice(0, 2);
     for (const agent of list.slice(0, 4)) {
       const image = document.createElement("img");
       image.src = avatarUrl(agent.seed, dark2);
       image.alt = "";
       image.draggable = false;
-      icons2.append(image);
+      icons3.append(image);
     }
-    const names2 = shown.map(({ goal }) => shortName(goal, copy6.fallback));
-    if (list.length > shown.length) names2.push(copy6.more(list.length - shown.length));
+    const names2 = shown.map(({ goal }) => shortName(goal, copy7.fallback));
+    if (list.length > shown.length) names2.push(copy7.more(list.length - shown.length));
     const sentence = document.createElement("span");
-    sentence.textContent = format.format(names2) + " " + copy6[kind];
-    sentence.title = format.format(list.map(({ goal }) => goal || copy6.fallback)) + " " + copy6[kind];
-    row4.append(icons2, sentence);
-    return row4;
+    sentence.textContent = format.format(names2) + " " + copy7[kind];
+    sentence.title = format.format(list.map(({ goal }) => goal || copy7.fallback)) + " " + copy7[kind];
+    row5.append(icons3, sentence);
+    return row5;
   });
   state.rows.replaceChildren(...rows);
 }
-function enhanceCard(card, id2, expanded, key) {
+function enhanceCard(card2, id2, expanded, key) {
   const rows = document.createElement("button");
   rows.type = "button";
   rows.setAttribute("data-hcv-agent-rows", "");
-  const assigned = !card.id;
-  if (assigned) card.id = "hcv-delegate-" + id2;
-  const assignedId = card.id;
+  const assigned = !card2.id;
+  if (assigned) card2.id = "hcv-delegate-" + id2;
+  const assignedId = card2.id;
   rows.setAttribute("aria-expanded", String(expanded.has(key)));
   rows.setAttribute("aria-controls", assignedId);
   rows.addEventListener("click", () => {
@@ -5860,21 +5866,21 @@ function enhanceCard(card, id2, expanded, key) {
     else expanded.delete(key);
     if (expanded.size > 100) expanded.delete(expanded.values().next().value);
   });
-  card.before(rows);
+  card2.before(rows);
   return { rows, glyphs: /* @__PURE__ */ new Map(), remove() {
     rows.remove();
     for (const glyph3 of this.glyphs.keys()) {
       glyph3.removeAttribute(agentAvatar);
       glyph3.style.removeProperty("--hcv-delegate-avatar");
     }
-    if (assigned && card.id === assignedId) card.removeAttribute("id");
+    if (assigned && card2.id === assignedId) card2.removeAttribute("id");
   } };
 }
 function styleDelegateRows(state, agents, dark2) {
   const previous = state.glyphs;
   const next = /* @__PURE__ */ new Map();
-  for (const { button: button4, seed } of agents) {
-    const glyph3 = button4.previousElementSibling;
+  for (const { button: button5, seed } of agents) {
+    const glyph3 = button5.previousElementSibling;
     if (!glyph3) continue;
     const image = avatarUrl(seed, dark2);
     if (previous.get(glyph3) !== image) {
@@ -5943,16 +5949,16 @@ function SummarySubagents({ roster, onExpand, disclosure: disclosure2 }) {
   const value = useScopedRoster(roster);
   if (!value.agents.length) return null;
   const { agents, lang, dark: dark2 } = value;
-  const copy6 = labels4[lang];
+  const copy7 = labels4[lang];
   const working = agents.filter(isActive);
-  const done = agents.filter(({ status }) => status === "completed");
-  const other = agents.filter(({ status }) => status === "dispatched");
-  const issues = agents.filter(({ status }) => status === "failed" || status === "interrupted");
+  const done = agents.filter(({ status: status2 }) => status2 === "completed");
+  const other = agents.filter(({ status: status2 }) => status2 === "dispatched");
+  const issues = agents.filter(({ status: status2 }) => status2 === "failed" || status2 === "interrupted");
   const preview3 = (working.length ? working : done.length ? done : other.length ? other : issues).slice(0, 4);
   const counts = [
-    [copy6.running, working],
-    [copy6.status.completed, done],
-    [copy6.status.dispatched, other],
+    [copy7.running, working],
+    [copy7.status.completed, done],
+    [copy7.status.dispatched, other],
     [lang === "ru" ? "\u041E\u0448\u0438\u0431\u043A\u0438 \u0438 \u043E\u0441\u0442\u0430\u043D\u043E\u0432\u043A\u0438" : "Errors and interruptions", issues]
   ].filter(([, list]) => list.length).map(([label3, list]) => label3 + ": " + list.length);
   const image = (agent) => h7("img", { key: agent.id, src: avatarUrl(agent.seed, dark2), alt: "", draggable: false });
@@ -5962,12 +5968,12 @@ function SummarySubagents({ roster, onExpand, disclosure: disclosure2 }) {
   ];
   return h7(
     SummarySection,
-    { ...disclosure2, kind: "agents", title: copy6.title, "data-hcv-summary-agents": "" },
+    { ...disclosure2, kind: "agents", title: copy7.title, "data-hcv-summary-agents": "" },
     h7("button", {
       type: "button",
       className: "hcv-context-row",
-      title: copy6.open,
-      "aria-label": copy6.open,
+      title: copy7.open,
+      "aria-label": copy7.open,
       "data-hcv-open-subagents": "",
       onClick: onExpand
     }, previewContent)
@@ -5975,10 +5981,10 @@ function SummarySubagents({ roster, onExpand, disclosure: disclosure2 }) {
 }
 function css(active2) {
   const chat3 = active2 + " " + surface;
-  const card = active2 + " [data-hcv-context-card] [data-hcv-summary-agents]";
+  const card2 = active2 + " [data-hcv-context-card] [data-hcv-summary-agents]";
   const rows = chat3 + " " + generated;
-  const native = rows + " + " + delegate;
-  const task = native + " > div";
+  const native2 = rows + " + " + delegate;
+  const task = native2 + " > div";
   const line = task + " > [data-conversation-scaffold]";
   const glyph3 = line + " > [" + agentAvatar + "]";
   return [
@@ -5997,7 +6003,7 @@ function css(active2) {
     active2 + " [data-hcv-agent-icons] img { inline-size: .875rem; block-size: .875rem; flex: none; }",
     rows + " [data-hcv-agent-icons] { gap: 6px; min-block-size: 20px; }",
     rows + " [data-hcv-agent-icons] img { inline-size: 16px; block-size: 16px; }",
-    native + " { gap: 4px; margin-inline-start: 8px; padding-inline-start: 16px; border-inline-start: 1px solid var(--hcv-activity-border); }",
+    native2 + " { gap: 4px; margin-inline-start: 8px; padding-inline-start: 16px; border-inline-start: 1px solid var(--hcv-activity-border); }",
     task + " { padding: 0; border: 0; border-radius: 0; }",
     line + " { opacity: 1; gap: 4px; --conversation-tool-font-size: var(--hcv-activity-font); --conversation-scaffold-text: var(--hcv-activity-text); }",
     line + " > .codicon-agent { display: none; }",
@@ -6005,13 +6011,13 @@ function css(active2) {
     glyph3 + " { position: relative; inline-size: 16px; block-size: 16px; }",
     glyph3 + ':not(:has([role="status"], svg.text-destructive)) { background: var(--hcv-delegate-avatar) center / contain no-repeat; }',
     glyph3 + ':not(:has([role="status"], svg.text-destructive)) > * { position: absolute; inline-size: 1px; block-size: 1px; clip-path: inset(50%); overflow: hidden; }',
-    card + " button[data-hcv-open-subagents] { position: relative; isolation: isolate; gap: 6px; color: var(--hcv-muted); padding: 0; }",
-    card + " button[data-hcv-open-subagents]:is(:hover, :focus-visible) { background: none; color: var(--hcv-text); }",
-    card + ' button[data-hcv-open-subagents]:is(:hover, :focus-visible)::before { content: ""; position: absolute; z-index: -1; inset: 0 -8px; border-radius: 8px; background: var(--hcv-summary-row-hover); }',
-    card + " [data-hcv-agent-icons] { align-self: center; }",
-    card + " [data-hcv-agent-counts] { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }",
-    card + ' [data-hcv-open-subagents]::after { content: ""; margin-inline-start: auto; flex: none; inline-size: 14px; block-size: 14px; background: currentColor; mask: ' + codexMask("right") + " center / contain no-repeat; opacity: 0; }",
-    card + " [data-hcv-open-subagents]:is(:hover, :focus-visible)::after { opacity: 1; }",
+    card2 + " button[data-hcv-open-subagents] { position: relative; isolation: isolate; gap: 6px; color: var(--hcv-muted); padding: 0; }",
+    card2 + " button[data-hcv-open-subagents]:is(:hover, :focus-visible) { background: none; color: var(--hcv-text); }",
+    card2 + ' button[data-hcv-open-subagents]:is(:hover, :focus-visible)::before { content: ""; position: absolute; z-index: -1; inset: 0 -8px; border-radius: 8px; background: var(--hcv-summary-row-hover); }',
+    card2 + " [data-hcv-agent-icons] { align-self: center; }",
+    card2 + " [data-hcv-agent-counts] { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }",
+    card2 + ' [data-hcv-open-subagents]::after { content: ""; margin-inline-start: auto; flex: none; inline-size: 14px; block-size: 14px; background: currentColor; mask: ' + codexMask("right") + " center / contain no-repeat; opacity: 0; }",
+    card2 + " [data-hcv-open-subagents]:is(:hover, :focus-visible)::after { opacity: 1; }",
     rows + ":focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }",
     "}"
   ].join("\n") + agentPaneStyles(active2);
@@ -6091,8 +6097,8 @@ function registerSubagents(ctx, active2) {
       const list = runtimeAgents.get(scope3) || /* @__PURE__ */ new Map();
       const previous = list.get(id2);
       if (previous && (final(previous.status) || event.seq != null && previous.seq >= event.seq)) return;
-      const status = eventStatus(event, previous);
-      if (previous?.started && status === "queued") return;
+      const status2 = eventStatus(event, previous);
+      if (previous?.started && status2 === "queued") return;
       const turn = previous?.turn || (scope3 === getScope() ? getPrompt([...document.querySelectorAll(primary + " " + transcript2 + " " + pair)].at(-1)) : null);
       const time = timestamp(event.timestamp) ?? (event.replayed ? void 0 : Date.now());
       const childSession = tidy(payload.child_session_id) || previous?.childSession;
@@ -6102,19 +6108,19 @@ function registerSubagents(ctx, active2) {
         goal: goal || previous?.goal || "",
         seed: id2,
         turn,
-        status,
+        status: status2,
         cardId: previous?.cardId,
         seq: event.seq ?? previous?.seq,
-        started: previous?.started || status === "running" || status === "completed",
-        startedAt: previous?.startedAt ?? (status === "running" ? time : void 0),
-        finishedAt: final(status) ? time : void 0,
+        started: previous?.started || status2 === "running" || status2 === "completed",
+        startedAt: previous?.startedAt ?? (status2 === "running" ? time : void 0),
+        finishedAt: final(status2) ? time : void 0,
         updatedAt: time ?? previous?.updatedAt,
         model: tidy(payload.model) || previous?.model,
         childSession,
         lifecycleChild: Boolean(childSession),
         effort: tidy(payload.reasoning_effort) || previous?.effort,
         durationSeconds: duration(payload.duration_seconds) ?? previous?.durationSeconds,
-        summary: prose(payload.summary) || (final(status) ? prose(payload.text) : "") || previous?.summary,
+        summary: prose(payload.summary) || (final(status2) ? prose(payload.text) : "") || previous?.summary,
         activity: eventActivity(event, previous)
       });
       if (list.size > 200) list.delete(list.keys().next().value);
@@ -6136,63 +6142,63 @@ function registerSubagents(ctx, active2) {
     const claimed = /* @__PURE__ */ new Set();
     const activeCards = new Set(on ? document.querySelectorAll(surface + " " + transcript2 + " " + delegate) : []);
     const enhance = on && contrast.matches;
-    for (const [card, state] of cards) {
-      if (!activeCards.has(card)) {
+    for (const [card2, state] of cards) {
+      if (!activeCards.has(card2)) {
         state.remove();
-        cards.delete(card);
+        cards.delete(card2);
       }
     }
     const indexInTurn = /* @__PURE__ */ new Map();
     const rowsByCard = /* @__PURE__ */ new Map();
-    for (const card of activeCards) {
-      const turn = card.closest(pair);
+    for (const card2 of activeCards) {
+      const turn = card2.closest(pair);
       const index = indexInTurn.get(turn) ?? 0;
       indexInTurn.set(turn, index + 1);
-      rowsByCard.set(card, readCard(card, index));
+      rowsByCard.set(card2, readCard(card2, index));
     }
     if (rowsByCard.size) applyStoredReceipts(rowsByCard);
     const agentsById = /* @__PURE__ */ new Map();
-    for (const [card, entries] of rowsByCard) {
-      const inPrimary = Boolean(card.closest(primary));
-      const promptId = inPrimary && getPrompt(card.closest(pair));
+    for (const [card2, entries] of rowsByCard) {
+      const inPrimary = Boolean(card2.closest(primary));
+      const promptId = inPrimary && getPrompt(card2.closest(pair));
       if (inPrimary && live) {
-        for (const row4 of entries) {
-          const available = (agent) => agent && !claimed.has(agent.id) && (agent.cardId === row4.seed || !agent.cardId && (agent.turn ? agent.turn === promptId : !final(row4.status)));
-          const sameId = live.get(row4.subagentId || row4.nativeId);
-          const matched = sameId && !claimed.has(sameId.id) && (!sameId.cardId || sameId.cardId === row4.seed) ? sameId : !row4.subagentId && [...live.values()].find((agent) => available(agent) && (agent.cardId === row4.seed || promptId && agent.turn === promptId && agent.goal === row4.goal));
+        for (const row5 of entries) {
+          const available = (agent) => agent && !claimed.has(agent.id) && (agent.cardId === row5.seed || !agent.cardId && (agent.turn ? agent.turn === promptId : !final(row5.status)));
+          const sameId = live.get(row5.subagentId || row5.nativeId);
+          const matched = sameId && !claimed.has(sameId.id) && (!sameId.cardId || sameId.cardId === row5.seed) ? sameId : !row5.subagentId && [...live.values()].find((agent) => available(agent) && (agent.cardId === row5.seed || promptId && agent.turn === promptId && agent.goal === row5.goal));
           if (!matched) continue;
-          matched.cardId = row4.seed;
+          matched.cardId = row5.seed;
           claimed.add(matched.id);
-          row4.id = matched.id;
-          row4.subagentId ||= matched.subagentId;
-          row4.started ||= matched.started;
-          if (final(matched.status) || !final(row4.status)) row4.status = matched.status;
-          row4.startedAt = matched.startedAt;
-          row4.finishedAt = matched.finishedAt ?? row4.finishedAt;
-          row4.updatedAt = matched.updatedAt;
-          row4.model ||= matched.model;
-          row4.childSession = matched.childSession || row4.childSession;
-          row4.lifecycleChild = matched.lifecycleChild;
-          row4.canOpen = !row4.button.disabled && Boolean(row4.childSession && row4.nativeSession === row4.childSession);
-          row4.effort ||= matched.effort;
-          row4.durationSeconds ??= matched.durationSeconds;
-          row4.summary ||= matched.summary;
-          row4.activity = matched.activity;
+          row5.id = matched.id;
+          row5.subagentId ||= matched.subagentId;
+          row5.started ||= matched.started;
+          if (final(matched.status) || !final(row5.status)) row5.status = matched.status;
+          row5.startedAt = matched.startedAt;
+          row5.finishedAt = matched.finishedAt ?? row5.finishedAt;
+          row5.updatedAt = matched.updatedAt;
+          row5.model ||= matched.model;
+          row5.childSession = matched.childSession || row5.childSession;
+          row5.lifecycleChild = matched.lifecycleChild;
+          row5.canOpen = !row5.button.disabled && Boolean(row5.childSession && row5.nativeSession === row5.childSession);
+          row5.effort ||= matched.effort;
+          row5.durationSeconds ??= matched.durationSeconds;
+          row5.summary ||= matched.summary;
+          row5.activity = matched.activity;
         }
       }
-      if (inPrimary) for (const row4 of entries) agentsById.set(row4.id, row4);
+      if (inPrimary) for (const row5 of entries) agentsById.set(row5.id, row5);
       if (!enhance || !entries.length) {
-        cards.get(card)?.remove();
-        cards.delete(card);
+        cards.get(card2)?.remove();
+        cards.delete(card2);
         continue;
       }
-      if (!cards.has(card)) {
-        const owner = inPrimary ? scope3 : card.closest(surface)?.dataset.composerSurfaceId;
+      if (!cards.has(card2)) {
+        const owner = inPrimary ? scope3 : card2.closest(surface)?.dataset.composerSurfaceId;
         const key = JSON.stringify([owner, entries.map(({ seed }) => seed)]);
-        cards.set(card, enhanceCard(card, ++nextId, expanded, key));
+        cards.set(card2, enhanceCard(card2, ++nextId, expanded, key));
       }
-      const state = cards.get(card);
-      if (state.rows.nextElementSibling !== card) card.before(state.rows);
+      const state = cards.get(card2);
+      if (state.rows.nextElementSibling !== card2) card2.before(state.rows);
       styleDelegateRows(state, entries, dark2);
       renderActivity(state, entries, lang, dark2);
     }
@@ -6236,9 +6242,9 @@ function registerSubagents(ctx, active2) {
     if (records.some(({ target, type, addedNodes, removedNodes }) => {
       if (target === root) return true;
       if (!enabled()) return false;
-      const element6 = target instanceof Element ? target : target.parentElement;
-      if (!element6 || element6.closest(generated)) return false;
-      if (element6.closest(delegate)) return true;
+      const element7 = target instanceof Element ? target : target.parentElement;
+      if (!element7 || element7.closest(generated)) return false;
+      if (element7.closest(delegate)) return true;
       if (type !== "childList") return false;
       return [...addedNodes, ...removedNodes].some((node3) => node3 instanceof Element && !node3.matches(generated) && (node3.matches(relevant) || node3.querySelector(relevant)));
     })) queue();
@@ -6405,7 +6411,7 @@ function registerSummaryPanes(ctx, active2, views) {
   const summaryTab = '[role="tab"][data-tree-tab^="' + panePrefix + '"]:not([data-vertical])';
   const selectedTab = summaryTab + '[aria-selected="true"]';
   const sideStrip = '[data-zone-tabstrip]:not([data-zone-tabstrip="grp-main"], [data-zone-tabstrip="grp-sessions"])';
-  const header = active2 + " [data-panel-header]:has(> " + sideStrip + " " + selectedTab + ")";
+  const header2 = active2 + " [data-panel-header]:has(> " + sideStrip + " " + selectedTab + ")";
   const singleRow = active2 + " [data-panel-header]:has(> " + sideStrip + ":not(.absolute) " + selectedTab + ")";
   const strip2 = active2 + " " + sideStrip + ":has(" + selectedTab + ")";
   const track = "[data-tree-split].flex-row > div:has(> [data-tree-group] > [data-panel-header] > " + sideStrip + " " + selectedTab + ")";
@@ -6421,9 +6427,9 @@ function registerSummaryPanes(ctx, active2, views) {
     active2 + " [data-hcv-summary-pane] { height: 100%; min-height: 0; min-width: 0; overflow: hidden; background: var(--hcv-chat); color: var(--hcv-text); font: 13px/20px var(--hcv-ui-font); }",
     // Right panel and close control in Codex 983280.4074749967.js. Let the
     // host keep its extra controls row when the tab strip wraps below it.
-    header + " { background: var(--hcv-chat); }",
+    header2 + " { background: var(--hcv-chat); }",
     singleRow + " { min-block-size: 48px; }",
-    header + '::after { content: ""; position: absolute; inset-inline: 0; inset-block-end: 0; block-size: .5px; background: ' + line + "; pointer-events: none; }",
+    header2 + '::after { content: ""; position: absolute; inset-inline: 0; inset-block-end: 0; block-size: .5px; background: ' + line + "; pointer-events: none; }",
     strip2 + " { background: transparent; }",
     strip2 + ":not(.absolute) { block-size: auto; }",
     strip2 + ' > [role="tablist"] { padding-inline-start: 7px; }',
@@ -6511,7 +6517,7 @@ function DiffText({ text }) {
     return h9("span", { key: index, "data-hcv-diff-line": type }, index < lines.length - 1 ? line + "\n" : line);
   }));
 }
-function FileDiff({ id: id2, cwd, connectionId, profile: profile2, path, staged, copy: copy6 }) {
+function FileDiff({ id: id2, cwd, connectionId, profile: profile2, path, staged, copy: copy7 }) {
   const [result, setResult] = useState5(null);
   useEffect5(() => {
     let live = true;
@@ -6527,9 +6533,9 @@ function FileDiff({ id: id2, cwd, connectionId, profile: profile2, path, staged,
       live = false;
     };
   }, [cwd, connectionId, profile2, path, staged]);
-  return h9("div", { id: id2, className: "hcv-change-detail" }, result?.text ? h9(DiffText, { text: result.text }) : h9("p", { role: "status" }, !result ? copy6.loading : result.text === "" ? copy6.noDiff : copy6.diffError));
+  return h9("div", { id: id2, className: "hcv-change-detail" }, result?.text ? h9(DiffText, { text: result.text }) : h9("p", { role: "status" }, !result ? copy7.loading : result.text === "" ? copy7.noDiff : copy7.diffError));
 }
-function RepositoryChanges({ cwd, connectionId, profile: profile2, copy: copy6 }) {
+function RepositoryChanges({ cwd, connectionId, profile: profile2, copy: copy7 }) {
   const diffId = useId2();
   const [revision, setRevision] = useState5(0);
   const [result, setResult] = useState5(null);
@@ -6553,19 +6559,19 @@ function RepositoryChanges({ cwd, connectionId, profile: profile2, copy: copy6 }
     h9(
       "header",
       { className: "hcv-changes-header" },
-      h9("span", null, copy6.title),
+      h9("span", null, copy7.title),
       h9("button", {
         type: "button",
         className: "hcv-changes-refresh",
-        "aria-label": copy6.refresh,
-        title: copy6.refresh,
+        "aria-label": copy7.refresh,
+        title: copy7.refresh,
         onClick: () => {
           setSelected(null);
           setRevision((value) => value + 1);
         }
       }, icon4("refresh"))
     ),
-    current?.files?.length ? h9("ul", { "aria-label": copy6.title }, current.files.map((file) => {
+    current?.files?.length ? h9("ul", { "aria-label": copy7.title }, current.files.map((file) => {
       const open = selected === file.path;
       return h9(
         "li",
@@ -6591,21 +6597,21 @@ function RepositoryChanges({ cwd, connectionId, profile: profile2, copy: copy6 }
             h9("span", { "data-hcv-count": "removed" }, "\u2212" + (file.removed || 0))
           )
         ),
-        open && h9(FileDiff, { id: diffId, cwd, connectionId, profile: profile2, path: file.path, staged: file.staged === true, copy: copy6 })
+        open && h9(FileDiff, { id: diffId, cwd, connectionId, profile: profile2, path: file.path, staged: file.staged === true, copy: copy7 })
       );
     })) : h9(
       "p",
       { className: "hcv-changes-status", role: "status" },
-      !current ? copy6.loading : current.files ? copy6.empty : copy6.unavailable
+      !current ? copy7.loading : current.files ? copy7.empty : copy7.unavailable
     )
   );
 }
 function ChangesPane({ cwd, scope: scope3 }) {
   const { locale } = useI18n3();
-  const copy6 = labels5[locale] || labels5.en;
+  const copy7 = labels5[locale] || labels5.en;
   const connectionId = scope3?.connectionId;
   const profile2 = scope3?.profile;
-  return h9("div", { "data-hcv-changes-pane": "" }, cwd && connectionId && profile2 ? h9(RepositoryChanges, { key: JSON.stringify([cwd, connectionId, profile2]), cwd, connectionId, profile: profile2, copy: copy6 }) : h9("p", { className: "hcv-changes-status", role: "status" }, copy6.noProject));
+  return h9("div", { "data-hcv-changes-pane": "" }, cwd && connectionId && profile2 ? h9(RepositoryChanges, { key: JSON.stringify([cwd, connectionId, profile2]), cwd, connectionId, profile: profile2, copy: copy7 }) : h9("p", { className: "hcv-changes-status", role: "status" }, copy7.noProject));
 }
 function registerSummaryChanges(ctx, active2) {
   const pane = `${active2} [data-hcv-changes-pane]`;
@@ -6720,21 +6726,21 @@ var workspacePathKey = (value) => {
   return /^[a-z]:|^\/\//i.test(path) ? path.toLowerCase() : path;
 };
 var localOwner = (owner) => owner?.connectionId === "local" && Boolean(owner.profile);
-function gitApi(scope3, cwd, route, body) {
-  const base = { connectionId: scope3.connectionId, profile: scope3.profile, timeoutMs: body ? 3e4 : 8e3 };
+function gitApi(scope3, cwd, route, body2) {
+  const base = { connectionId: scope3.connectionId, profile: scope3.profile, timeoutMs: body2 ? 3e4 : 8e3 };
   const path = "/api/git/" + route;
-  return window.hermesDesktop.api(body ? { ...base, path, method: "POST", body: { path: cwd, ...body } } : { ...base, path: path + "?" + new URLSearchParams({ path: cwd }) });
+  return window.hermesDesktop.api(body2 ? { ...base, path, method: "POST", body: { path: cwd, ...body2 } } : { ...base, path: path + "?" + new URLSearchParams({ path: cwd }) });
 }
 async function readWorkspaceRepository(cwd, scope3) {
   if (!cwd) return null;
-  const native = localOwner(scope3) ? window.hermesDesktop?.git : null;
-  const repo = await native?.repoStatus?.(cwd).catch(() => null);
+  const native2 = localOwner(scope3) ? window.hermesDesktop?.git : null;
+  const repo = await native2?.repoStatus?.(cwd).catch(() => null);
   if (repo) return { repo, native: true };
   const fallback = await gitApi(scope3, cwd, "status").catch(() => null);
   return fallback && { repo: fallback, native: false };
 }
-async function readWorkspaceTrees(cwd, scope3, native) {
-  const result = native ? await window.hermesDesktop.git.worktreeList(cwd) : (await gitApi(scope3, cwd, "worktrees"))?.worktrees;
+async function readWorkspaceTrees(cwd, scope3, native2) {
+  const result = native2 ? await window.hermesDesktop.git.worktreeList(cwd) : (await gitApi(scope3, cwd, "worktrees"))?.worktrees;
   return Array.isArray(result) ? result : [];
 }
 function workspaceTreeFor(trees, cwd) {
@@ -7105,14 +7111,14 @@ function useWorkspaceData(draftCwd, enabled) {
   const busy = useValue4(host10.state.busy);
   const connectionId = session ? owner?.connectionId : activeConnection;
   const profile2 = session ? owner?.profile : activeProfile;
-  const sameScope = Boolean(
+  const sameScope2 = Boolean(
     profile2 && profile2 === activeProfile && connectionId && connectionId === activeConnection
   );
   const key = JSON.stringify([session, session ? null : draftCwd, connectionId, profile2, activeConnection, activeProfile, gateway]);
   const [snapshot, setSnapshot] = useState7(null);
   const [revision, setRevision] = useState7(0);
   useEffect7(() => {
-    if (!enabled || !sameScope || gateway !== "open") return;
+    if (!enabled || !sameScope2 || gateway !== "open") return;
     let current = true;
     async function read() {
       if (host10.state.connectionId.get() !== connectionId || host10.state.profile.get() !== profile2) return;
@@ -7125,10 +7131,10 @@ function useWorkspaceData(draftCwd, enabled) {
       let root = "";
       if (session) {
         const params = new URLSearchParams({ profile: route?.targetProfile ?? profile2 });
-        const row4 = await window.hermesDesktop.api({ connectionId, path: `/api/sessions/${encodeURIComponent(session)}?${params}`, timeoutMs: 8e3 }).catch(() => null);
-        cwd = typeof row4?.cwd === "string" ? row4.cwd.trim() : "";
-        storedBranch = typeof row4?.git_branch === "string" ? row4.git_branch : "";
-        root = typeof row4?.git_repo_root === "string" ? row4.git_repo_root : "";
+        const row5 = await window.hermesDesktop.api({ connectionId, path: `/api/sessions/${encodeURIComponent(session)}?${params}`, timeoutMs: 8e3 }).catch(() => null);
+        cwd = typeof row5?.cwd === "string" ? row5.cwd.trim() : "";
+        storedBranch = typeof row5?.git_branch === "string" ? row5.git_branch : "";
+        root = typeof row5?.git_repo_root === "string" ? row5.git_repo_root : "";
       }
       if (!current) return;
       const scope3 = { connectionId, profile: profile2 };
@@ -7138,11 +7144,11 @@ function useWorkspaceData(draftCwd, enabled) {
         readWorkspaceRepository(cwd, scope3)
       ]);
       if (!current) return;
-      const status = repository.status === "fulfilled" ? repository.value : null;
-      const repo = status?.repo;
-      const worktrees = repo && connectionId === "local" ? await readWorkspaceTrees(cwd, scope3, status.native).catch(() => []) : [];
+      const status2 = repository.status === "fulfilled" ? repository.value : null;
+      const repo = status2?.repo;
+      const worktrees = repo && connectionId === "local" ? await readWorkspaceTrees(cwd, scope3, status2.native).catch(() => []) : [];
       if (!current) return;
-      const sourceRows = sources.status === "fulfilled" && Array.isArray(sources.value?.servers) ? sources.value.servers.filter((row4) => typeof row4?.name === "string" && row4.name && !row4.disabled) : null;
+      const sourceRows = sources.status === "fulfilled" && Array.isArray(sources.value?.servers) ? sources.value.servers.filter((row5) => typeof row5?.name === "string" && row5.name && !row5.disabled) : null;
       const tree = workspaceTreeFor(worktrees, cwd);
       setSnapshot({
         key,
@@ -7151,7 +7157,7 @@ function useWorkspaceData(draftCwd, enabled) {
         project: project2.status === "fulfilled" ? project2.value?.project?.name : null,
         sources: sourceRows,
         repo,
-        nativeGit: status?.native,
+        nativeGit: status2?.native,
         branch: repo?.branch || storedBranch,
         isWorktree: tree?.isMain === false
       });
@@ -7162,16 +7168,16 @@ function useWorkspaceData(draftCwd, enabled) {
     return () => {
       current = false;
     };
-  }, [key, sameScope, gateway, connectionId, profile2, session, draftCwd, enabled, revision, busy]);
+  }, [key, sameScope2, gateway, connectionId, profile2, session, draftCwd, enabled, revision, busy]);
   return {
-    scope: sameScope && gateway === "open" ? { connectionId, profile: profile2 } : null,
+    scope: sameScope2 && gateway === "open" ? { connectionId, profile: profile2 } : null,
     snapshot: snapshot?.key === key ? snapshot : null,
     key,
     refresh: () => setRevision((value) => value + 1)
   };
 }
 function useRelatedRepositories(scope3, primaryRoot, key, rows, shown) {
-  const dirs = JSON.stringify([...new Set(rows.filter((row4) => row4.attached && row4.kind === "folder" && /^(?:[a-z]:[/\\]|\/[^/])/i.test(row4.meta || "")).map((row4) => row4.meta))]);
+  const dirs = JSON.stringify([...new Set(rows.filter((row5) => row5.attached && row5.kind === "folder" && /^(?:[a-z]:[/\\]|\/[^/])/i.test(row5.meta || "")).map((row5) => row5.meta))]);
   const [snapshot, setSnapshot] = useState7(null);
   const connection = scope3?.connectionId;
   const profile2 = scope3?.profile;
@@ -7180,11 +7186,11 @@ function useRelatedRepositories(scope3, primaryRoot, key, rows, shown) {
     let current = true;
     const owner = { connectionId: connection, profile: profile2 };
     const read = async (cwd) => {
-      const status = await readWorkspaceRepository(cwd, owner);
-      if (!current || !status?.repo) return null;
-      const trees = await readWorkspaceTrees(cwd, owner, status.native).catch(() => []);
+      const status2 = await readWorkspaceRepository(cwd, owner);
+      if (!current || !status2?.repo) return null;
+      const trees = await readWorkspaceTrees(cwd, owner, status2.native).catch(() => []);
       const root = workspaceTreeFor(trees, cwd)?.path || cwd;
-      return { cwd: root, repo: status.repo, branch: status.repo.branch };
+      return { cwd: root, repo: status2.repo, branch: status2.repo.branch };
     };
     void Promise.allSettled(JSON.parse(dirs).map(read)).then((results) => {
       if (!current) return;
@@ -7213,8 +7219,8 @@ function useSourcesView(data, enabled) {
     loading: Boolean(data.scope && !data.snapshot),
     getChat: currentChat,
     onConnectors: (server) => host10.navigate(server ? connectionsRoute + "&server=" + encodeURIComponent(server) : connectionsRoute),
-    onOpenSource: (row4) => {
-      if (row4.action?.isConnected && currentChat()?.contains(row4.action)) row4.action.click();
+    onOpenSource: (row5) => {
+      if (row5.action?.isConnected && currentChat()?.contains(row5.action)) row5.action.click();
     }
   };
 }
@@ -7252,7 +7258,7 @@ function DiffStats({ repo }) {
 function WorkspaceCard({
   id: id2,
   close: close2,
-  copy: copy6,
+  copy: copy7,
   shown,
   pinned,
   onPin,
@@ -7274,8 +7280,8 @@ function WorkspaceCard({
   const cwd = snapshot?.cwd || "";
   const local = scope3?.connectionId === "local" && Boolean(cwd);
   const target = { cwd, owner: scope3, runtime, session, nativeGit: snapshot?.nativeGit, branch: snapshot?.branch };
-  const title = snapshot?.project || cwd.split(/[/\\]/).filter(Boolean).at(-1) || copy6.project;
-  const card = useRef5(null);
+  const title = snapshot?.project || cwd.split(/[/\\]/).filter(Boolean).at(-1) || copy7.project;
+  const card2 = useRef5(null);
   const trigger = useRef5(null);
   const [menu, setMenu] = useState7(null);
   function toggleMenu(open) {
@@ -7283,18 +7289,18 @@ function WorkspaceCard({
       setMenu(null);
       return;
     }
-    const frame = card.current?.getBoundingClientRect();
+    const frame = card2.current?.getBoundingClientRect();
     const anchor = trigger.current?.getBoundingClientRect();
     setMenu(frame && anchor ? { side: anchor.left - frame.left + 8, align: frame.top - anchor.top } : { side: 8, align: 0 });
   }
   function changeRow(repo, folder, primary4) {
-    const button4 = h11(
+    const button5 = h11(
       "button",
       {
         type: "button",
         className: "hcv-context-row hcv-context-changes",
         disabled: !folder || !scope3,
-        "aria-label": copy6.changes,
+        "aria-label": copy7.changes,
         "data-hcv-branch": repo?.branch || void 0,
         onClick: () => {
           if (primary4 && repo?.nativeGit && openWorkspaceReview(currentChat)) return;
@@ -7303,7 +7309,7 @@ function WorkspaceCard({
         }
       },
       icon5("changes"),
-      h11("span", { className: "hcv-context-label" }, copy6.changes),
+      h11("span", { className: "hcv-context-label" }, copy7.changes),
       h11(
         "span",
         { className: "hcv-context-change-meta" },
@@ -7311,7 +7317,7 @@ function WorkspaceCard({
         repo?.branch && h11("span", { className: "hcv-context-branch-icon" }, icon5("branch"))
       )
     );
-    return repo?.branch ? h11(Tip, { label: repo.branch }, button4) : button4;
+    return repo?.branch ? h11(Tip, { label: repo.branch }, button5) : button5;
   }
   const projectMenu2 = h11(
     DropdownMenu4,
@@ -7321,7 +7327,7 @@ function WorkspaceCard({
       { asChild: true },
       h11(
         "button",
-        { ref: trigger, type: "button", className: "hcv-context-icon", "aria-label": copy6.actions },
+        { ref: trigger, type: "button", className: "hcv-context-icon", "aria-label": copy7.actions },
         icon5("more")
       )
     ),
@@ -7336,16 +7342,16 @@ function WorkspaceCard({
       },
       localEnvironment && h11(DropdownMenuItem4, { disabled: !local, onSelect: () => {
         void localEnvironment.open({ cwd, projectName: title, trigger: trigger.current });
-      } }, icon5("plus"), copy6.setup),
+      } }, icon5("plus"), copy7.setup),
       h11(
         DropdownMenuItem4,
         { disabled: !local, onSelect: () => openWorkspaceTerminal(target) },
         icon5("terminal"),
-        copy6.terminal
+        copy7.terminal
       ),
       ...projectActions.map((entry) => h11(DropdownMenuItem4, {
         key: entry.id,
-        onSelect: () => void localEnvironment.run({ cwd, id: entry.id }).catch((error) => host10.notifyError(error, copy6.actionError))
+        onSelect: () => void localEnvironment.run({ cwd, id: entry.id }).catch((error) => host10.notifyError(error, copy7.actionError))
       }, icon5(entry.icon), entry.label)),
       snapshot?.repo && h11(
         Fragment2,
@@ -7354,16 +7360,16 @@ function WorkspaceCard({
         h11(DropdownMenuItem4, {
           disabled: !local || !runtime || !session || busy,
           onSelect: () => actions.openMove({ ...target, trigger: trigger.current }, refresh)
-        }, snapshot.isWorktree ? copy6.toMain : copy6.toTree)
+        }, snapshot.isWorktree ? copy7.toMain : copy7.toTree)
       ),
       h11(DropdownMenuSeparator3),
-      h11(DropdownMenuItem4, { onSelect: onPin }, icon5(pinned ? "unpin" : "pin"), pinned ? copy6.unpin : copy6.pin),
-      h11(DropdownMenuItem4, { onSelect: close2 }, icon5("close"), copy6.hide)
+      h11(DropdownMenuItem4, { onSelect: onPin }, icon5(pinned ? "unpin" : "pin"), pinned ? copy7.unpin : copy7.pin),
+      h11(DropdownMenuItem4, { onSelect: close2 }, icon5("close"), copy7.hide)
     )
   );
   return h11(
     "aside",
-    { ref: card, id: id2, "data-hcv-context-card": "", "data-pinned": pinned, "aria-label": copy6.card, "aria-hidden": !shown, inert: !shown },
+    { ref: card2, id: id2, "data-hcv-context-card": "", "data-pinned": pinned, "aria-label": copy7.card, "aria-hidden": !shown, inert: !shown },
     h11(SummarySection, { ...disclosure2("project"), kind: "project", title, action: projectMenu2 }, changeRow(snapshot, cwd, true)),
     related.map((repo) => {
       const key = workspacePathKey(repo.cwd);
@@ -7374,19 +7380,19 @@ function WorkspaceCard({
       key: kind,
       kind,
       onOpenSource: sources.onOpenSource,
-      rows: sources.rows.filter((row4) => row4.section === kind),
+      rows: sources.rows.filter((row5) => row5.section === kind),
       disclosure: disclosure2(kind)
     })),
     h11(SummarySubagents, { roster, disclosure: disclosure2("agents"), onExpand: () => panes.open("agents") }),
     h11(CompactSources, {
       ...sources,
-      rows: sources.rows.filter((row4) => !row4.section),
+      rows: sources.rows.filter((row5) => !row5.section),
       disclosure: disclosure2("sources"),
       onExpand: () => panes.open("sources")
     })
   );
 }
-function ProjectActions({ entries, cwd, localEnvironment, copy: copy6 }) {
+function ProjectActions({ entries, cwd, localEnvironment, copy: copy7 }) {
   const named = entries.filter((entry) => entry.id !== "setup" && entry.id !== "cleanup");
   if (!named.length) return null;
   return h11(
@@ -7397,7 +7403,7 @@ function ProjectActions({ entries, cwd, localEnvironment, copy: copy6 }) {
       { asChild: true },
       h11(
         "button",
-        { type: "button", "data-hcv-project-actions": "", "aria-label": copy6.projectActions },
+        { type: "button", "data-hcv-project-actions": "", "aria-label": copy7.projectActions },
         icon5(named[0].icon),
         icon5("down")
       )
@@ -7407,14 +7413,14 @@ function ProjectActions({ entries, cwd, localEnvironment, copy: copy6 }) {
       { align: "end", "data-hcv-project-actions-menu": "" },
       ...named.map((entry) => h11(DropdownMenuItem4, {
         key: entry.id,
-        onSelect: () => void localEnvironment.run({ cwd, id: entry.id }).catch((error) => host10.notifyError(error, copy6.actionError))
+        onSelect: () => void localEnvironment.run({ cwd, id: entry.id }).catch((error) => host10.notifyError(error, copy7.actionError))
       }, icon5(entry.icon), entry.label))
     )
   );
 }
 function CardSlot({ storage, roster, panes, actions, localEnvironment, selection }) {
   const { locale } = useI18n4();
-  const copy6 = labels7[locale] || labels7.en;
+  const copy7 = labels7[locale] || labels7.en;
   const workspace = useValue4(host10.paneVisibility("workspace"));
   const files = useValue4(host10.paneVisibility("files"));
   const review = useValue4(host10.paneVisibility("review"));
@@ -7466,7 +7472,7 @@ function CardSlot({ storage, roster, panes, actions, localEnvironment, selection
       document.removeEventListener("keydown", onEscape, true);
     };
   }, [roomy, open, pinned]);
-  const projectToolbar = h11(ProjectActions, { entries: projectActions, cwd, localEnvironment, copy: copy6 });
+  const projectToolbar = h11(ProjectActions, { entries: projectActions, cwd, localEnvironment, copy: copy7 });
   if (!roomy) return projectToolbar;
   function togglePin() {
     storage.set("summary-pinned", !pinned);
@@ -7491,7 +7497,7 @@ function CardSlot({ storage, roster, panes, actions, localEnvironment, selection
     Fragment2,
     null,
     projectToolbar,
-    h11(Tip, { label: open ? copy6.hide : copy6.show }, h11(
+    h11(Tip, { label: open ? copy7.hide : copy7.show }, h11(
       "button",
       {
         ref: toggleRef,
@@ -7499,14 +7505,14 @@ function CardSlot({ storage, roster, panes, actions, localEnvironment, selection
         "data-hcv-context-toggle": "",
         "aria-expanded": open,
         "aria-controls": cardId,
-        "aria-label": open ? copy6.hide : copy6.show,
+        "aria-label": open ? copy7.hide : copy7.show,
         onClick: () => setOpen((visible) => !visible)
       },
       icon5("panel")
     )),
     h11(WorkspaceCard, {
       id: cardId,
-      copy: copy6,
+      copy: copy7,
       close: closeFromMenu,
       shown: open,
       pinned,
@@ -7760,14 +7766,14 @@ function powershellPayload(value) {
   }
   return btoa(bytes);
 }
-function terminalCommand({ shell, platform, cwd, source, script, marker: marker3 }) {
+function terminalCommand({ shell, platform, cwd, source, script, marker: marker4 }) {
   if (platform === "win32" && /^(?:pwsh|powershell|cmd)(?:\.exe)?$/i.test(shell)) {
     const payload = powershellPayload([
       "$ErrorActionPreference = 'Stop'",
       `Set-Location -LiteralPath ${psLiteral(cwd)}`,
       `$env:${sourceTreeVariable} = ${psLiteral(source)}`,
       `$env:${worktreeVariable} = ${psLiteral(cwd)}`,
-      `[Console]::WriteLine(${psLiteral(marker3)})`,
+      `[Console]::WriteLine(${psLiteral(marker4)})`,
       "$global:LASTEXITCODE = 0",
       script,
       "if (-not $?) { exit 1 }",
@@ -7783,7 +7789,7 @@ function terminalCommand({ shell, platform, cwd, source, script, marker: marker3
     const program = [
       `cd ${shLiteral(cwd)} || exit 1`,
       `export ${sourceTreeVariable}=${shLiteral(source)} ${worktreeVariable}=${shLiteral(cwd)}`,
-      `printf '%s\\n' ${shLiteral(marker3)}`,
+      `printf '%s\\n' ${shLiteral(marker4)}`,
       script
     ].join("\n");
     const bytes = new TextEncoder().encode(program);
@@ -7795,8 +7801,8 @@ function terminalCommand({ shell, platform, cwd, source, script, marker: marker3
 }
 var cleanOutput = (value) => value.replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "").replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").replace(/[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f]/g, "").replace(/\r\n?/g, "\n");
 function runLocalScript({ desktop, platform, cwd, source, script, stillLocal, update }) {
-  const marker3 = `HCV_PROJECT_${crypto.randomUUID().replaceAll("-", "")}`;
-  const terminal = desktop?.terminal;
+  const marker4 = `HCV_PROJECT_${crypto.randomUUID().replaceAll("-", "")}`;
+  const terminal2 = desktop?.terminal;
   let id2, offData, offExit;
   let stopped = false;
   let begun = false;
@@ -7805,7 +7811,7 @@ function runLocalScript({ desktop, platform, cwd, source, script, stillLocal, up
   const release = () => {
     offData?.();
     offExit?.();
-    if (id2) void terminal.dispose(id2).catch(() => {
+    if (id2) void terminal2.dispose(id2).catch(() => {
     });
     id2 = null;
   };
@@ -7817,41 +7823,41 @@ function runLocalScript({ desktop, platform, cwd, source, script, stillLocal, up
   };
   const start = async () => {
     try {
-      if (!terminal || !stillLocal()) return finish("failed", "path");
+      if (!terminal2 || !stillLocal()) return finish("failed", "path");
       const checked = await checkedLocalPath(desktop, cwd, platform);
       if (stopped) return;
       if (!checked || !stillLocal()) return finish("failed", "path");
-      const session = await terminal.start({ cwd: checked });
+      const session = await terminal2.start({ cwd: checked });
       id2 = session.id;
       if (stopped) return release();
       if (!stillLocal() || localPathKey(session.cwd, platform) !== localPathKey(checked, platform)) {
         return finish("failed", "path");
       }
-      const command = terminalCommand({ shell: session.shell, platform, cwd: checked, source, script, marker: marker3 });
-      if (!command) return finish("failed", "shell");
-      if (command.length > (/^cmd/i.test(session.shell) ? 7500 : 24e3)) return finish("failed", "tooLong");
-      offData = terminal.onData(id2, (value) => {
+      const command2 = terminalCommand({ shell: session.shell, platform, cwd: checked, source, script, marker: marker4 });
+      if (!command2) return finish("failed", "shell");
+      if (command2.length > (/^cmd/i.test(session.shell) ? 7500 : 24e3)) return finish("failed", "tooLong");
+      offData = terminal2.onData(id2, (value) => {
         if (stopped || typeof value !== "string") return;
         if (!begun) {
           pending += value;
-          const at = pending.indexOf(marker3);
+          const at = pending.indexOf(marker4);
           if (at === -1) {
-            pending = pending.slice(-marker3.length);
+            pending = pending.slice(-marker4.length);
             return;
           }
           begun = true;
-          value = pending.slice(at + marker3.length).replace(/^\r?\n/, "");
+          value = pending.slice(at + marker4.length).replace(/^\r?\n/, "");
           pending = "";
         }
         output = (output + cleanOutput(value)).slice(-18e3);
         update({ state: "running", output });
       });
-      offExit = terminal.onExit(id2, (result) => {
+      offExit = terminal2.onExit(id2, (result) => {
         if (!begun) return finish("failed", "start");
         finish(result?.code === 0 ? "done" : "failed", result?.code === 0 ? void 0 : "exit");
       });
-      if (!await terminal.attach(id2) || stopped || !stillLocal()) return finish("failed", "start");
-      if (!await terminal.write(id2, command)) finish("failed", "start");
+      if (!await terminal2.attach(id2) || stopped || !stillLocal()) return finish("failed", "start");
+      if (!await terminal2.write(id2, command2)) finish("failed", "start");
     } catch {
       finish("failed", "start");
     }
@@ -8267,7 +8273,7 @@ function EnvironmentDialog({ target, close: close2, save }) {
 function TerminalResult({ result, stop, close: close2 }) {
   const { state, title, cwd, output, error, t } = result;
   const running = state === "running" || state === "starting";
-  const status = error ? t[error] : t[state];
+  const status2 = error ? t[error] : t[state];
   return h12(
     Dialog2,
     { open: true, onOpenChange: (open) => {
@@ -8277,7 +8283,7 @@ function TerminalResult({ result, stop, close: close2 }) {
       DialogContent2,
       { "data-hcv-env-terminal": "", showCloseButton: !running, blurBackdrop: false },
       h12(DialogHeader2, null, h12(DialogTitle2, null, title), h12(DialogDescription2, null, cwd)),
-      h12("div", { role: "status", "data-hcv-env-run-state": state }, status),
+      h12("div", { role: "status", "data-hcv-env-run-state": state }, status2),
       h12("pre", { tabIndex: 0 }, output || t.noOutput),
       h12(DialogFooter2, null, h12(Button2, { type: "button", onClick: running ? stop : close2 }, running ? t.stop : t.close))
     )
@@ -8358,7 +8364,7 @@ function registerLocalEnvironment(ctx, active2) {
       { id: "setup", label: t.runSetup, icon: "tools", script: scriptFor(config.setup, platform) },
       { id: "cleanup", label: t.runCleanup, icon: "trash", script: scriptFor(config.cleanup, platform) },
       ...config.actions.filter((action) => action.platform === "default" || action.platform === platform).map((action) => ({ id: action.id, label: action.name, icon: icons[action.icon] || "tools", script: action.command }))
-    ].filter((command) => command.script.trim());
+    ].filter((command2) => command2.script.trim());
   }
   ctx.register({
     id: "local-environment-dialog",
@@ -8413,12 +8419,12 @@ function registerLocalEnvironment(ctx, active2) {
       const t = words();
       const scope3 = await scopeFor(cwd);
       if (key !== request || !idle() || disposed) return false;
-      const command = scope3 && commands(read(scope3)?.config, t).find((command2) => command2.id === id2);
-      if (!command) {
+      const command2 = scope3 && commands(read(scope3)?.config, t).find((command3) => command3.id === id2);
+      if (!command2) {
         notify(t.actionError);
         return false;
       }
-      startRun({ ...scope3, script: command.script, title: command.label, t });
+      startRun({ ...scope3, script: command2.script, title: command2.label, t });
       return true;
     }
   };
@@ -8426,9 +8432,9 @@ function registerLocalEnvironment(ctx, active2) {
 function styles(active2) {
   const form = `${active2} [data-hcv-local-environment]`;
   const vars = `${active2} [data-hcv-env-vars]`;
-  const terminal = `${active2} [data-hcv-env-terminal]`;
+  const terminal2 = `${active2} [data-hcv-env-terminal]`;
   return `
-  ${form}, ${terminal}, ${active2} [data-hcv-env-confirm] {
+  ${form}, ${terminal2}, ${active2} [data-hcv-env-confirm] {
     inline-size: min(420px, calc(100vw - 32px)); max-inline-size: none;
     max-block-size: calc(100dvh - 40px); border: 0; border-radius: 20px;
     background: var(--hcv-menu); color: var(--hcv-text); font-family: var(--hcv-ui-font);
@@ -8441,10 +8447,10 @@ function styles(active2) {
   }
   ${active2} .hcv-env-overlay { background: rgb(0 0 0 / 25%); backdrop-filter: none; }
   ${form} .hcv-env-body { display: flex; flex-direction: column; overflow: hidden; gap: 0; padding: 20px; }
-  ${form} [data-slot="dialog-header"], ${terminal} [data-slot="dialog-header"] { gap: 4px; text-align: start; padding-inline-end: 20px; }
-  ${form} [data-slot="dialog-title"], ${terminal} [data-slot="dialog-title"] { font-size: 20px; font-weight: 600; line-height: 26px; }
+  ${form} [data-slot="dialog-header"], ${terminal2} [data-slot="dialog-header"] { gap: 4px; text-align: start; padding-inline-end: 20px; }
+  ${form} [data-slot="dialog-title"], ${terminal2} [data-slot="dialog-title"] { font-size: 20px; font-weight: 600; line-height: 26px; }
   ${form} [data-slot="dialog-title"]:focus { outline: none; }
-  ${form} [data-slot="dialog-description"], ${terminal} [data-slot="dialog-description"] { font-size: 14px; line-height: 20px; color: var(--hcv-muted); overflow-wrap: anywhere; }
+  ${form} [data-slot="dialog-description"], ${terminal2} [data-slot="dialog-description"] { font-size: 14px; line-height: 20px; color: var(--hcv-muted); overflow-wrap: anywhere; }
   ${form} [data-slot="dialog-close-button"] { inset-block-start: 16px; inset-inline-end: 16px; inline-size: 24px; block-size: 24px; border-radius: 8px; }
   ${codexIconRules(`${form} [data-slot="dialog-close-button"] > svg`, "close")}
   ${form} .hcv-env-form { min-block-size: 0; overflow: auto; overscroll-behavior: contain; padding: 44px 13px 0; }
@@ -8497,9 +8503,9 @@ function styles(active2) {
   ${vars} > div { display: grid; gap: 3px; margin-block-start: 4px; }
   ${vars} > div span:not([data-hcv-env-icon]) { color: var(--hcv-muted); }
   ${vars} button { display: flex; justify-content: space-between; gap: 6px; padding: 5px 8px; border-radius: 7px; background: var(--hcv-hover-menu); text-align: start; overflow-wrap: anywhere; }
-  ${terminal} { inline-size: min(560px, calc(100vw - 32px)); }
-  ${terminal} pre { max-block-size: min(50dvh, 380px); overflow: auto; overscroll-behavior: contain; white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; border-radius: 10px; background: var(--hcv-panel); font: 12px/18px ui-monospace, Consolas, monospace; }
-  ${terminal} [data-hcv-env-run-state="failed"] { color: var(--dt-destructive); }
+  ${terminal2} { inline-size: min(560px, calc(100vw - 32px)); }
+  ${terminal2} pre { max-block-size: min(50dvh, 380px); overflow: auto; overscroll-behavior: contain; white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; border-radius: 10px; background: var(--hcv-panel); font: 12px/18px ui-monospace, Consolas, monospace; }
+  ${terminal2} [data-hcv-env-run-state="failed"] { color: var(--dt-destructive); }
   @media (prefers-reduced-motion: no-preference) { ${form} .hcv-env-disclosure [data-hcv-env-icon] { transition: transform 140ms ease-out; } }
 `;
 }
@@ -8521,9 +8527,9 @@ var step = ':is([data-conversation-scaffold]:not([role="status"]), [data-slot="t
 var actionable = ':is([role="alert"], [data-approval-activity-only], [data-approval-stack], [data-clarify-choices], [data-clarify-late-choices], [data-clarify-batch-preview], [data-clarify-batch-question]:not([data-locked]))';
 var protectedStep = `:is(${actionable}, [data-slot="aui_artifact-card"], [data-slot="aui_generated-image"], [data-delegate-card], [data-hcv-agent-rows], svg.text-destructive[aria-label])`;
 var isRussian = () => document.documentElement.lang.toLowerCase().startsWith("ru");
-function make(tag, marker3, text) {
+function make(tag, marker4, text) {
   const node3 = document.createElement(tag);
-  node3.setAttribute(`data-hcv-${marker3}`, "");
+  node3.setAttribute(`data-hcv-${marker4}`, "");
   node3.setAttribute("data-hcv-generated", "");
   if (text) node3.textContent = text;
   return node3;
@@ -8544,16 +8550,16 @@ function formatDuration2(seconds) {
   const language2 = document.documentElement.lang || "en";
   return units.filter(([unit, value]) => value > 0 || seconds === 0 && unit === "second").map(([unit, value]) => new Intl.NumberFormat(language2, { style: "unit", unitDisplay: "narrow", unit }).format(value)).join(" ");
 }
-function renderedMessage(element6) {
-  if (!element6) return null;
-  const root = committedFiber(element6);
+function renderedMessage(element7) {
+  if (!element7) return null;
+  const root = committedFiber(element7);
   for (let fiber = root; fiber && (fiber === root || !(fiber.stateNode instanceof Element)); fiber = fiber.return) {
     for (let context = fiber.dependencies?.firstContext; context; context = context.next) {
       const client = context.memoizedValue;
       if (!client?.message?.source) continue;
       try {
         const message = client.message().__internal_getRuntime?.()?.getState();
-        if (message?.role === element6.dataset.role && (!element6.dataset.messageId || message.id === element6.dataset.messageId)) {
+        if (message?.role === element7.dataset.role && (!element7.dataset.messageId || message.id === element7.dataset.messageId)) {
           return message;
         }
       } catch {
@@ -8574,9 +8580,9 @@ function savedDuration(prompt2, message) {
 function findSteps(group2, roots, final2) {
   const canFold = (node3) => !node3.matches(protectedStep) && !node3.querySelector(protectedStep);
   const earlier = roots.slice(0, roots.indexOf(final2)).filter(canFold);
-  const body = final2.querySelector(answer);
-  const detail = [...body?.querySelectorAll(step) || []].filter((node3) => !node3.parentElement.closest(step) && canFold(node3));
-  const prose2 = [...body?.querySelectorAll(".aui-md") || []].filter((node3) => !node3.parentElement.closest(step));
+  const body2 = final2.querySelector(answer);
+  const detail = [...body2?.querySelectorAll(step) || []].filter((node3) => !node3.parentElement.closest(step) && canFold(node3));
+  const prose2 = [...body2?.querySelectorAll(".aui-md") || []].filter((node3) => !node3.parentElement.closest(step));
   const lastStep = detail.at(-1);
   const commentary = lastStep ? prose2.slice(0, -1).filter(
     (node3) => canFold(node3) && Boolean(node3.compareDocumentPosition(lastStep) & Node.DOCUMENT_POSITION_FOLLOWING)
@@ -8625,16 +8631,16 @@ function clearLive(state) {
 }
 function showLive(root, state, now) {
   if (!state.live) {
-    const row5 = make("div", "live-turn");
+    const row6 = make("div", "live-turn");
     const time = make("time", "live-time");
-    row5.setAttribute("role", "status");
+    row6.setAttribute("role", "status");
     time.setAttribute("aria-hidden", "true");
-    row5.append(time);
-    state.live = { row: row5, time };
+    row6.append(time);
+    state.live = { row: row6, time };
   }
-  const { row: row4 } = state.live;
-  const body = root.querySelector(answer);
-  if (body && body.nextElementSibling !== row4) body.after(row4);
+  const { row: row5 } = state.live;
+  const body2 = root.querySelector(answer);
+  if (body2 && body2.nextElementSibling !== row5) body2.after(row5);
   updateLiveTime(state, now);
 }
 function updateLiveTime(state, now) {
@@ -8644,27 +8650,27 @@ function updateLiveTime(state, now) {
 function syncThinkingLabels(labels12, enabled) {
   const visible = /* @__PURE__ */ new Set();
   const text = isRussian() ? "\u0414\u0443\u043C\u0430\u044E" : "Thinking";
-  for (const row4 of enabled ? document.querySelectorAll(activeIndicators) : []) {
-    if (row4.querySelector(':scope > :not(.dither, [aria-hidden="true"], [data-hcv-thinking])')) continue;
-    visible.add(row4);
-    let label3 = labels12.get(row4);
+  for (const row5 of enabled ? document.querySelectorAll(activeIndicators) : []) {
+    if (row5.querySelector(':scope > :not(.dither, [aria-hidden="true"], [data-hcv-thinking])')) continue;
+    visible.add(row5);
+    let label3 = labels12.get(row5);
     if (!label3) {
       label3 = make("span", "thinking");
       const sweep = make("span", "thinking-sweep");
       sweep.setAttribute("aria-hidden", "true");
       label3.append(document.createTextNode(""), sweep);
-      labels12.set(row4, label3);
+      labels12.set(row5, label3);
     }
     if (label3.firstChild.data !== text) {
       label3.firstChild.data = text;
       label3.lastElementChild.dataset.hcvThinkingSweep = text;
     }
-    if (label3.parentElement !== row4) row4.prepend(label3);
+    if (label3.parentElement !== row5) row5.prepend(label3);
   }
-  for (const [row4, label3] of labels12) {
-    if (visible.has(row4)) continue;
+  for (const [row5, label3] of labels12) {
+    if (visible.has(row5)) continue;
     label3.remove();
-    labels12.delete(row4);
+    labels12.delete(row5);
   }
 }
 function fileNoun(count) {
@@ -8683,8 +8689,8 @@ function showNumbers({ added, removed }, plus, minus, format) {
   updateText(added, `+${format.format(plus)}`);
   updateText(removed, `${isRussian() ? "\u2013" : "-"}${format.format(minus)}`);
 }
-function nativeCardCwd(card) {
-  for (let fiber = committedFiber(card)?.return; fiber; fiber = fiber.return) {
+function nativeCardCwd(card2) {
+  for (let fiber = committedFiber(card2)?.return; fiber; fiber = fiber.return) {
     if (!Array.isArray(fiber.memoizedProps?.parts)) continue;
     for (let context = fiber.dependencies?.firstContext; context; context = context.next) {
       const view = context.memoizedValue;
@@ -8694,10 +8700,10 @@ function nativeCardCwd(card) {
     }
     break;
   }
-  return card.closest(primary2) ? host12.state.cwd.get() : "";
+  return card2.closest(primary2) ? host12.state.cwd.get() : "";
 }
-function fileDisplayPath(row4, basename, cwd) {
-  for (let fiber = committedFiber(row4)?.return; fiber; fiber = fiber.return) {
+function fileDisplayPath(row5, basename, cwd) {
+  for (let fiber = committedFiber(row5)?.return; fiber; fiber = fiber.return) {
     const props = fiber.memoizedProps;
     if (typeof fiber.key === "string" && typeof props?.label === "string" && props.children?.type === "button") {
       const path = fiber.key.replaceAll("\\", "/");
@@ -8712,28 +8718,28 @@ function fileDisplayPath(row4, basename, cwd) {
   }
   return basename;
 }
-function paintFileRow(row4, path, added, removed, format) {
+function paintFileRow(row5, path, added, removed, format) {
   const index = path.lastIndexOf("/") + 1;
-  updateText(row4.accessiblePath, path);
-  updateText(row4.directory, path.slice(0, index));
-  updateText(row4.basename, path.slice(index));
-  showNumbers(row4.numbers, added, removed, format);
+  updateText(row5.accessiblePath, path);
+  updateText(row5.directory, path.slice(0, index));
+  updateText(row5.basename, path.slice(index));
+  showNumbers(row5.numbers, added, removed, format);
 }
-function makeFileRow(button4) {
+function makeFileRow(button5) {
   const accessiblePath = make("span", "file-accessible-path");
   const label3 = make("span", "file-path");
   const directory = make("span", "file-directory");
   const basename = make("span", "file-basename");
   label3.setAttribute("aria-hidden", "true");
   label3.append(directory, basename);
-  button4.append(accessiblePath, label3);
-  const counts = numbers(button4);
+  button5.append(accessiblePath, label3);
+  const counts = numbers(button5);
   return { accessiblePath, label: label3, directory, basename, numbers: counts };
 }
-function clearFileRow(row4) {
-  row4.accessiblePath.remove();
-  row4.label.remove();
-  row4.numbers.totals.remove();
+function clearFileRow(row5) {
+  row5.accessiblePath.remove();
+  row5.label.remove();
+  row5.numbers.totals.remove();
 }
 function clearFiles(state) {
   const files = state.files;
@@ -8743,7 +8749,7 @@ function clearFiles(state) {
   files.more.remove();
   files.checkpoint.remove();
   files.review.removeEventListener("click", files.selectSingle, true);
-  for (const row4 of files.rows.values()) clearFileRow(row4);
+  for (const row5 of files.rows.values()) clearFileRow(row5);
   files.nativeTitle.removeAttribute("data-hcv-file-native-title");
   if (files.review.getAttribute("aria-label") === files.review.getAttribute("data-hcv-file-review")) {
     if (files.originalReviewLabel === null) files.review.removeAttribute("aria-label");
@@ -8756,13 +8762,13 @@ function clearFiles(state) {
   files.card.removeAttribute("data-hcv-files-foldable");
   state.files = null;
 }
-function showFiles(state, card) {
-  const header = card?.children[0];
-  const list = card?.children[1];
-  const nativeTitle = header?.querySelector(":scope > span");
-  const review = header?.querySelector(":scope > button:not([data-hcv-generated])");
+function showFiles(state, card2) {
+  const header2 = card2?.children[0];
+  const list = card2?.children[1];
+  const nativeTitle = header2?.querySelector(":scope > span");
+  const review = header2?.querySelector(":scope > button:not([data-hcv-generated])");
   if (!nativeTitle || !review || !list) return clearFiles(state);
-  if (state.files?.card !== card || state.files.nativeTitle !== nativeTitle || state.files.review !== review) {
+  if (state.files?.card !== card2 || state.files.nativeTitle !== nativeTitle || state.files.review !== review) {
     clearFiles(state);
     const heading2 = make("div", "files-heading");
     const name2 = make("span", "files-title");
@@ -8775,10 +8781,10 @@ function showFiles(state, card) {
     open2.type = "button";
     open2.addEventListener("click", () => (state.files?.single || review).click());
     const selectSingle = (event) => {
-      const row4 = state.files?.single;
-      if (!row4) return;
+      const row5 = state.files?.single;
+      if (!row5) return;
       event.stopPropagation();
-      row4.click();
+      row5.click();
     };
     review.addEventListener("click", selectSingle, true);
     const more2 = make("button", "files-more");
@@ -8786,14 +8792,14 @@ function showFiles(state, card) {
     more2.append(make("span", "files-more-label"));
     more2.setAttribute("aria-expanded", "false");
     more2.addEventListener("click", () => {
-      more2.setAttribute("aria-expanded", String(card.toggleAttribute("data-hcv-files-open")));
+      more2.setAttribute("aria-expanded", String(card2.toggleAttribute("data-hcv-files-open")));
       updateMoreLabel(state.files);
     });
     const checkpoint2 = make("button", "files-checkpoint");
     checkpoint2.type = "button";
-    checkpoint2.addEventListener("click", () => nativeCheckpoint(card)?.click());
+    checkpoint2.addEventListener("click", () => nativeCheckpoint(card2)?.click());
     state.files = {
-      card,
+      card: card2,
       nativeTitle,
       review,
       originalReviewLabel: review.getAttribute("aria-label"),
@@ -8812,46 +8818,46 @@ function showFiles(state, card) {
   }
   const files = state.files;
   const { heading, name, hover, open, more, checkpoint } = files;
-  if (heading.parentElement !== header) nativeTitle.after(heading);
-  if (open.parentElement !== header) header.prepend(open);
+  if (heading.parentElement !== header2) nativeTitle.after(heading);
+  if (open.parentElement !== header2) header2.prepend(open);
   const rows = new Set(list.querySelectorAll(":scope > button"));
   if (!rows.size) return clearFiles(state);
   const count = rows.size;
   const ru = isRussian();
   const format = new Intl.NumberFormat(document.documentElement.lang || "en");
-  const cwd = count > 1 ? nativeCardCwd(card) : "";
+  const cwd = count > 1 ? nativeCardCwd(card2) : "";
   let plus = 0;
   let minus = 0;
-  for (const [row4, display] of files.rows) {
-    if (count > 1 && rows.has(row4)) continue;
+  for (const [row5, display] of files.rows) {
+    if (count > 1 && rows.has(row5)) continue;
     clearFileRow(display);
-    files.rows.delete(row4);
+    files.rows.delete(row5);
   }
-  for (const row4 of rows) {
-    const added = Number(row4.querySelector('[class~="text-(--ui-green)"]')?.textContent.slice(1)) || 0;
-    const removed = Number(row4.querySelector('[class~="text-(--ui-red)"]')?.textContent.slice(1)) || 0;
+  for (const row5 of rows) {
+    const added = Number(row5.querySelector('[class~="text-(--ui-green)"]')?.textContent.slice(1)) || 0;
+    const removed = Number(row5.querySelector('[class~="text-(--ui-red)"]')?.textContent.slice(1)) || 0;
     plus += added;
     minus += removed;
     if (count === 1) continue;
-    const basename = row4.querySelector(":scope > span.truncate")?.textContent || "";
-    const path = fileDisplayPath(row4, basename, cwd);
-    if (!files.rows.has(row4)) files.rows.set(row4, makeFileRow(row4));
-    paintFileRow(files.rows.get(row4), path, added, removed, format);
+    const basename = row5.querySelector(":scope > span.truncate")?.textContent || "";
+    const path = fileDisplayPath(row5, basename, cwd);
+    if (!files.rows.has(row5)) files.rows.set(row5, makeFileRow(row5));
+    paintFileRow(files.rows.get(row5), path, added, removed, format);
   }
   files.single = count === 1 ? rows.values().next().value : null;
-  card.toggleAttribute("data-hcv-file-single", Boolean(files.single));
-  card.setAttribute("data-hcv-file-card", "");
+  card2.toggleAttribute("data-hcv-file-single", Boolean(files.single));
+  card2.setAttribute("data-hcv-file-card", "");
   nativeTitle.setAttribute("data-hcv-file-native-title", "");
   open.setAttribute("aria-label", ru ? "\u041F\u043E\u0441\u043C\u043E\u0442\u0440\u0435\u0442\u044C \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u043D\u044B\u0435 \u0444\u0430\u0439\u043B\u044B" : "View changed files");
   updateText(hover, ru ? "\u041F\u0440\u043E\u0441\u043C\u043E\u0442\u0440 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439" : "View changes");
   const reviewLabel = ru ? "\u041F\u0440\u043E\u0441\u043C\u043E\u0442\u0440\u0435\u0442\u044C \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F" : "View changes";
   review.setAttribute("data-hcv-file-review", reviewLabel);
   review.setAttribute("aria-label", reviewLabel);
-  const restore = nativeCheckpoint(card);
+  const restore = nativeCheckpoint(card2);
   if (restore) {
     updateText(checkpoint, ru ? "\u041E\u0442\u043C\u0435\u043D\u0438\u0442\u044C" : "Undo");
     checkpoint.title = restore.getAttribute("aria-label");
-    if (checkpoint.parentElement !== header) review.before(checkpoint);
+    if (checkpoint.parentElement !== header2) review.before(checkpoint);
   } else {
     checkpoint.remove();
   }
@@ -8862,24 +8868,24 @@ function showFiles(state, card) {
     updateText(name, ru ? `\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u043E ${format.format(count)} ${fileNoun(count)}` : `Edited ${format.format(count)} files`);
   }
   showNumbers(files.counts, plus, minus, format);
-  if (card.toggleAttribute("data-hcv-files-foldable", count > 3)) {
-    if (more.parentElement !== card) card.append(more);
+  if (card2.toggleAttribute("data-hcv-files-foldable", count > 3)) {
+    if (more.parentElement !== card2) card2.append(more);
     files.remaining = count - 3;
     updateMoreLabel(files);
   } else {
-    card.removeAttribute("data-hcv-files-open");
+    card2.removeAttribute("data-hcv-files-open");
     more.setAttribute("aria-expanded", "false");
     more.remove();
   }
 }
-function nativeCheckpoint(card) {
+function nativeCheckpoint(card2) {
   const label3 = isRussian() ? "\u0412\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u044C \u0447\u0435\u043A\u043F\u043E\u0438\u043D\u0442" : "Restore checkpoint";
-  const turn = card.closest('[data-slot="aui_turn-pair"]');
+  const turn = card2.closest('[data-slot="aui_turn-pair"]');
   const prompt2 = turn?.querySelector('[data-slot="aui_user-message-root"]');
   return prompt2?.querySelector(`button[aria-label="${label3}"]:not(:disabled)`);
 }
-function updateMoreLabel({ card, more, remaining }) {
-  const expanded = card.hasAttribute("data-hcv-files-open");
+function updateMoreLabel({ card: card2, more, remaining }) {
+  const expanded = card2.hasAttribute("data-hcv-files-open");
   updateText(more.firstElementChild, expanded ? isRussian() ? "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0444\u0430\u0439\u043B\u044B" : "Collapse files" : isRussian() ? `\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0435\u0449\u0435 ${remaining} ${fileNoun(remaining)}` : `Show ${remaining} more ${fileNoun(remaining)}`);
 }
 function synchronize(group2, state, now, tail, ownPrompt, completedSeconds, startedAt) {
@@ -9040,11 +9046,11 @@ function registerTurnExperience(ctx, active2) {
     if (records.some(({ target }) => target === root)) return queue();
     if (!root.matches(active2)) return;
     for (const { target, type, addedNodes, removedNodes } of records) {
-      const element6 = target instanceof Element ? target : target.parentElement;
-      if (!element6 || element6.closest("[data-hcv-generated]")) continue;
-      const group2 = element6.closest(response2);
+      const element7 = target instanceof Element ? target : target.parentElement;
+      if (!element7 || element7.closest("[data-hcv-generated]")) continue;
+      const group2 = element7.closest(response2);
       if (type === "characterData") {
-        if (group2 && element6.closest(`${changes}, ${duration2}`)) dirty.add(group2);
+        if (group2 && element7.closest(`${changes}, ${duration2}`)) dirty.add(group2);
       } else if (type === "attributes") {
         if (group2) dirty.add(group2);
       } else {
@@ -9053,7 +9059,7 @@ function registerTurnExperience(ctx, active2) {
             if (node3 instanceof Element && !node3.hasAttribute("data-hcv-generated")) {
               if (node3.matches(turnStructure) || node3.querySelector(turnStructure)) return queue();
               if (group2) dirty.add(group2);
-            } else if (group2 && node3.nodeType === Node.TEXT_NODE && element6.closest(`${changes}, ${duration2}`)) {
+            } else if (group2 && node3.nodeType === Node.TEXT_NODE && element7.closest(`${changes}, ${duration2}`)) {
               dirty.add(group2);
             }
           }
@@ -9140,8 +9146,8 @@ function dateLabel(date) {
   return new Intl.DateTimeFormat(locale, options).format(date);
 }
 function styles2(active2, transcript4) {
-  const enhanced2 = `${active2} ${transcript4} ${actionBar}:has(${rowSelector})`;
-  const row4 = `${enhanced2} ${rowSelector}`;
+  const enhanced3 = `${active2} ${transcript4} ${actionBar}:has(${rowSelector})`;
+  const row5 = `${enhanced3} ${rowSelector}`;
   const menu = `${active2} ${menuSelector}`;
   const reply = `${active2} ${transcript4} ${replyRoot}`;
   const footer = `${reply} div:has(> ${replyActions})`;
@@ -9152,8 +9158,8 @@ function styles2(active2, transcript4) {
   return `
 @media (forced-colors: none) {
   /* Codex vHM0 and .bubble-vBnidZ (fce177e1b845.css). */
-  ${enhanced2} { min-inline-size: 0; }
-  ${enhanced2} ${bubbleSelector} {
+  ${enhanced3} { min-inline-size: 0; }
+  ${enhanced3} ${bubbleSelector} {
     inline-size: fit-content;
     margin-inline-start: auto;
     padding: 10px 16px;
@@ -9161,11 +9167,11 @@ function styles2(active2, transcript4) {
     border-radius: 22px;
     corner-shape: superellipse(1.5);
   }
-  ${enhanced2} ${restoreButton},
-  ${enhanced2} .human-message-with-todos-wrapper:has(> ${rowSelector} > time:not([hidden])) > ${nativeTimestamp} { display: none; }
+  ${enhanced3} ${restoreButton},
+  ${enhanced3} .human-message-with-todos-wrapper:has(> ${rowSelector} > time:not([hidden])) > ${nativeTimestamp} { display: none; }
 
   /* Codex y5H2 keeps the action row in flow at opacity zero. */
-  ${row4} {
+  ${row5} {
     display: flex;
     align-items: center;
     justify-content: flex-end;
@@ -9177,8 +9183,8 @@ function styles2(active2, transcript4) {
     pointer-events: none;
   }
   ${active2}[data-hermes-mode="dark"] ${rowSelector} { color: #8f8f8f; }
-  ${enhanced2}:is(:hover, :focus-within) ${rowSelector} { opacity: 1; pointer-events: auto; }
-  ${row4} time {
+  ${enhanced3}:is(:hover, :focus-within) ${rowSelector} { opacity: 1; pointer-events: auto; }
+  ${row5} time {
     margin-inline-end: 6px;
     min-inline-size: 0;
     overflow: hidden;
@@ -9187,7 +9193,7 @@ function styles2(active2, transcript4) {
     font-size: .75rem;
     line-height: 1rem;
   }
-  ${row4} button {
+  ${row5} button {
     display: grid;
     place-items: center;
     flex: 0 0 26px;
@@ -9196,18 +9202,18 @@ function styles2(active2, transcript4) {
     color: inherit;
     cursor: pointer;
   }
-  ${row4} [hidden] { display: none; }
-  ${row4} button:focus-visible { outline: 2px solid var(--hcv-focus); }
-  ${row4} button::before {
+  ${row5} [hidden] { display: none; }
+  ${row5} button:focus-visible { outline: 2px solid var(--hcv-focus); }
+  ${row5} button::before {
     content: "";
     inline-size: 16px;
     block-size: 16px;
     background: currentColor;
     mask: var(--hcv-message-icon) center / contain no-repeat;
   }
-  ${row4} [data-hcv-copy-message] { --hcv-message-icon: ${codexMask("messageCopy")}; }
-  ${row4} [data-hcv-copy-message][data-copied] { --hcv-message-icon: ${codexMask("messageCopied")}; }
-  ${row4} [data-hcv-edit-message] { --hcv-message-icon: ${codexMask("messageEdit")}; }
+  ${row5} [data-hcv-copy-message] { --hcv-message-icon: ${codexMask("messageCopy")}; }
+  ${row5} [data-hcv-copy-message][data-copied] { --hcv-message-icon: ${codexMask("messageCopied")}; }
+  ${row5} [data-hcv-edit-message] { --hcv-message-icon: ${codexMask("messageEdit")}; }
 
   /* Codex 26.1111.2228.0: no() in 461952.bb4069593d.js, actionRow-nqqZbm
      and the icon, radius and color tokens in 3b01e25a342d.css / 66582da7ee6b.css. */
@@ -9306,12 +9312,12 @@ function styles2(active2, transcript4) {
     cursor: pointer;
   }
   @media (hover: hover) {
-    ${row4} button:hover { background: var(--hcv-hover-menu); }
+    ${row5} button:hover { background: var(--hcv-hover-menu); }
   }
   @media (hover: none) {
-    ${row4} { opacity: 1; pointer-events: auto; }
-    ${row4} time { opacity: 0; }
-    ${enhanced2}:focus-within ${rowSelector} time { opacity: 1; }
+    ${row5} { opacity: 1; pointer-events: auto; }
+    ${row5} time { opacity: 0; }
+    ${enhanced3}:focus-within ${rowSelector} time { opacity: 1; }
     ${replyBar} { opacity: 1; pointer-events: auto; }
   }
 }
@@ -9328,15 +9334,15 @@ function registerReplyCopyTip(ctx, active2, transcript4) {
   const selector = `${replyActionLanes(`${transcript4} ${replyRoot} ${replyActions}`)} > ${replyCopy}`;
   const capture = { capture: true };
   let pointerButton;
-  let button4;
+  let button5;
   let timer;
   let triggerType;
   let skipDelayUntil = 0;
   const trigger = (target) => root.matches(active2) && !contrast.matches && target instanceof Element ? target.closest('button[data-size="icon"]')?.closest(selector) : null;
   function paint() {
-    if (!button4?.isConnected || !button4.checkVisibility({ opacityProperty: true, visibilityProperty: true })) return hide();
-    const anchor = button4.getBoundingClientRect();
-    const label3 = button4.querySelector(copyIcon) ? ctx.i18n.t("copyResponse") : button4.getAttribute("aria-label");
+    if (!button5?.isConnected || !button5.checkVisibility({ opacityProperty: true, visibilityProperty: true })) return hide();
+    const anchor = button5.getBoundingClientRect();
+    const label3 = button5.querySelector(copyIcon) ? ctx.i18n.t("copyResponse") : button5.getAttribute("aria-label");
     if (!label3 || anchor.top < 35 || anchor.bottom > innerHeight) return hide();
     if (tip2.textContent !== label3) tip2.textContent = label3;
     tip2.style.top = `${anchor.top - 5}px`;
@@ -9348,17 +9354,17 @@ function registerReplyCopyTip(ctx, active2, transcript4) {
   function hide() {
     clearTimeout(timer);
     copyStatus.disconnect();
-    button4 = null;
+    button5 = null;
     if (!tip2.hidden) skipDelayUntil = performance.now() + 300;
     tip2.hidden = true;
   }
   function show(target, type, delay) {
     hide();
-    button4 = target;
+    button5 = target;
     triggerType = type;
     const open = () => {
       paint();
-      if (button4) copyStatus.observe(button4, { attributes: true, attributeFilter: ["aria-label"] });
+      if (button5) copyStatus.observe(button5, { attributes: true, attributeFilter: ["aria-label"] });
     };
     if (type === "focus") timer = setTimeout(open, 0);
     else if (delay && performance.now() >= skipDelayUntil) timer = setTimeout(open, delay);
@@ -9392,7 +9398,7 @@ function registerReplyCopyTip(ctx, active2, transcript4) {
     show(target, "focus", 0);
   }, capture);
   ctx.addEventListener(document, "focusout", (event) => {
-    if (triggerType === "focus" && event.target === button4) hide();
+    if (triggerType === "focus" && event.target === button5) hide();
   }, capture);
   ctx.addEventListener(document, "keydown", (event) => {
     if (event.key !== "Escape" || tip2.hidden) return;
@@ -9401,10 +9407,10 @@ function registerReplyCopyTip(ctx, active2, transcript4) {
     hide();
   }, capture);
   ctx.addEventListener(document, "pointerdown", (event) => {
-    if (button4 && !button4.contains(event.target)) hide();
+    if (button5 && !button5.contains(event.target)) hide();
   }, capture);
   ctx.addEventListener(document, "scroll", () => {
-    if (button4 && (triggerType === "pointer" || !tip2.hidden)) hide();
+    if (button5 && (triggerType === "pointer" || !tip2.hidden)) hide();
   }, capture);
   ctx.addEventListener(window, "blur", hide);
   ctx.addEventListener(window, "resize", hide);
@@ -9423,7 +9429,7 @@ function registerReplyCopyTip(ctx, active2, transcript4) {
   });
   return (enabled) => {
     if (!enabled || pointerButton && !pointerButton.isConnected) reset();
-    else if (button4 && !button4.checkVisibility()) hide();
+    else if (button5 && !button5.checkVisibility()) hide();
   };
 }
 function registerMessageActions(ctx, active2, transcript4, promptSelector2) {
@@ -9459,21 +9465,21 @@ function registerMessageActions(ctx, active2, transcript4, promptSelector2) {
   });
   function addRow(bar, bubble, prompt2, messageId) {
     const holder = bubble.closest("[data-context-menu-skip]");
-    const row4 = document.createElement("div");
-    row4.dataset.hcvMessageActions = "";
-    row4.setAttribute("data-context-menu-skip", "");
+    const row5 = document.createElement("div");
+    row5.dataset.hcvMessageActions = "";
+    row5.setAttribute("data-context-menu-skip", "");
     const stamp = document.createElement("time");
-    const copy6 = document.createElement("button");
-    copy6.type = "button";
-    copy6.dataset.hcvCopyMessage = "";
+    const copy7 = document.createElement("button");
+    copy7.type = "button";
+    copy7.dataset.hcvCopyMessage = "";
     const edit3 = document.createElement("button");
     edit3.type = "button";
     edit3.dataset.hcvEditMessage = "";
-    row4.append(stamp, copy6);
-    if (bubble.hasAttribute("aria-label")) row4.append(edit3);
+    row5.append(stamp, copy7);
+    if (bubble.hasAttribute("aria-label")) row5.append(edit3);
     const updateCopy = () => {
-      copy6.title = ctx.i18n.t(copy6.hasAttribute("data-copied") ? "messageCopied" : "copyMessage");
-      copy6.setAttribute("aria-label", copy6.title);
+      copy7.title = ctx.i18n.t(copy7.hasAttribute("data-copied") ? "messageCopied" : "copyMessage");
+      copy7.setAttribute("aria-label", copy7.title);
     };
     const update = () => {
       const data = userMessage2(bubble, messageId);
@@ -9487,7 +9493,7 @@ function registerMessageActions(ctx, active2, transcript4, promptSelector2) {
         stamp.dateTime = date.toISOString();
         stamp.title = date.toLocaleString(document.documentElement.lang || void 0);
       }
-      copy6.hidden = !data?.state.content.some((part) => part.type === "text" && part.text.trim());
+      copy7.hidden = !data?.state.content.some((part) => part.type === "text" && part.text.trim());
       if (edit3.isConnected) {
         edit3.title = bubble.getAttribute("aria-label");
         edit3.setAttribute("aria-label", edit3.title);
@@ -9497,22 +9503,22 @@ function registerMessageActions(ctx, active2, transcript4, promptSelector2) {
     };
     let copying = false;
     let clearCopied;
-    copy6.addEventListener("click", async () => {
-      if (copying || copy6.hasAttribute("data-copied")) return;
+    copy7.addEventListener("click", async () => {
+      if (copying || copy7.hasAttribute("data-copied")) return;
       const text = userMessage2(bubble, messageId)?.message.getCopyText();
       if (!text?.trim()) return;
       copying = true;
       try {
         const success = await ctx.os.writeClipboard(text);
-        if (!row4.isConnected) return;
+        if (!row5.isConnected) return;
         if (!success) {
           host13.notify({ kind: "error", message: ctx.i18n.t("copyMessageError") });
           return;
         }
-        copy6.setAttribute("data-copied", "");
+        copy7.setAttribute("data-copied", "");
         updateCopy();
         clearCopied = ctx.setTimeout(() => {
-          copy6.removeAttribute("data-copied");
+          copy7.removeAttribute("data-copied");
           updateCopy();
         }, 1500);
       } finally {
@@ -9530,15 +9536,15 @@ function registerMessageActions(ctx, active2, transcript4, promptSelector2) {
     bar.addEventListener("pointerenter", update, options);
     bar.addEventListener("focusin", update, options);
     bar.addEventListener("contextmenu", (event) => {
-      const native = holder.querySelector(restoreButton);
-      const inActions = row4.contains(event.target);
+      const native2 = holder.querySelector(restoreButton);
+      const inActions = row5.contains(event.target);
       const inBubble = bubble.contains(event.target) && !committedFiber(holder)?.memoizedProps?.onContextMenu;
-      if (!native || event.defaultPrevented || !inActions && !inBubble || window.getSelection()?.isCollapsed === false) return;
+      if (!native2 || event.defaultPrevented || !inActions && !inBubble || window.getSelection()?.isCollapsed === false) return;
       event.preventDefault();
       event.stopPropagation();
-      restoreTarget = native;
+      restoreTarget = native2;
       restoreFocus = event.target.closest("button") || bubble;
-      restoreItem.textContent = native.getAttribute("aria-label");
+      restoreItem.textContent = native2.getAttribute("aria-label");
       menu.showPopover();
       const anchor = restoreFocus.getBoundingClientRect();
       const x = event.clientX || anchor.left;
@@ -9547,13 +9553,13 @@ function registerMessageActions(ctx, active2, transcript4, promptSelector2) {
       menu.style.top = Math.max(8, Math.min(y, window.innerHeight - menu.offsetHeight - 8)) + "px";
       restoreItem.focus({ preventScroll: true });
     }, options);
-    holder.after(row4);
+    holder.after(row5);
     update();
-    return { row: row4, prompt: prompt2, messageId, bubble, update, remove() {
+    return { row: row5, prompt: prompt2, messageId, bubble, update, remove() {
       clearCopied?.();
       listeners.abort();
       if (bar.contains(restoreFocus ?? null) || bar.contains(restoreTarget ?? null)) menu.hidePopover();
-      row4.remove();
+      row5.remove();
     } };
   }
   ctx.i18n.onLocaleChange(() => rows.forEach((state) => state.update()));
@@ -9606,7 +9612,7 @@ var labels9 = {
 function displayStyles(active2, chat3) {
   const viewport = `${active2} ${chat3} ${viewportSelector}`;
   const bubble = `${viewport} ${promptSelector} ${bubbleSelector2}:has(> ${clampSelector})`;
-  const body = `${bubble} > ${clampSelector}`;
+  const body2 = `${bubble} > ${clampSelector}`;
   const toggle2 = `${viewport} ${toggleSelector}`;
   const ellipsis = `${bubble} > [data-hcv-message-ellipsis]`;
   const frame = `${viewport} ${editSelector} [data-hcv-edit-controls]`;
@@ -9778,12 +9784,12 @@ function displayStyles(active2, chat3) {
     line-height: ${relaxed};
     overflow: clip;
   }
-  ${body}, ${body}[data-clamped="true"] {
+  ${body2}, ${body2}[data-clamped="true"] {
     max-height: calc(${lineCount}lh + 1px);
     overflow: clip;
     mask-image: none;
   }
-  ${body}${previewSelector} { max-height: var(--hcv-message-height); }
+  ${body2}${previewSelector} { max-height: var(--hcv-message-height); }
   ${bubble}:has(> ${previewSelector}) {
     row-gap: 0;
     padding-block-end: calc(10px + 10px + ${relaxed}em);
@@ -9795,7 +9801,7 @@ function displayStyles(active2, chat3) {
     user-select: none;
   }
   ${ellipsis}::before { content: '\u2026'; }
-  ${body}[data-hcv-message-preview="collapsed"] + [data-hcv-message-ellipsis] {
+  ${body2}[data-hcv-message-preview="collapsed"] + [data-hcv-message-ellipsis] {
     block-size: 1lh;
     opacity: 1;
   }
@@ -9901,7 +9907,7 @@ function displayStyles(active2, chat3) {
     ${toggle2}:hover { color: var(--hcv-muted); }
   }
   @media (prefers-reduced-motion: no-preference) {
-    ${body}${previewSelector} { transition: max-height ${transitionMs}ms cubic-bezier(.23, 1, .32, 1); }
+    ${body2}${previewSelector} { transition: max-height ${transitionMs}ms cubic-bezier(.23, 1, .32, 1); }
     ${ellipsis} {
       transition: block-size ${transitionMs}ms cubic-bezier(.23, 1, .32, 1), opacity 120ms var(--hcv-ease);
     }
@@ -9910,12 +9916,12 @@ function displayStyles(active2, chat3) {
 }
 `;
 }
-function previewHeight(body, lineHeight) {
+function previewHeight(body2, lineHeight) {
   let limit = Math.ceil(lineHeight * (lineCount - 1));
-  const fences = body.querySelectorAll('[data-slot="aui_user-fence"]');
+  const fences = body2.querySelectorAll('[data-slot="aui_user-fence"]');
   if (!fences.length) return limit;
-  const bounds = body.getBoundingClientRect();
-  const scale = bounds.height / body.offsetHeight || 1;
+  const bounds = body2.getBoundingClientRect();
+  const scale = bounds.height / body2.offsetHeight || 1;
   for (const fence of fences) {
     const rect = fence.getBoundingClientRect();
     const top = (rect.top - bounds.top) / scale;
@@ -10112,21 +10118,21 @@ function registerChatDisplay(ctx, active2) {
     for (const state of states.values()) {
       if (!current.has(state.body) || state.messageId !== state.prompt.dataset.messageId) detach(state);
     }
-    for (const body of current) {
-      if (states.has(body)) continue;
-      const viewport = body.closest(viewportSelector);
-      const prompt2 = body.closest(promptSelector);
+    for (const body2 of current) {
+      if (states.has(body2)) continue;
+      const viewport = body2.closest(viewportSelector);
+      const prompt2 = body2.closest(promptSelector);
       const state = {
-        body,
+        body: body2,
         viewport,
         prompt: prompt2,
         messageId: prompt2.dataset.messageId,
-        clamp: body.parentElement,
+        clamp: body2.parentElement,
         expanded: false,
         inert: /* @__PURE__ */ new Set()
       };
-      states.set(body, state);
-      sizes.observe(body);
+      states.set(body2, state);
+      sizes.observe(body2);
     }
   }
   const schedule = () => {
@@ -10230,18 +10236,18 @@ function registerChatImages(ctx, active2) {
   const root = document.documentElement;
   const composer2 = `${active2} [data-slot="composer-surface"]:not([data-hud-shell] *)`;
   const rail = `${composer2} ${attachments}:has(> ${nativePill} ${picture})`;
-  const card = `${composer2} ${attachments} > ${pill}`;
-  const open = `${card} > button:first-child`;
-  const remove = `${card} > button:nth-child(2)`;
+  const card2 = `${composer2} ${attachments} > ${pill}`;
+  const open = `${card2} > button:first-child`;
+  const remove = `${card2} > button:nth-child(2)`;
   const step2 = `${active2} ${chat} ${row2}${analysis}`;
   const run = `${active2} ${chat} ${group}${analysisGroup}`;
-  const header = `:is(${step2} > div:first-child, ${run} > ${summary})`;
-  const toggle2 = `${header} > div > button[aria-expanded]`;
+  const header2 = `:is(${step2} > div:first-child, ${run} > ${summary})`;
+  const toggle2 = `${header2} > div > button[aria-expanded]`;
   const caret = `${toggle2} > span:nth-child(2) > .codicon-chevron-right`;
-  const stepLabel = `${header} ${label}`;
+  const stepLabel = `${header2} ${label}`;
   const rowIcon = `${step2} > div:first-child span.self-center > :is(svg, .codicon)`;
-  const body = `${step2}[data-tool-open] > div:nth-child(2)`;
-  const thumb2 = `${body} > div > [data-slot="aui_markdown-image"]`;
+  const body2 = `${step2}[data-tool-open] > div:nth-child(2)`;
+  const thumb2 = `${body2} > div > [data-slot="aui_markdown-image"]`;
   const gallery = `${run} > ${summary}:has(button[aria-expanded="true"]) + ${strip}`;
   const dialog2 = `${active2} ${nativeDialog}${enhanced}`;
   const save = `${dialog2} div[class~="group/lightbox"] > button`;
@@ -10263,7 +10269,7 @@ function registerChatImages(ctx, active2) {
         flex-wrap: nowrap; align-items: end; gap: 8px; padding: 4px;
         overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
       }
-      ${card} { inline-size: 122px; block-size: 122px; border-radius: 10px; }
+      ${card2} { inline-size: 122px; block-size: 122px; border-radius: 10px; }
       ${open} {
         display: block; position: relative; inline-size: 100%; block-size: 100%;
         border: 0; padding: 0; border-radius: inherit; overflow: hidden;
@@ -10278,7 +10284,7 @@ function registerChatImages(ctx, active2) {
         content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
         box-shadow: inset 0 0 0 1px light-dark(#0d0d0d1a, #ffffff1a);
       }
-      ${card}:is(:hover, :focus-within) > button:first-child::after {
+      ${card2}:is(:hover, :focus-within) > button:first-child::after {
         background: color-mix(in srgb, var(--hcv-text) 5%, transparent);
         box-shadow: inset 0 0 0 1px light-dark(#0d0d0d26, #fff3);
       }
@@ -10289,7 +10295,7 @@ function registerChatImages(ctx, active2) {
         opacity: 0; pointer-events: none; transition: none;
       }
       ${remove}:hover { background: color-mix(in srgb, var(--hcv-text) 80%, transparent); color: var(--hcv-composer); }
-      ${card}:hover > button:nth-child(2), ${card}:has(:focus-visible) > button:nth-child(2) {
+      ${card2}:hover > button:nth-child(2), ${card2}:has(:focus-visible) > button:nth-child(2) {
         opacity: 1; pointer-events: auto;
       }
       ${remove} > * { display: none; }
@@ -10300,7 +10306,7 @@ function registerChatImages(ctx, active2) {
       @media (hover: none) { ${remove} { opacity: 1; pointer-events: auto; } }
       ${active2} [data-hcv-image-path-tip] { visibility: hidden; }
 
-      ${header} { --conversation-scaffold-text: light-dark(#6c6c6c, #8b8b8b); opacity: 1; }
+      ${header2} { --conversation-scaffold-text: light-dark(#6c6c6c, #8b8b8b); opacity: 1; }
       ${toggle2} { align-items: center; gap: 4px; border-radius: 8px; }
       ${toggle2} > span:first-child > span:first-child { gap: 8px; }
       ${stepLabel} {
@@ -10328,7 +10334,7 @@ function registerChatImages(ctx, active2) {
       ${toggle2}[aria-expanded="true"] > span:nth-child(2) > .codicon-chevron-right { transform: rotate(90deg); }
       ${toggle2}[aria-expanded="false"]:not(:hover, :focus-visible) > span:nth-child(2) { opacity: 0; }
       ${toggle2}[aria-expanded="true"] > span:nth-child(2) { opacity: 1; }
-      ${body} { margin-block-start: 8px; padding-block-end: 4px; }
+      ${body2} { margin-block-start: 8px; padding-block-end: 4px; }
       ${thumb2} {
         inline-size: 80px !important; block-size: 80px; margin: 0;
         border: 1px solid light-dark(#0d0d0d26, #fff3); border-radius: 10px; overflow: hidden;
@@ -10428,7 +10434,7 @@ function registerChatImages(ctx, active2) {
       ${dialog2}[data-state="closed"] { animation: hcv-image-fade-out ${codexReference.exitTime} ${codexReference.exit} both; }
       @media (prefers-reduced-motion: reduce) {
         ${caret}, ${buttons} { transition: none; }
-        ${gallery}, ${body}, ${dialog2}[data-state], ${active2} ${scrim}:has(+ ${nativeDialog}${enhanced}) { animation: none; }
+        ${gallery}, ${body2}, ${dialog2}[data-state], ${active2} ${scrim}:has(+ ${nativeDialog}${enhanced}) { animation: none; }
       }
     }
   `, chatStyles);
@@ -10445,8 +10451,8 @@ function registerChatImages(ctx, active2) {
     if (node3.getAttribute(attribute) !== value) node3.setAttribute(attribute, value);
     marked2.add(node3);
   }
-  function decorate(button4, count) {
-    const original = button4?.querySelector(stepTitle);
+  function decorate(button5, count) {
+    const original = button5?.querySelector(stepTitle);
     if (!original) return false;
     let text = original.previousElementSibling;
     if (!text?.matches(label)) {
@@ -10468,17 +10474,17 @@ function registerChatImages(ctx, active2) {
     }
     const closeViewer = () => (viewerOwner(node3) ?? owner).changeOpen(false);
     const add = (attribute, value, description, action) => {
-      const button4 = document.createElement("button");
-      button4.type = "button";
-      button4.setAttribute("aria-label", description);
-      button4.setAttribute(attribute, value);
-      button4.addEventListener("click", (event) => {
+      const button5 = document.createElement("button");
+      button5.type = "button";
+      button5.setAttribute("aria-label", description);
+      button5.setAttribute(attribute, value);
+      button5.addEventListener("click", (event) => {
         event.stopPropagation();
         action();
       });
-      node3.append(button4);
-      marked2.add(button4);
-      return button4;
+      node3.append(button5);
+      marked2.add(button5);
+      return button5;
     };
     add("data-hcv-image-close", "", ru ? "\u0417\u0430\u043A\u0440\u044B\u0442\u044C" : "Close", closeViewer);
     const trigger = opener;
@@ -10539,10 +10545,10 @@ function registerChatImages(ctx, active2) {
         }
       } else if (node3.matches(group) && node3.closest(chat)) {
         const heading = node3.querySelector(`:scope > ${summary}`);
-        const button4 = heading?.querySelector("button[aria-expanded]");
-        const count = Number(button4?.querySelector(stepTitle)?.textContent.match(/^Analyzed (\d+) images$/)?.[1]);
+        const button5 = heading?.querySelector("button[aria-expanded]");
+        const count = Number(button5?.querySelector(stepTitle)?.textContent.match(/^Analyzed (\d+) images$/)?.[1]);
         const details = heading?.nextElementSibling;
-        if (count > 1 && decorate(button4, count)) mark2(node3, "data-hcv-viewed-image-group");
+        if (count > 1 && decorate(button5, count)) mark2(node3, "data-hcv-viewed-image-group");
         else {
           node3.removeAttribute("data-hcv-viewed-image-group");
           heading?.querySelector(label)?.remove();
@@ -10584,8 +10590,8 @@ function registerChatImages(ctx, active2) {
   }
   const changes2 = new MutationObserver((records) => {
     for (const { target, addedNodes, type } of records) {
-      const element6 = target instanceof Element ? target : target.parentElement;
-      const parent = element6?.closest(selectors);
+      const element7 = target instanceof Element ? target : target.parentElement;
+      const parent = element7?.closest(selectors);
       if (parent) pending.add(parent);
       const toolRun = parent?.matches(row2) && parent.closest(group);
       if (toolRun) pending.add(toolRun);
@@ -10635,8 +10641,8 @@ function registerChatImages(ctx, active2) {
   colors.addEventListener("change", sync);
   ctx.addEventListener(document, "click", (event) => {
     if (!root.matches(active2) || colors.matches) return;
-    const button4 = event.target instanceof Element ? event.target.closest("button") : null;
-    opener = button4?.matches(`${card} > button:first-child, ${gallery} [data-slot="aui_zoomable-image"] > button:first-child`) ? button4 : null;
+    const button5 = event.target instanceof Element ? event.target.closest("button") : null;
+    opener = button5?.matches(`${card2} > button:first-child, ${gallery} [data-slot="aui_zoomable-image"] > button:first-child`) ? button5 : null;
   }, { capture: true });
   sync();
   ctx.onDispose(() => {
@@ -10646,13 +10652,79 @@ function registerChatImages(ctx, active2) {
   });
 }
 
+// source/chat-reasoning.js
+var surface2 = "[data-chat-surface]:not([data-hud-shell] *)";
+var bodySlot = '[data-slot="aui_thinking-body"]';
+var textSlot = '[data-slot="aui_reasoning-text"]';
+function registerChatReasoning(ctx, active2) {
+  const body2 = `${active2} ${surface2} ${bodySlot}`;
+  const text = `${body2} ${textSlot}`;
+  const flow = `:is(${text}, ${text} > div)`;
+  const heading = ":is(h1, h2, h3, h4, h5, h6)";
+  const headingBlock = `:is(${heading}, div:has(> ${heading}))`;
+  mountCSS(ctx, "data-hcv-chat-reasoning-style", `
+    @media (forced-colors: none) {
+      ${body2} {
+        margin: 0; padding: 0; max-block-size: 8.75rem;
+        overflow-y: auto; overflow-x: hidden;
+        scrollbar-width: thin;
+        scrollbar-color: color-mix(in srgb, var(--hcv-text) 30%, transparent) transparent;
+      }
+      ${text} {
+        --paragraph-gap: 4px;
+        --dt-line-height: 1.625;
+        --hcv-thought-text: var(--hcv-chat-prose, var(--hcv-text));
+        color: color-mix(in oklab, var(--hcv-thought-text) 60%, transparent);
+        font: 430 var(--hcv-activity-font, 14px)/1.625 ${codexReference.font};
+        overflow-wrap: anywhere;
+      }
+      ${text} :where(p, li, blockquote, h1, h2, h3, h4, h5, h6) {
+        font-size: inherit; line-height: 1.625;
+        margin-block: 0;
+      }
+      ${text} :is(p, li, blockquote, h1, h2, h3, h4, h5, h6, strong, em, a, code) {
+        color: color-mix(in oklab, var(--hcv-thought-text) 50%, transparent);
+      }
+      ${text} :is(strong, b, h1, h2, h3, h4, h5, h6) { font-weight: 600; }
+      ${flow} > p + p,
+      ${flow} > ${headingBlock} + * { margin-block-start: 4px; }
+      ${flow} > ${headingBlock}:not(:first-child) { margin-block-start: 8px; }
+      ${text} :is(ul, ol) { margin-block: 0; }
+      ${text} ul { padding-inline-start: 1rem; }
+      ${text} ol { padding-inline-start: 2rem; }
+      ${text} p:has(code) { padding-block: 2px; }
+      ${text} code:not(pre code) {
+        font-family: var(--hcv-activity-mono, monospace);
+        font-size: .92em; font-weight: 400; padding: 1px 6px; border-radius: 6px;
+        box-decoration-break: clone;
+        background: var(--ui-inline-code-background);
+      }
+      ${text} pre { overflow-x: auto; }
+      @supports (animation-timeline: scroll(self block)) {
+        ${body2} {
+          mask-image: linear-gradient(to bottom, transparent, black var(--hcv-thought-fade-top, 0px)
+            calc(100% - var(--hcv-thought-fade-bottom, 0px)), transparent);
+          animation: hcv-thought-scroll-fade linear both;
+          animation-timeline: scroll(self block);
+        }
+      }
+    }
+    @property --hcv-thought-fade-top { syntax: "<length>"; inherits: false; initial-value: 0px; }
+    @property --hcv-thought-fade-bottom { syntax: "<length>"; inherits: false; initial-value: 0px; }
+    @keyframes hcv-thought-scroll-fade {
+      0%, 1% { --hcv-thought-fade-top: 0px; --hcv-thought-fade-bottom: 16px; }
+      99%, 100% { --hcv-thought-fade-top: 16px; --hcv-thought-fade-bottom: 0px; }
+    }
+  `, { surface: bodySlot, retainAcrossChatTabs: true });
+}
+
 // source/chat-skills.js
 var scope2 = '[data-chat-surface]:not([data-hud-shell] *) [data-slot="aui_assistant-message-content"]';
 var candidate = 'div:has(> span[title$="SKILL.md" i]):has(> button:last-child)';
 var marked = "[data-hcv-skill-card]";
 var link = "[data-hcv-skill-link]";
 var label2 = "[data-hcv-skill-label]";
-var preview2 = (card) => card.querySelector(":scope > button:last-child");
+var preview2 = (card2) => card2.querySelector(":scope > button:last-child");
 function plainText(value, depth = 0) {
   if (typeof value === "string") return value;
   if (depth > 4) return "";
@@ -10667,15 +10739,15 @@ function displayName(value) {
   const fields2 = new URLSearchParams(text.slice(question + 1));
   return fields2.get("label")?.trim() || (fields2.has("label") || fields2.has("icon") ? text.slice(1, question) : text.slice(1));
 }
-function skillLinkInfo(card) {
+function skillLinkInfo(card2) {
   let target = "";
-  for (let node3 = committedFiber(card)?.return; node3 && !(node3.stateNode instanceof Element); node3 = node3.return) {
+  for (let node3 = committedFiber(card2)?.return; node3 && !(node3.stateNode instanceof Element); node3 = node3.return) {
     const props = node3.memoizedProps;
     if (typeof props?.target === "string") target ||= props.target;
     if (target && typeof props?.href === "string") {
       const leaf = /(?:^|[\\/])SKILL\.md$/i.test(target);
       const file = /^(?:file:\/\/\/|[a-z]:[\\/]|\/(?!\/)|~[\\/]|\.{1,2}[\\/])/i.test(target);
-      if (!leaf || !file || !preview2(card)) return null;
+      if (!leaf || !file || !preview2(card2)) return null;
       const name = displayName(props.children) || target.split(/[\\/]/).at(-2) || "SKILL.md";
       return { name, target };
     }
@@ -10707,14 +10779,14 @@ function registerChatSkills(ctx, active2) {
   `, chatStyles);
   const pending = /* @__PURE__ */ new Set();
   let frame = 0;
-  function clear(card) {
-    card.querySelector(`:scope > ${link}`)?.remove();
-    card.removeAttribute("data-hcv-skill-card");
+  function clear(card2) {
+    card2.querySelector(`:scope > ${link}`)?.remove();
+    card2.removeAttribute("data-hcv-skill-card");
   }
-  function update(card) {
-    const info = skillLinkInfo(card);
-    if (!info) return clear(card);
-    let anchor = card.querySelector(`:scope > ${link}`);
+  function update(card2) {
+    const info = skillLinkInfo(card2);
+    if (!info) return clear(card2);
+    let anchor = card2.querySelector(`:scope > ${link}`);
     if (!anchor) {
       anchor = document.createElement("a");
       anchor.setAttribute("data-hcv-skill-link", "");
@@ -10725,13 +10797,13 @@ function registerChatSkills(ctx, active2) {
       anchor.append(icon8, text);
       const open = (event) => {
         event.preventDefault();
-        preview2(card)?.click();
+        preview2(card2)?.click();
       };
       anchor.addEventListener("click", open);
       anchor.addEventListener("keydown", (event) => {
         if (event.key === "Enter" && !event.repeat) open(event);
       });
-      card.prepend(anchor);
+      card2.prepend(anchor);
     }
     const href = "#preview/" + encodeURIComponent(info.target);
     if (anchor.getAttribute("href") !== href) {
@@ -10739,19 +10811,19 @@ function registerChatSkills(ctx, active2) {
       anchor.title = info.target;
     }
     if (anchor.lastChild.textContent !== info.name) anchor.lastChild.textContent = info.name;
-    card.setAttribute("data-hcv-skill-card", "");
+    card2.setAttribute("data-hcv-skill-card", "");
   }
   function collect(node3) {
     if (!(node3 instanceof Element) || node3.closest(link)) return;
-    const card = node3.closest(`:is(${candidate}, ${marked})`);
-    if (card?.closest(scope2)) pending.add(card);
+    const card2 = node3.closest(`:is(${candidate}, ${marked})`);
+    if (card2?.closest(scope2)) pending.add(card2);
     if (node3.closest(scope2) || node3.querySelector(scope2)) {
       for (const entry of node3.querySelectorAll(candidate)) if (entry.closest(scope2)) pending.add(entry);
     }
   }
   function flush() {
     frame = 0;
-    for (const card of pending) if (card.isConnected && card.closest(scope2)) update(card);
+    for (const card2 of pending) if (card2.isConnected && card2.closest(scope2)) update(card2);
     pending.clear();
   }
   const schedule = () => {
@@ -10775,7 +10847,7 @@ function registerChatSkills(ctx, active2) {
       schedule();
       observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["title"] });
     } else {
-      for (const card of document.querySelectorAll(marked)) clear(card);
+      for (const card2 of document.querySelectorAll(marked)) clear(card2);
     }
   }
   const theme2 = new MutationObserver(sync);
@@ -10786,13 +10858,26 @@ function registerChatSkills(ctx, active2) {
     theme2.disconnect();
     cancelAnimationFrame(frame);
     pending.clear();
-    for (const card of document.querySelectorAll(marked)) clear(card);
+    for (const card2 of document.querySelectorAll(marked)) clear(card2);
   });
 }
 
 // source/chat-activity-labels.js
 var commandTools = /* @__PURE__ */ new Set(["terminal", "execute_code"]);
 var skillTools = /* @__PURE__ */ new Set(["skill_view", "skills_list"]);
+var editTools = /* @__PURE__ */ new Set(["write_file", "edit_file", "patch"]);
+var exploreTools = /* @__PURE__ */ new Map([["read_file", "activityRead"], ["search_files", "activitySearch"], ["list_files", "folder"]]);
+var otherTools = /* @__PURE__ */ new Map([
+  ["web_search", { kind: "web-search", icon: "activitySearch" }],
+  ["web_extract", { kind: "web-read", icon: "activityRead" }],
+  ["session_search_recall", { kind: "history", icon: "activitySearch" }],
+  ["vision_analyze", { kind: "image", icon: "activityImage" }]
+]);
+var russianPlurals2 = new Intl.PluralRules("ru");
+var activityList = {
+  ru: new Intl.ListFormat("ru", { type: "conjunction" }),
+  en: new Intl.ListFormat("en", { type: "unit" })
+};
 var chromeTool = /^mcp_(?:chrome(?:_devtools|_extension|_internal|_dev|devtools)?|chrome-devtools)_/;
 var browserTool = /^mcp_browser(?:_use)?_/;
 var shortTitle = (value) => {
@@ -10821,58 +10906,119 @@ function siteOrigin(value) {
   }
   return "";
 }
-function describe(part) {
+function describeActivity(part) {
   const name = part.toolName;
-  if (typeof name !== "string" || !commandTools.has(name) && !skillTools.has(name) && !name.startsWith("browser_") && !name.startsWith("mcp_")) return null;
+  if (typeof name !== "string" || !commandTools.has(name) && !skillTools.has(name) && !editTools.has(name) && !exploreTools.has(name) && !otherTools.has(name) && !name.startsWith("browser_") && !name.startsWith("mcp_")) return null;
   const result = object(part.result);
   const args = object(part.args);
   const meta = object(result._meta);
-  const surface3 = object(meta["codex/toolSurface"]);
+  const surface5 = object(meta["codex/toolSurface"]);
   const failed = part.isError || part.interrupted || part.status?.type === "incomplete" || result.isError === true || Boolean(result.error) || result.success === false || commandTools.has(name) && typeof result.exit_code === "number" && result.exit_code !== 0;
   const blocked = part.status?.type === "requires-action";
   const pending = part.result === void 0 && part.completedAt == null;
-  const chrome = chromeTool.test(name) || surface3.kind === "browserUse" && surface3.backend === "chrome";
-  const web = chrome || name.startsWith("browser_") || browserTool.test(name) || surface3.kind === "browserUse";
+  const state = { failed, blocked, pending };
+  const chrome = chromeTool.test(name) || surface5.kind === "browserUse" && surface5.backend === "chrome";
+  const web = chrome || name.startsWith("browser_") || browserTool.test(name) || surface5.kind === "browserUse";
   if (web) {
-    const target = surface3.kind === "browserUse" ? meta.browser_use?.url ?? surface3.screenshot?.pageUrl : void 0;
+    const target2 = surface5.kind === "browserUse" ? meta.browser_use?.url ?? surface5.screenshot?.pageUrl : void 0;
     const navigation = name === "browser_navigate" || chrome && /_(?:new_page|navigate_page)$/.test(name);
-    const origin = !failed && !pending ? siteOrigin(target ?? (navigation ? result.url ?? args.url : void 0)) : "";
+    const origin = !failed && !pending ? siteOrigin(target2 ?? (navigation ? result.url ?? args.url : void 0)) : "";
     const title = /(?:^|_)(?:js|run_code)$/.test(name) ? shortTitle(args.title) : "";
-    return { kind: chrome ? "chrome" : "browser", icon: "activityBrowser", failed, blocked, pending, origin, title };
+    return { ...state, kind: chrome ? "chrome" : "browser", icon: "activityBrowser", origin, title };
   }
-  if (commandTools.has(name)) return { kind: "command", icon: "activityTerminal", failed, blocked, pending };
-  if (skillTools.has(name)) return { kind: "skill", icon: "chatSkill", failed, blocked, pending };
+  if (commandTools.has(name)) {
+    const command2 = args.command ?? args.code;
+    return { ...state, kind: "command", icon: "activityTerminal", command: typeof command2 === "string" ? command2 : "" };
+  }
+  const target = args.path || args.file_path;
+  const path = typeof target === "string" ? target.split(/[\\/]/).filter(Boolean).at(-1) : "";
+  if (editTools.has(name)) {
+    const created = result.created === true || typeof result.diff === "string" && /^--- \/dev\/null\s*$/m.test(result.diff);
+    const reported = [result.files_modified, result.files_created, result.files_deleted].flatMap((paths2) => Array.isArray(paths2) ? paths2.filter((value) => typeof value === "string" && value.trim()) : []);
+    const paths = reported.length ? reported : typeof target === "string" && target.trim() ? [target] : [];
+    return { ...state, kind: "edit", icon: "activityEdit", created, paths };
+  }
+  if (otherTools.has(name)) {
+    return { ...state, ...otherTools.get(name), query: shortTitle(args.query || args.pattern) };
+  }
+  if (exploreTools.has(name)) {
+    return { ...state, kind: "read", icon: exploreTools.get(name), path, query: shortTitle(args.pattern), exploreTool: name };
+  }
+  if (skillTools.has(name)) return { ...state, kind: "skill", icon: "chatSkill" };
   if (name.startsWith("mcp_")) {
     const title = /^mcp_(?:cua_repl|unified_computer_use)_js$/.test(name) ? shortTitle(args.title) : "";
-    return { kind: "integration", icon: "activityIntegration", failed, blocked, pending, title };
+    return { ...state, kind: "integration", icon: "activityIntegration", title };
   }
   return null;
 }
-function activityPresentation(parts, live, russian) {
-  const items2 = parts.map(describe);
+function activityPresentation(parts, live, russian, detail = false, summary2 = false) {
+  const items2 = parts.map((part) => describeActivity(part) ?? (russian && summary2 ? {
+    kind: "integration",
+    icon: "activityIntegration",
+    failed: part.isError || part.interrupted
+  } : null));
   const known = items2.filter(Boolean);
-  if (!known.length || known.some((item) => item.failed || item.blocked)) return null;
-  const primary4 = known.find((item) => item.kind === "browser" || item.kind === "chrome") ?? items2[0];
+  const failed = known.some((item) => item.failed);
+  if (!known.length || known.some((item) => item.blocked) || failed && (!summary2 || !russian)) return null;
+  const primary4 = known.find((item) => item.kind === "edit") ?? known.find((item) => item.kind === "browser" || item.kind === "chrome") ?? items2[0];
   if (!primary4) return null;
   const site = known.find((item) => item.kind === primary4.kind && item.origin)?.origin;
   const fallback = { icon: primary4.icon, site };
-  if (known.length !== items2.length || known.some((item) => item.kind === "skill")) return fallback;
+  if (known.length !== items2.length || (primary4.kind === "skill" || primary4.kind === "image") && known.every((item) => item.kind === primary4.kind)) return fallback;
   const latest = known.at(-1);
   const title = live ? latest.title : known.length === 1 ? primary4.title : "";
   if (title) return { ...fallback, label: title };
   const has = (kind) => known.some((item) => item.kind === kind);
   const commandCount = known.filter((item) => item.kind === "command").length;
   const sourceCount = known.filter((item) => item.kind === "integration").length;
-  const one = (count) => russian ? new Intl.PluralRules("ru").select(count) === "one" : count === 1;
+  const edits = known.filter((item) => item.kind === "edit");
+  const editCount = new Set(edits.flatMap((item) => item.paths.map((path) => path.replaceAll("\\", "/")))).size + edits.filter((item) => !item.paths.length).length;
+  const one = (count) => russian ? russianPlurals2.select(count) === "one" : count === 1;
   const segments = [];
+  if (!live && detail && commandCount === 1 && primary4.command) {
+    return { ...fallback, label: primary4.command };
+  }
+  if (!live && known.length === 1 && commandCount === 1 && primary4.command) {
+    const label4 = russian ? "\u0412\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u0430 \u043A\u043E\u043C\u0430\u043D\u0434\u0430 " : "Ran command ";
+    return { ...fallback, label: label4 + primary4.command };
+  }
+  if (!live && known.length === 1 && primary4.kind === "read") {
+    const label4 = primary4.exploreTool === "search_files" ? russian ? "\u0412\u044B\u043F\u043E\u043B\u043D\u0435\u043D \u043F\u043E\u0438\u0441\u043A" : "Searched for" : primary4.exploreTool === "list_files" ? russian ? "\u041F\u0440\u043E\u0441\u043C\u043E\u0442\u0440\u0435\u043B \u043F\u0430\u043F\u043A\u0443" : "Listed files in" : russian ? "\u041F\u0440\u043E\u0447\u0438\u0442\u0430\u043B" : "Read";
+    const target = primary4.query || primary4.path;
+    const inPath = primary4.exploreTool === "search_files" && primary4.query && primary4.path;
+    if (target) return { ...fallback, label: label4 + " " + target + (inPath ? (russian ? " \u0432 " : " in ") + primary4.path : "") };
+  }
+  if (detail && primary4.kind === "edit") {
+    return { ...fallback, prefix: !live && russian ? primary4.created ? "\u0421\u043E\u0437\u0434\u0430\u043D\u043E " : "\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u043E " : "" };
+  }
   if (live) {
     const working = {
       chrome: russian ? "Chrome \u0432\u044B\u043F\u043E\u043B\u043D\u044F\u0435\u0442 \u043A\u043E\u043C\u0430\u043D\u0434\u044B" : "Using Chrome",
       browser: russian ? "\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442 \u0431\u0440\u0430\u0443\u0437\u0435\u0440" : "Using the browser",
       command: russian ? "\u0412\u044B\u043F\u043E\u043B\u043D\u044F\u0435\u0442\u0441\u044F \u043A\u043E\u043C\u0430\u043D\u0434\u0430" : "Running command",
-      integration: russian ? "\u0412\u044B\u0437\u044B\u0432\u0430\u0435\u0442 \u0438\u043D\u0441\u0442\u0440\u0443\u043C\u0435\u043D\u0442" : "Calling a tool"
+      integration: russian ? "\u0412\u044B\u0437\u044B\u0432\u0430\u0435\u0442 \u0438\u043D\u0441\u0442\u0440\u0443\u043C\u0435\u043D\u0442" : "Calling a tool",
+      edit: russian ? "\u0420\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u0443\u0435\u0442 \u0444\u0430\u0439\u043B\u044B" : "Editing files",
+      read: russian ? "\u0427\u0438\u0442\u0430\u0435\u0442 \u0444\u0430\u0439\u043B\u044B" : "Reading files",
+      skill: russian ? "\u0427\u0438\u0442\u0430\u0435\u0442 \u0441\u043A\u0438\u043B\u043B" : "Reading a skill",
+      image: russian ? "\u0421\u043C\u043E\u0442\u0440\u0438\u0442 \u0438\u0437\u043E\u0431\u0440\u0430\u0436\u0435\u043D\u0438\u044F" : "Viewing images",
+      history: russian ? "\u0418\u0449\u0435\u0442 \u0432 \u0438\u0441\u0442\u043E\u0440\u0438\u0438" : "Searching chat history",
+      "web-search": russian ? "\u0418\u0449\u0435\u0442 \u0432 \u0438\u043D\u0442\u0435\u0440\u043D\u0435\u0442\u0435" : "Searching the web",
+      "web-read": russian ? "\u0427\u0438\u0442\u0430\u0435\u0442 \u0441\u0442\u0440\u0430\u043D\u0438\u0446\u044B" : "Reading pages"
     };
     return { ...fallback, label: working[latest.kind] };
+  }
+  if (editCount) {
+    segments.push(russian ? editCount === 1 ? "\u041E\u0442\u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043B \u0444\u0430\u0439\u043B" : "\u041E\u0442\u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u043B \u0444\u0430\u0439\u043B\u044B" : editCount === 1 ? "Edited a file" : "Edited files");
+  }
+  if (has("read")) segments.push(russian ? "\u041F\u0440\u043E\u0447\u0438\u0442\u0430\u043B \u0444\u0430\u0439\u043B\u044B" : "Read files");
+  if (has("skill")) segments.push(russian ? "\u041F\u0440\u043E\u0447\u0438\u0442\u0430\u043B \u0441\u043A\u0438\u043B\u043B" : "Read a skill");
+  if (has("history")) segments.push(russian ? "\u0412\u044B\u043F\u043E\u043B\u043D\u0438\u043B \u043F\u043E\u0438\u0441\u043A \u043F\u043E \u0438\u0441\u0442\u043E\u0440\u0438\u0438" : "Searched chat history");
+  if (has("web-search")) segments.push(russian ? "\u0412\u044B\u043F\u043E\u043B\u043D\u0438\u043B \u043F\u043E\u0438\u0441\u043A \u0432 \u0438\u043D\u0442\u0435\u0440\u043D\u0435\u0442\u0435" : "Searched the web");
+  if (has("web-read")) segments.push(russian ? "\u041F\u0440\u043E\u0447\u0438\u0442\u0430\u043B \u0441\u0442\u0440\u0430\u043D\u0438\u0446\u044B" : "Read pages");
+  if (has("image")) {
+    const count = known.filter((item) => item.kind === "image").length;
+    const noun = { one: "\u0438\u0437\u043E\u0431\u0440\u0430\u0436\u0435\u043D\u0438\u0435", few: "\u0438\u0437\u043E\u0431\u0440\u0430\u0436\u0435\u043D\u0438\u044F", many: "\u0438\u0437\u043E\u0431\u0440\u0430\u0436\u0435\u043D\u0438\u0439" }[russianPlurals2.select(count)];
+    segments.push(russian ? "\u041F\u0440\u043E\u0441\u043C\u043E\u0442\u0440\u0435\u043D\u043E " + (count === 1 ? "\u0438\u0437\u043E\u0431\u0440\u0430\u0436\u0435\u043D\u0438\u0435" : count + " " + noun) : count === 1 ? "Viewed an image" : "Viewed " + count + " images");
   }
   if (has("browser")) {
     segments.push(russian ? "\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u043B \u0431\u0440\u0430\u0443\u0437\u0435\u0440" : "Used the browser");
@@ -10882,20 +11028,377 @@ function activityPresentation(parts, live, russian) {
   }
   if (sourceCount) segments.push(russian ? sourceCount === 1 ? "\u0412\u044B\u0437\u0432\u0430\u043B \u0438\u043D\u0441\u0442\u0440\u0443\u043C\u0435\u043D\u0442" : "\u0412\u044B\u0437\u0432\u0430\u043B \u0438\u043D\u0441\u0442\u0440\u0443\u043C\u0435\u043D\u0442\u044B" : sourceCount === 1 ? "Called a tool" : "Called tools");
   if (commandCount) segments.push(russian ? one(commandCount) ? "\u0412\u044B\u043F\u043E\u043B\u043D\u0438\u043B \u043A\u043E\u043C\u0430\u043D\u0434\u0443" : "\u0412\u044B\u043F\u043E\u043B\u043D\u0438\u043B \u043A\u043E\u043C\u0430\u043D\u0434\u044B" : one(commandCount) ? "Ran a command" : "Ran commands");
-  const label3 = segments.map(
+  const ordered2 = segments.map(
     (text, index) => index && !text.startsWith("Chrome") ? text[0].toLowerCase() + text.slice(1) : text
-  ).join(russian ? " \u0438 " : " and ");
-  return { ...fallback, label: label3 };
+  );
+  const label3 = editCount || has("read") ? activityList[russian ? "ru" : "en"].format(ordered2) : ordered2.join(russian ? " \u0438 " : " and ");
+  return { ...fallback, label: failed ? label3 + " \xB7 \u0435\u0441\u0442\u044C \u043E\u0448\u0438\u0431\u043A\u0438" : label3 };
+}
+
+// source/chat-activity-details.js
+var terminal = "data-hcv-terminal-details";
+var command = "data-hcv-terminal-command";
+var header = "data-hcv-terminal-header";
+var status = "data-hcv-terminal-status";
+var native = "data-hcv-tool-native-caption";
+var caption = "data-hcv-tool-caption";
+var sectionLabels = /* @__PURE__ */ new Map([
+  ["Search", "\u041F\u043E\u0438\u0441\u043A"],
+  ["Search results", "\u0420\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442\u044B \u043F\u043E\u0438\u0441\u043A\u0430"],
+  ["File content", "\u0421\u043E\u0434\u0435\u0440\u0436\u0438\u043C\u043E\u0435 \u0444\u0430\u0439\u043B\u0430"],
+  ["stdout", "\u0421\u0442\u0430\u043D\u0434\u0430\u0440\u0442\u043D\u044B\u0439 \u0432\u044B\u0432\u043E\u0434"],
+  ["stderr", "\u041F\u043E\u0442\u043E\u043A \u043E\u0448\u0438\u0431\u043E\u043A"],
+  ["Output", "\u0412\u044B\u0432\u043E\u0434"],
+  ["Arguments", "\u0410\u0440\u0433\u0443\u043C\u0435\u043D\u0442\u044B"],
+  ["Result", "\u0420\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442"]
+]);
+function setCaption(element7, value) {
+  const current = element7.nextElementSibling;
+  const old = current?.hasAttribute(caption) ? current : null;
+  if (!value) {
+    element7.removeAttribute(native);
+    old?.remove();
+    return;
+  }
+  const label3 = old ?? document.createElement(element7.localName);
+  label3.setAttribute(caption, "");
+  label3.className = element7.className;
+  if (label3.textContent !== value) label3.textContent = value;
+  if (!old) element7.after(label3);
+  element7.setAttribute(native, "");
+}
+function updateActivityDetails(row5, tool, russian) {
+  if (!row5.hasAttribute("data-tool-open")) return;
+  const body2 = row5.children[1];
+  if (!body2?.matches("div")) return;
+  for (const label3 of body2.querySelectorAll('p[class~="tracking-[0.08em]"], p[class~="wrap-anywhere"] > span.font-medium:first-child')) {
+    if (!label3.hasAttribute(caption)) setCaption(label3, russian && sectionLabels.get(label3.textContent.trim()));
+  }
+  if (!["terminal", "read_file"].includes(tool)) return;
+  if (tool === "read_file") {
+    body2.setAttribute(terminal, "file");
+    return;
+  }
+  const transcript4 = body2.querySelector(":scope > div.font-mono:has(> code.min-w-0)");
+  if (!transcript4) return;
+  body2.setAttribute(terminal, "shell");
+  transcript4.setAttribute(command, "");
+  let title = body2.querySelector(`:scope > [${header}]`);
+  if (!title) {
+    title = document.createElement("div");
+    title.setAttribute(header, "");
+    body2.prepend(title);
+  }
+  const titleText = russian ? "\u0422\u0435\u0440\u043C\u0438\u043D\u0430\u043B" : "Shell";
+  if (title.textContent !== titleText) title.textContent = titleText;
+  const exit = transcript4.querySelector(":scope > span.tabular-nums");
+  const code = /^exit (-?\d+)$/.exec(exit?.textContent.trim() ?? "")?.[1];
+  if (code === void 0) return;
+  setCaption(exit, code === "0" ? russian ? "\u0423\u0441\u043F\u0435\u0445" : "Success" : (russian ? "\u041A\u043E\u0434 \u0432\u044B\u0445\u043E\u0434\u0430 " : "Exit code ") + code);
+  exit.nextElementSibling.setAttribute(status, code === "0" ? "success" : "error");
+}
+function clearActivityDetails() {
+  for (const name of [terminal, command, native]) {
+    for (const node3 of document.querySelectorAll(`[${name}]`)) node3.removeAttribute(name);
+  }
+  for (const node3 of document.querySelectorAll(`[${header}], [${caption}]`)) node3.remove();
+}
+function registerActivityDetails(ctx, chat3, output) {
+  const shell = `${output}[${terminal}="shell"]`;
+  const shellRow = `${chat3} [data-tool-open][data-tool-row]:has(> [${terminal}="shell"])`;
+  const file = `${output}[${terminal}="file"]`;
+  const size = "calc(var(--hcv-activity-font) - 1px)";
+  mountCSS(ctx, "data-hcv-chat-activity-detail-style", `
+@media (forced-colors: none) {
+  ${chat3} [${native}] { display: none; }
+  ${file} pre { scrollbar-width: thin; }
+  ${shellRow} { position: relative; }
+  ${shellRow}::after {
+    content: ''; position: absolute; pointer-events: none;
+    inset-block: calc(var(--hcv-activity-line) + 12px) 0; inset-inline-start: 8px;
+    border-inline-start: 1px solid var(--hcv-activity-border);
+  }
+  ${shell} {
+    grid-template-columns: minmax(0, 1fr);
+    inline-size: calc(100% - 24px);
+    margin-block-start: 12px; margin-inline-start: 24px;
+    padding: 0; gap: 0; border-radius: 10px;
+    background: light-dark(#f5f5f5, #2a2a2a);
+    border: 1px solid light-dark(#d9d9d9, #4c4c4c);
+  }
+  @supports (corner-shape: superellipse(1.5)) {
+    ${shell} { border-radius: 12.5px; corner-shape: superellipse(1.5); }
+  }
+  ${shell} > [${header}] {
+    grid-row: 1; padding: 4px 8px;
+    font: 430 13px/1.5 ${codexReference.font}; color: var(--hcv-activity-text);
+  }
+  ${shell} > button { grid-row: 1; inset-block-start: 4px; inset-inline-end: 8px; }
+  ${shell} > [${command}] { display: contents; }
+  ${shell} > [${command}] > code {
+    grid-row: 2; display: block; max-block-size: calc(${size} * 1.5 * 2 + 8px);
+    padding: 8px 32px 0 8px; overflow: auto; scrollbar-width: thin;
+    font-size: ${size}; line-height: 1.5; color: var(--hcv-chat-prose, var(--hcv-text));
+  }
+  ${shell} > [${command}] > code > span { color: inherit; }
+  ${shell} > div:has(pre) {
+    grid-row: 3; min-inline-size: 0; max-block-size: 144px; overflow: auto;
+    scrollbar-width: thin;
+  }
+  ${shell}:has(> button) > div pre, ${shell} > div pre {
+    max-block-size: none; padding: 8px; background: transparent; border-radius: 0;
+    overflow: visible; white-space: pre; overflow-wrap: normal;
+    font-size: ${size}; font-weight: 500; line-height: 1.5;
+  }
+  ${shell} [${status}] {
+    grid-row: 4; justify-self: end; display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 10px 4px; border: 0; background: transparent;
+    color: var(--hcv-activity-text);
+    font: 430 var(--hcv-activity-font)/1.5 ${codexReference.font};
+  }
+  ${shell} [${status}="success"]::before {
+    content: ''; inline-size: 12px; block-size: 12px;
+    background: currentColor; mask: ${codexMask("shellSuccess")} center / contain no-repeat;
+  }
+  @media (prefers-contrast: more) {
+    ${shell} { border-color: currentColor; }
+  }
+}
+  `, { surface: '[data-slot="tool-block"]', retainAcrossChatTabs: true });
+}
+
+// source/chat-disclosure-motion.js
+var disclosureMotion = "data-hcv-activity-motion";
+var marker2 = disclosureMotion;
+var closing = "closing";
+var duration3 = 300;
+var flat = {
+  blockSize: "0px",
+  paddingBlockStart: "0px",
+  paddingBlockEnd: "0px",
+  borderBlockStartWidth: "0px",
+  borderBlockEndWidth: "0px",
+  marginBlockStart: "0px",
+  marginBlockEnd: "0px",
+  opacity: "0"
+};
+function frameOf(panel2) {
+  const css2 = getComputedStyle(panel2);
+  return { ...Object.fromEntries(Object.keys(flat).map((property) => [property, css2[property]])), translate: css2.translate };
+}
+function registerDisclosureMotion(ctx, enabled, getPanels, prepare) {
+  const preference = matchMedia("(prefers-reduced-motion: no-preference)");
+  const current = /* @__PURE__ */ new Map();
+  function clear(button5, state) {
+    current.delete(button5);
+    cancelAnimationFrame(state.frame);
+    button5.removeAttribute(marker2);
+    for (const { panel: panel2, animation } of state.panels) {
+      animation.cancel();
+      panel2.removeAttribute(marker2);
+    }
+  }
+  function play(button5, panels, phase, from) {
+    const turn = button5.hasAttribute("data-hcv-turn-line");
+    panels = panels.filter((panel2) => panel2.getClientRects().length > 0);
+    const ends = panels.map((panel2) => frameOf(panel2));
+    const state = { phase, panels: [], frame: 0 };
+    current.set(button5, state);
+    button5.setAttribute(marker2, phase);
+    for (const [index, panel2] of panels.entries()) {
+      panel2.setAttribute(marker2, phase);
+      const end = ends[index];
+      const folded = turn ? { ...flat, translate: "0 -8px" } : flat;
+      const frames = phase === closing ? [from?.get(panel2) ?? end, folded] : [from?.get(panel2) ?? folded, end];
+      const quickExit = turn && phase === closing;
+      const animation = panel2.animate(frames, {
+        duration: quickExit ? 150 : duration3,
+        easing: quickExit ? "cubic-bezier(.23,1,.32,1)" : codexReference.enter,
+        fill: "both"
+      });
+      state.panels.push({ panel: panel2, animation });
+    }
+    void Promise.all(state.panels.map(({ animation }) => animation.finished)).then(() => {
+      if (current.get(button5) !== state) return;
+      if (phase === closing && button5.isConnected && button5.getAttribute("aria-expanded") === "true") button5.click();
+      clear(button5, state);
+    }, () => {
+    });
+  }
+  ctx.addEventListener(document, "click", (event) => {
+    if (!event.isTrusted || !enabled() || !preference.matches || !(event.target instanceof Element)) return;
+    const button5 = event.target.closest("button[aria-expanded]:not(:disabled)");
+    if (!button5 || button5.closest("[hidden], [data-pane-hidden], [inert]")) return;
+    const panels = getPanels(button5);
+    if (!panels) return;
+    const previous = current.get(button5);
+    const from = previous?.panels.length ? new Map(previous.panels.map(({ panel: panel2 }) => [panel2, frameOf(panel2)])) : null;
+    if (previous) clear(button5, previous);
+    const reverse = previous?.phase === closing;
+    if (button5.getAttribute("aria-expanded") === "true" && panels.length) {
+      for (const [child, state2] of current) if (panels.some((panel2) => panel2.contains(child))) clear(child, state2);
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      play(button5, panels, reverse ? "opening" : closing, from);
+      return;
+    }
+    const state = { phase: "opening", panels: [], frame: 0 };
+    current.set(button5, state);
+    state.frame = requestAnimationFrame(() => {
+      current.delete(button5);
+      if (!enabled() || !preference.matches || !button5.isConnected || button5.getAttribute("aria-expanded") !== "true") return;
+      prepare();
+      const mounted = getPanels(button5);
+      if (mounted?.length) play(button5, mounted, "opening");
+    });
+  }, true);
+  function finish() {
+    for (const [button5, state] of current) {
+      if (state.phase === closing && button5.isConnected && button5.getAttribute("aria-expanded") === "true") button5.click();
+      clear(button5, state);
+    }
+  }
+  ctx.addEventListener(preference, "change", finish);
+  const observer = new MutationObserver(() => {
+    if (!enabled()) finish();
+  });
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-hermes-theme"] });
+  ctx.onDispose(() => {
+    observer.disconnect();
+    finish();
+  });
+}
+
+// source/chat-activity-groups.js
+var activityGroup = "data-hcv-activity-group";
+var activityMember = "data-hcv-activity-member";
+var nativeSummary = ":scope > [data-tool-summary] button[aria-expanded]";
+var ordinaryKinds = /* @__PURE__ */ new Set(["edit", "read", "command"]);
+function activityGroups(partsFor) {
+  const byMessage = /* @__PURE__ */ new Map();
+  const groupPanels = /* @__PURE__ */ new WeakMap();
+  function setNativeOpen(state, button5, open) {
+    if (!button5 || button5.disabled) return;
+    const value = String(open);
+    const current = button5.getAttribute("aria-expanded");
+    if (current == null || current === value) return;
+    let change = state.changed.get(button5);
+    if (!change) {
+      change = { original: current, touched: false };
+      change.onClick = (event) => {
+        if (event.isTrusted || button5.getAttribute(disclosureMotion) === "closing") change.touched = true;
+      };
+      state.changed.set(button5, change);
+      button5.addEventListener("click", change.onClick, true);
+    }
+    change.expected = value;
+    button5.click();
+  }
+  function setOpen(state, open) {
+    state.button.setAttribute("aria-expanded", String(open));
+    if (open && state.initiallyClosed) {
+      for (const node3 of state.nodes) {
+        if (node3.matches("[data-file-edit]")) setNativeOpen(state, node3.querySelector("button[aria-expanded]"), false);
+      }
+      state.initiallyClosed = false;
+    }
+    for (const [index, node3] of state.nodes.entries()) {
+      node3.setAttribute(activityMember, open ? index === 0 ? "first" : "next" : "closed");
+      setNativeOpen(state, node3.querySelector(nativeSummary), open);
+    }
+  }
+  function remove(state) {
+    state.header.remove();
+    for (const node3 of state.nodes) node3.removeAttribute(activityMember);
+    for (const [button5, change] of state.changed) {
+      button5.removeEventListener("click", change.onClick, true);
+      if (button5.isConnected && !change.touched && change.original !== change.expected && button5.getAttribute("aria-expanded") === change.expected) button5.click();
+    }
+  }
+  function create(nodes) {
+    const header2 = document.createElement("div");
+    header2.setAttribute(activityGroup, "");
+    header2.setAttribute("data-conversation-scaffold", "");
+    const button5 = document.createElement("button");
+    button5.type = "button";
+    const title = document.createElement("span");
+    const label3 = document.createElement("span");
+    const caret = document.createElement("span");
+    caret.setAttribute("aria-hidden", "true");
+    title.append(label3);
+    button5.append(title, caret);
+    header2.append(button5);
+    const wasOpen = nodes.some((node3) => node3.contains(document.activeElement) || node3.querySelector('[data-tool-summary] button[aria-expanded="true"]'));
+    const state = { header: header2, button: button5, label: label3, nodes, initiallyClosed: !wasOpen, changed: /* @__PURE__ */ new Map() };
+    groupPanels.set(button5, nodes);
+    nodes[0].before(header2);
+    button5.addEventListener("click", () => setOpen(state, button5.getAttribute("aria-expanded") !== "true"));
+    setOpen(state, wasOpen);
+    return state;
+  }
+  function sync(message, russian) {
+    const previous = byMessage.get(message) ?? [];
+    if (!previous.length && !message.querySelector(":scope > [data-tool-row]")) return;
+    const ranges = [];
+    let entries = [];
+    function settle() {
+      const items2 = entries;
+      entries = [];
+      if (items2.length < 2 || !items2.some((item) => item.edit)) return;
+      const nodes = items2.map((item) => item.node);
+      const view = activityPresentation(items2.flatMap((item) => item.parts), false, russian);
+      if (!view?.label) return;
+      const state = previous.find((item) => item.nodes.length === nodes.length && item.nodes.every((node3, index) => node3 === nodes[index]));
+      ranges.push({ state, nodes, view });
+    }
+    for (const node3 of message.children) {
+      if (node3.hasAttribute(activityGroup)) continue;
+      const parts = partsFor(node3);
+      const entriesForNode = parts.map(describeActivity);
+      if (!parts.length || node3.matches('[aria-hidden="true"], [inert]') || entriesForNode.some((item) => !item || !ordinaryKinds.has(item.kind) || item.pending || item.failed || item.blocked)) {
+        settle();
+        continue;
+      }
+      entries.push({ node: node3, parts, edit: entriesForNode.some((item) => item.kind === "edit") });
+    }
+    for (const state of previous) if (!ranges.some((range2) => range2.state === state)) remove(state);
+    const next = ranges.map(({ state, nodes, view }) => {
+      const group2 = state ?? create(nodes);
+      group2.header.setAttribute(activityGroup, view.icon);
+      if (group2.label.textContent !== view.label) group2.label.textContent = view.label;
+      return group2;
+    });
+    if (next.length) byMessage.set(message, next);
+    else byMessage.delete(message);
+  }
+  function prune() {
+    for (const [message, states] of byMessage) {
+      if (message.isConnected) continue;
+      for (const state of states) remove(state);
+      byMessage.delete(message);
+    }
+  }
+  function clear() {
+    for (const states of byMessage.values()) for (const state of states) remove(state);
+    byMessage.clear();
+  }
+  return { sync, prune, clear, panels: (button5) => groupPanels.get(button5) };
 }
 
 // source/chat-activity.js
-var surface2 = "[data-chat-surface]:not([data-hud-shell] *)";
+var surface3 = "[data-chat-surface]:not([data-hud-shell] *)";
 var rowSelector2 = '[data-tool-row][data-slot="tool-block"]';
 var summarySelector = "[data-tool-group] > [data-tool-summary]";
 var activitySelector = `${rowSelector2}, ${summarySelector}`;
+var messageContent = '[data-slot="aui_assistant-message-content"]';
+var thinkingSelector = '[data-slot="aui_thinking-disclosure"]';
+var thinkingBody = '[data-slot="aui_thinking-body"]';
+var receiptSelector = '[data-slot="aui_system-message-root"] [data-slot="aui_background-result"]';
+var labelSelector = `${activitySelector}, ${thinkingSelector}, ${receiptSelector}`;
 var iconAttribute = "data-hcv-activity-icon";
 var nativeLabel = "data-hcv-activity-native-label";
 var customLabel = "data-hcv-activity-label";
+var editPrefix = "data-hcv-activity-edit-prefix";
 var favicon = "data-hcv-activity-favicon";
 var toolIcons = /* @__PURE__ */ new Map([
   ["terminal", "activityTerminal"],
@@ -10945,21 +11448,77 @@ function runParts(summary2) {
   }
   return [];
 }
+var rowProps = (row5) => committedFiber(row5)?.return?.memoizedProps;
+var directSummary = ":scope > [data-tool-summary]";
+function partsForBlock(block2) {
+  if (block2.matches(rowSelector2)) {
+    const part = rowProps(block2)?.part;
+    return part?.toolName ? [part] : [];
+  }
+  if (!block2.matches("[data-tool-group]")) return [];
+  const summary2 = block2.querySelector(directSummary);
+  if (summary2) return rowProps(summary2)?.live ? [] : runParts(summary2);
+  const row5 = block2.querySelector(`:scope > div > ${rowSelector2}`);
+  return row5 ? partsForBlock(row5) : [];
+}
 var findTitle = (entry, summary2) => (summary2 ? entry : entry.firstElementChild)?.querySelector(":scope > div > button > span:first-child > span:first-child");
+function thoughtLabel(text) {
+  if (text === "Thinking") return "\u0414\u0443\u043C\u0430\u044E";
+  if (["\u041F\u043E\u043C\u044B\u0441\u043B\u0438\u043B", "\u041A\u0440\u0430\u0442\u043A\u043E \u043F\u043E\u0434\u0443\u043C\u0430\u043B", "Thought", "Thought briefly"].includes(text)) return "\u0414\u0443\u043C\u0430\u043B";
+  if (text.startsWith("\u0414\u0443\u043C\u0430\u043B ") && !text.startsWith("\u0414\u0443\u043C\u0430\u043B \u043D\u0430 \u043F\u0440\u043E\u0442\u044F\u0436\u0435\u043D\u0438\u0438 ")) {
+    return "\u0414\u0443\u043C\u0430\u043B \u043D\u0430 \u043F\u0440\u043E\u0442\u044F\u0436\u0435\u043D\u0438\u0438 " + text.slice("\u0414\u0443\u043C\u0430\u043B ".length);
+  }
+  return "";
+}
+var receiptStatuses = /* @__PURE__ */ new Map([
+  ["Completed", ["\u0437\u0430\u0432\u0435\u0440\u0448\u0438\u043B \u0440\u0430\u0431\u043E\u0442\u0443", "\u0437\u0430\u0432\u0435\u0440\u0448\u0438\u043B\u0438 \u0440\u0430\u0431\u043E\u0442\u0443"]],
+  ["Finished with Issues", ["\u0437\u0430\u0432\u0435\u0440\u0448\u0438\u043B \u0440\u0430\u0431\u043E\u0442\u0443 \u0441 \u043E\u0448\u0438\u0431\u043A\u0430\u043C\u0438", "\u0437\u0430\u0432\u0435\u0440\u0448\u0438\u043B\u0438 \u0440\u0430\u0431\u043E\u0442\u0443 \u0441 \u043E\u0448\u0438\u0431\u043A\u0430\u043C\u0438"]],
+  ["Failed", ["\u0437\u0430\u0432\u0435\u0440\u0448\u0438\u043B \u0440\u0430\u0431\u043E\u0442\u0443 \u0441 \u043E\u0448\u0438\u0431\u043A\u043E\u0439", "\u0437\u0430\u0432\u0435\u0440\u0448\u0438\u043B\u0438 \u0440\u0430\u0431\u043E\u0442\u0443 \u0441 \u043E\u0448\u0438\u0431\u043A\u0430\u043C\u0438"]],
+  ["Incomplete", ["\u043D\u0435 \u0437\u0430\u0432\u0435\u0440\u0448\u0438\u043B \u0440\u0430\u0431\u043E\u0442\u0443", "\u043D\u0435 \u0437\u0430\u0432\u0435\u0440\u0448\u0438\u043B\u0438 \u0440\u0430\u0431\u043E\u0442\u0443"]],
+  ["Interrupted", ["\u043F\u0440\u0435\u0440\u0432\u0430\u043B \u0440\u0430\u0431\u043E\u0442\u0443", "\u043F\u0440\u0435\u0440\u0432\u0430\u043B\u0438 \u0440\u0430\u0431\u043E\u0442\u0443"]],
+  ["Cancelled", ["\u043E\u0442\u043C\u0435\u043D\u0438\u043B \u0437\u0430\u0434\u0430\u0447\u0443", "\u043E\u0442\u043C\u0435\u043D\u0438\u043B\u0438 \u0437\u0430\u0434\u0430\u0447\u0438"]],
+  ["Timed Out", ["\u043D\u0435 \u0443\u043B\u043E\u0436\u0438\u043B\u0441\u044F \u0432\u043E \u0432\u0440\u0435\u043C\u044F", "\u043D\u0435 \u0443\u043B\u043E\u0436\u0438\u043B\u0438\u0441\u044C \u0432\u043E \u0432\u0440\u0435\u043C\u044F"]],
+  ["Stalled", ["\u043E\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u043B\u0441\u044F", "\u043E\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u043B\u0438\u0441\u044C"]]
+]);
+function receiptLabel(text) {
+  const match = /^Subagent (Task|Tasks) ([^:]+): (.+)$/.exec(text);
+  if (!match) return "";
+  const [, kind, outcome, goal] = match;
+  const plural = kind === "Tasks";
+  const target = plural ? goal.replace(/ \((\d+) tasks\)$/, " ($1)") : goal;
+  if (outcome === "Unknown") return (plural ? "\u0421\u0442\u0430\u0442\u0443\u0441 \u0441\u0443\u0431\u0430\u0433\u0435\u043D\u0442\u043E\u0432" : "\u0421\u0442\u0430\u0442\u0443\u0441 \u0441\u0443\u0431\u0430\u0433\u0435\u043D\u0442\u0430") + " \u043D\u0435\u0438\u0437\u0432\u0435\u0441\u0442\u0435\u043D \xB7 " + target;
+  const status2 = receiptStatuses.get(outcome)?.[Number(plural)];
+  if (!status2) return "";
+  const subject = plural ? "\u0421\u0443\u0431\u0430\u0433\u0435\u043D\u0442\u044B" : "\u0421\u0443\u0431\u0430\u0433\u0435\u043D\u0442";
+  return subject + " " + status2 + " \xB7 " + target;
+}
 function registerChatActivity(ctx, active2) {
-  const chat3 = `${active2} ${surface2}`;
-  const row4 = `${chat3} ${rowSelector2}`;
+  const chat3 = `${active2} ${surface3}`;
+  const row5 = `${chat3} ${rowSelector2}`;
   const summary2 = `${chat3} ${summarySelector}`;
   const group2 = `${chat3} [data-tool-group][data-slot="tool-block"]`;
-  const toggle2 = `:is(${row4} > :first-child, ${summary2}) > div > button`;
+  const toggle2 = `:is(${row5} > :first-child, ${summary2}) > div > button`;
   const title = `${toggle2} > span:first-child > span:first-child`;
   const glyph3 = `${title} > span:first-child:has(> :is(svg, .codicon, [role="status"]))`;
-  const caret = `${toggle2}[aria-expanded] > span:nth-child(2) > .codicon-chevron-right`;
-  const output = `${row4}[data-tool-open]:not([data-file-edit]) > :nth-child(2)`;
+  const thinking = `${chat3} ${thinkingSelector}`;
+  const receipt = `${chat3} ${receiptSelector}`;
+  const thoughtToggle = `${thinking} > div:first-child > button`;
+  const receiptToggle = `${receipt} > [data-conversation-scaffold] > div > button`;
+  const overall = `${chat3} [${activityGroup}]`;
+  const overallToggle = `${overall} > button`;
+  const turnToggle = `${chat3} button[data-hcv-turn-line]`;
+  const controls2 = `:is(${toggle2}, ${thoughtToggle}, ${receiptToggle}, ${overallToggle})`;
+  const caretBox = `${controls2}[aria-expanded] > span:nth-child(2)`;
+  const caret = `:is(${caretBox} > .codicon-chevron-right, ${overallToggle} > span:nth-child(2))`;
+  const motionPanel = `${chat3} :not(button)[${disclosureMotion}]`;
+  const children = `${summary2}:has(button[aria-expanded="true"]) + div:not([data-tool-ticker])`;
+  const clusterMember = `${chat3} [${activityMember}]:not([${activityMember}="closed"])`;
+  const clusterChildren = `${clusterMember}[data-tool-group] > [data-tool-summary]:has(button[aria-expanded="true"]) + div:not([data-tool-ticker])`;
+  const output = `${row5}[data-tool-open]:not([data-file-edit]) > :nth-child(2)`;
   const preview3 = `${output} > div:has(> [data-slot="aui_markdown-image"])`;
   const thumb2 = `${preview3} [data-slot="aui_markdown-image"]:has(img)`;
-  const copy6 = `${output} > button[class~="group-hover/tool-block:opacity-100"]`;
-  const icons2 = [.../* @__PURE__ */ new Set([...toolIcons.values(), "activityIntegration", "activityBrowser", "chatSkill"])];
+  const copy7 = `${output} > button[class~="group-hover/tool-block:opacity-100"]`;
+  const icons3 = [.../* @__PURE__ */ new Set([...toolIcons.values(), "activityIntegration", "activityBrowser", "chatSkill"])];
   const style = document.createElement("style");
   style.setAttribute("data-hcv-chat-activity-style", "");
   style.textContent = `
@@ -10969,9 +11528,10 @@ function registerChatActivity(ctx, active2) {
     --hcv-activity-glyph: color-mix(in oklab, var(--hcv-text) 60%, transparent);
     --hcv-activity-border: light-dark(#0d0d0d1a, #ffffff1f);
     --hcv-activity-font: var(--codex-chat-font-size, 14px);
+    --hcv-activity-line: calc(var(--hcv-activity-font) * 1.5);
     --hcv-activity-mono: ui-monospace, "SFMono-Regular", "SF Mono", menlo, consolas, "Liberation Mono", monospace;
   }
-  :is(${row4}, ${summary2}) {
+  :is(${row5}, ${summary2}) {
     --conversation-tool-font-size: var(--hcv-activity-font);
     --conversation-scaffold-text: var(--hcv-activity-text);
     --conversation-scaffold-meta: var(--hcv-activity-text);
@@ -10981,51 +11541,106 @@ function registerChatActivity(ctx, active2) {
     font-weight: 430;
     line-height: 1.5;
   }
-  ${row4}:not([data-file-edit]), ${row4}:not([data-file-edit]) > :first-child {
+  ${row5}:not([data-file-edit]), ${row5}:not([data-file-edit]) > :first-child {
     border: 0;
     border-radius: 0;
     background: transparent;
     padding: 0;
   }
-  ${group2}, ${group2} > div:has(> ${rowSelector2}) { --tool-row-gap: 4px; }
-  ${summary2}:has(button[aria-expanded="true"]) + div:not([data-tool-ticker]) {
-    margin-block-start: 4px;
-    margin-inline-start: 8px;
-    padding-inline-start: 16px;
+  ${chat3} ${messageContent} { --scaffold-block-gap: 12px; }
+  ${group2} { --tool-row-gap: 0px; }
+  ${children} {
+    position: relative; gap: 12px;
+    padding-block-start: 12px; padding-inline-start: 24px;
+  }
+  ${children}::before, ${clusterMember}::before {
+    content: ""; position: absolute; pointer-events: none;
+    inset-block: 12px 0; inset-inline-start: 8px;
     border-inline-start: 1px solid var(--hcv-activity-border);
   }
-  ${toggle2} { align-items: start; gap: 4px; padding: 0; border-radius: 6px; }
-  ${toggle2}:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }
+  ${controls2} { align-items: center; gap: 4px; padding: 0; border-radius: 6px; }
+  ${controls2}:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }
   ${toggle2}:not(:disabled):is(:hover, :focus-visible) { --conversation-scaffold-text: var(--hcv-text); }
   ${title} { gap: 8px; }
   ${glyph3} { inline-size: 16px; block-size: 16px; color: var(--hcv-activity-glyph); }
-  ${title} > [${nativeLabel}] { display: none; }
+  ${chat3} [${nativeLabel}] { display: none; }
   ${title} > [${customLabel}] {
     display: block; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     font-size: var(--hcv-activity-font); line-height: 1.5; color: var(--conversation-scaffold-text);
+  }
+  ${title} > [${editPrefix}]::before { content: attr(${editPrefix}); }
+  :is(${thoughtToggle}, ${receiptToggle}, ${overallToggle}) {
+    --conversation-tool-font-size: var(--hcv-activity-font);
+    --conversation-line-height: var(--hcv-activity-line);
+    font: 430 var(--hcv-activity-font)/var(--hcv-activity-line) ${codexReference.font};
+  }
+  ${thinking} { opacity: 1; }
+  ${thoughtToggle} { --conversation-scaffold-text: color-mix(in oklab, var(--hcv-chat-prose, var(--hcv-text)) 30%, transparent); }
+  ${thoughtToggle}:is(:hover, :focus-visible) {
+    --conversation-scaffold-text: var(--hcv-chat-prose, var(--hcv-text)) !important;
+  }
+  ${receipt} { --conversation-scaffold-text: var(--hcv-activity-text); }
+  ${receipt} > [data-conversation-scaffold] { opacity: 1; }
+  :is(${thoughtToggle}, ${receiptToggle}) [${customLabel}] {
+    min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    color: var(--conversation-scaffold-text);
   }
   ${title} > img[${favicon}] {
     inline-size: 16px; block-size: 16px; flex: none; border-radius: 4px; object-fit: contain;
   }
   ${title}:has(> img[${favicon}]) > span:first-of-type:has(> :is(svg[aria-hidden="true"], .codicon)) { display: none; }
   ${glyph3} > :is(svg, .codicon):not([aria-label]) { color: inherit; }
-  ${caret} { inline-size: 12px !important; block-size: 12px !important; color: var(--hcv-activity-glyph); }
-  ${codexIconRules(caret, "right")}
-  ${toggle2}[aria-expanded="true"] > span:nth-child(2) { opacity: 1; }
-  ${icons2.map((icon8) => `
-    ${chat3} [${iconAttribute}="${icon8}"] { --hcv-activity-icon: ${codexMask(icon8)}; }
+  ${caretBox} { opacity: 0; flex: none; }
+  ${controls2}[aria-expanded="true"]:not([${disclosureMotion}="closing"]) > span:nth-child(2),
+  ${controls2}[aria-expanded]:is(:hover, :focus-visible) > span:nth-child(2) { opacity: 1; }
+  ${controls2}[aria-expanded="true"]:not([${disclosureMotion}="closing"]) { --hcv-arrow-angle: 90deg; }
+  ${caret} {
+    inline-size: 14px !important; block-size: 14px !important; color: var(--hcv-activity-glyph);
+    rotate: none; transform: rotate(var(--hcv-arrow-angle, 0deg));
+  }
+  ${thoughtToggle}[aria-expanded] > span:nth-child(2) > .codicon-chevron-right { color: var(--hcv-activity-text); }
+  ${thoughtToggle}:focus-visible > span:nth-child(2) > .codicon-chevron-right { color: var(--hcv-chat-prose, var(--hcv-text)); }
+  ${codexIconRules(caret, "turnDisclosure")}
+  ${turnToggle}[${disclosureMotion}="closing"][aria-expanded="true"]::after { transform: rotate(0deg); }
+  ${motionPanel} { box-sizing: border-box; min-block-size: 0; overflow: hidden; }
+  ${motionPanel}[${disclosureMotion}="closing"] { pointer-events: none; }
+  ${overall} { opacity: 1; color: var(--hcv-activity-text); }
+  ${overall}:not(:first-child) { margin-block-start: 12px; }
+  ${overallToggle} { display: inline-flex; max-inline-size: 100%; text-align: start; cursor: pointer; }
+  ${overallToggle}:is(:hover, :focus-visible) { color: var(--hcv-text); }
+  ${overallToggle} > span:first-child {
+    display: flex; align-items: center; gap: 8px; min-inline-size: 0; overflow: hidden;
+  }
+  ${overallToggle} > span:first-child > span {
+    min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  ${overallToggle} > span:first-child::before {
+    content: ""; inline-size: 16px; block-size: 16px; flex: none;
+    background: var(--hcv-activity-glyph); mask: var(--hcv-activity-icon) center / contain no-repeat;
+  }
+  ${chat3} [${activityMember}="closed"] { display: none; }
+  ${clusterMember} {
+    position: relative; margin-block: 0 !important;
+    padding-block: 12px 0; padding-inline: 24px 0 !important;
+  }
+  ${clusterMember}[${activityMember}="next"]::before { inset-block-start: 0; }
+  ${clusterMember} > [data-tool-summary]:has(button[aria-expanded="true"]) { display: none; }
+  ${clusterChildren} { padding: 0; }
+  ${clusterChildren}::before { content: none; }
+  ${icons3.map((icon8) => `
+    ${chat3} :is([${iconAttribute}="${icon8}"], [${activityGroup}="${icon8}"]) { --hcv-activity-icon: ${codexMask(icon8)}; }
   `).join("")}
-  ${glyph3}:is(${row4}[${iconAttribute}] *) > :is(svg[aria-hidden="true"], .codicon):not([aria-label]) {
+  ${glyph3}:is(${row5}[${iconAttribute}] *) > :is(svg[aria-hidden="true"], .codicon):not([aria-label]) {
     inline-size: 16px !important;
     block-size: 16px !important;
     background-color: currentColor;
     mask: var(--hcv-activity-icon) center / contain no-repeat;
   }
-  ${glyph3}:is(${row4}[${iconAttribute}] *) > svg[aria-hidden="true"] > *,
-  ${glyph3}:is(${row4}[${iconAttribute}] *) > .codicon:not([aria-label])::before { visibility: hidden; }
+  ${glyph3}:is(${row5}[${iconAttribute}] *) > svg[aria-hidden="true"] > *,
+  ${glyph3}:is(${row5}[${iconAttribute}] *) > .codicon:not([aria-label])::before { visibility: hidden; }
   :is(
     ${title}:is(${summary2}[${iconAttribute}] *),
-    ${title}:is(${row4}[${iconAttribute}] *):not(:has(> span:first-child > :is(svg, .codicon, [role="status"])))
+    ${title}:is(${row5}[${iconAttribute}] *):not(:has(> span:first-child > :is(svg, .codicon, [role="status"])))
   ):not(:has(> img[${favicon}]))::before {
     content: "";
     flex: none;
@@ -11044,17 +11659,17 @@ function registerChatActivity(ctx, active2) {
   }
   ${output}:has(> button) pre, ${output}:has(> button) > .font-mono { padding-inline-end: 36px; }
   ${output} > button { inset-block-start: 4px; inset-inline-end: 8px; color: var(--hcv-activity-text); }
-  /* PuGl in 720744.158c9ed7b0.js uses a hover/focus copy action with duration-basic. */
-  ${codexIconRules(`${copy6} > svg.tabler-icon-copy`, "copy")}
-  ${codexIconRules(`${copy6} > svg.tabler-icon-check`, "messageCopied")}
+  /* PuGl in 461952.bb4069593d.js uses a hover/focus copy action with duration-basic. */
+  ${codexIconRules(`${copy7} > svg.tabler-icon-copy`, "copy")}
+  ${codexIconRules(`${copy7} > svg.tabler-icon-check`, "messageCopied")}
   @media (hover: hover) {
-    ${copy6} { opacity: 0; }
-    ${output}:hover > button[class~="group-hover/tool-block:opacity-100"], ${copy6}:focus-visible { opacity: 1; }
+    ${copy7} { opacity: 0; }
+    ${output}:hover > button[class~="group-hover/tool-block:opacity-100"], ${copy7}:focus-visible { opacity: 1; }
   }
-  @media (hover: none) { ${copy6} { opacity: 1; } }
+  @media (hover: none) { ${copy7} { opacity: 1; } }
   @media (prefers-reduced-motion: no-preference) {
-    ${copy6} { transition: opacity 150ms var(--hcv-ease); }
-    ${caret} { transition: transform 300ms var(--hcv-ease); }
+    ${copy7} { transition: opacity 150ms var(--hcv-ease); }
+    ${caret} { transition: transform 300ms cubic-bezier(.4,0,.2,1); }
   }
   ${preview3} { border: 0; border-radius: 0; }
   ${thumb2} {
@@ -11074,15 +11689,35 @@ function registerChatActivity(ctx, active2) {
     block-size: 24px;
   }
   ${thumb2} :focus-visible, ${thumb2} button:focus-visible > img { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }
-  @media (prefers-reduced-motion: reduce) { :is(${caret}, ${copy6}) { transition: none; } }
+  @media (prefers-reduced-motion: reduce) { :is(${caret}, ${copy7}) { transition: none; } }
 }
 `;
-  mountStyle(ctx, style, { surface: '[data-slot="tool-block"]' });
+  mountStyle(ctx, style, { surface: `[data-slot="tool-block"], ${thinkingSelector}, ${receiptSelector}` });
   const pending = /* @__PURE__ */ new Set();
+  const pendingMessages = /* @__PURE__ */ new Set();
+  const groups2 = activityGroups(partsForBlock);
   const siteEntries = /* @__PURE__ */ new WeakMap();
   const siteIcons = /* @__PURE__ */ new Map();
   const forcedColors = window.matchMedia("(forced-colors: active)");
   const enabled = () => document.documentElement.matches(active2) && !forcedColors.matches;
+  registerDisclosureMotion(ctx, enabled, (button5) => {
+    if (button5.matches(overallToggle)) return groups2.panels(button5);
+    if (button5.matches(turnToggle)) {
+      const response3 = button5.parentElement;
+      return [...response3.querySelectorAll("[data-hcv-turn-step]")].filter((node3) => !node3.parentElement.closest("[data-hcv-turn-step]"));
+    }
+    if (!button5.matches(`:is(${toggle2}, ${thoughtToggle}, ${receiptToggle})`)) return null;
+    const header2 = button5.closest(`:is(${rowSelector2}, [data-tool-summary], ${thinkingSelector}, ${receiptSelector})`);
+    if (header2.matches("[data-tool-summary]")) {
+      const next = header2.nextElementSibling;
+      return next && !next.hasAttribute("data-tool-ticker") ? [next] : [];
+    }
+    return [...header2.children].slice(1);
+  }, () => {
+    if (!frame) return;
+    cancelAnimationFrame(frame);
+    flush();
+  });
   let frame = 0;
   let disposed = false;
   let connected;
@@ -11090,17 +11725,23 @@ function registerChatActivity(ctx, active2) {
     title2?.querySelector(`:scope > [${nativeLabel}]`)?.removeAttribute(nativeLabel);
     title2?.querySelector(`:scope > [${customLabel}]`)?.remove();
   }
-  function setLabel(title2, value) {
-    const native = title2?.querySelector(':scope > span[class~="whitespace-nowrap"][class~="max-w-full"]');
-    if (!native || !value || native.classList.contains("text-destructive") || native.classList.contains("text-amber-700")) return clearLabel(title2);
+  function setLabel(title2, native2, value) {
+    if (!native2 || !value) return clearLabel(title2);
     let label3 = title2.querySelector(`:scope > [${customLabel}]`);
     if (!label3) {
       label3 = document.createElement("span");
       label3.setAttribute(customLabel, "");
-      native.after(label3);
+      native2.after(label3);
     }
     if (label3.textContent !== value) label3.textContent = value;
-    native.setAttribute(nativeLabel, "");
+    native2.setAttribute(nativeLabel, "");
+  }
+  function setToolLabel(title2, view) {
+    const native2 = title2?.querySelector(':scope > span[class~="whitespace-nowrap"][class~="max-w-full"]');
+    if (native2?.matches(".text-destructive, .text-amber-700")) return clearLabel(title2);
+    if (view?.prefix) native2?.setAttribute(editPrefix, view.prefix);
+    else native2?.removeAttribute(editPrefix);
+    setLabel(title2, native2, view?.label);
   }
   function showSite(title2, data) {
     const current = title2.querySelector(`:scope > img[${favicon}]`);
@@ -11147,35 +11788,61 @@ function registerChatActivity(ctx, active2) {
       sites.observe(entry);
     }
   }
+  function queue(entry) {
+    pending.add(entry);
+    if (entry.matches(activitySelector)) {
+      const owner = entry.closest(messageContent);
+      if (owner) pendingMessages.add(owner);
+    }
+  }
   function collect(node3) {
     if (!(node3 instanceof Element)) return;
-    const parent = node3.closest(activitySelector);
-    if (parent) pending.add(parent);
-    else for (const entry of node3.querySelectorAll(activitySelector)) pending.add(entry);
+    const parent = node3.closest(labelSelector);
+    if (parent) queue(parent);
+    else for (const entry of node3.querySelectorAll(labelSelector)) queue(entry);
   }
   function flush() {
     frame = 0;
+    const russian = document.documentElement.lang.toLowerCase().startsWith("ru");
+    groups2.prune();
+    for (const message of pendingMessages) {
+      if (message.isConnected && message.closest(surface3)) groups2.sync(message, russian);
+    }
+    pendingMessages.clear();
     for (const entry of pending) {
-      if (!entry.isConnected || !entry.closest(surface2)) continue;
+      if (!entry.isConnected || !entry.closest(surface3)) continue;
+      if (entry.matches(thinkingSelector) || entry.matches(receiptSelector)) {
+        const thinking2 = entry.matches(thinkingSelector);
+        const title3 = (thinking2 ? entry : entry.firstElementChild)?.querySelector(":scope > div > button > span:first-child > span:first-child");
+        const native2 = thinking2 ? title3?.firstElementChild : title3?.querySelector(":scope > span.truncate");
+        const text = native2?.textContent.trim();
+        const localized = russian && text && (thinking2 ? thoughtLabel(text) : receiptLabel(text));
+        setLabel(title3, native2, localized);
+        continue;
+      }
       const summary3 = entry.hasAttribute("data-tool-summary");
-      const props = committedFiber(entry)?.return?.memoizedProps;
+      const props = rowProps(entry);
       const part = props?.part;
+      if (!summary3 && part) updateActivityDetails(entry, part.toolName, russian);
       const live = summary3 ? props?.live : Boolean(part && part.result === void 0 && part.completedAt == null && entry.closest('[data-message-streaming="true"]'));
       const parts = summary3 ? runParts(entry) : part?.toolName ? [part] : [];
-      const view = activityPresentation(parts, live, document.documentElement.lang.toLowerCase().startsWith("ru"));
+      const view = activityPresentation(parts, live, russian, !summary3 && (entry.closest(`[${activityMember}]`) || entry.closest("[data-tool-group]")?.querySelector(directSummary) || ["write_file", "edit_file", "patch"].includes(part?.toolName)), summary3);
       const icon8 = view?.icon ?? nativeIcon(entry, part);
       if (icon8) entry.setAttribute(iconAttribute, icon8);
       else entry.removeAttribute(iconAttribute);
       const title2 = findTitle(entry, summary3);
-      setLabel(title2, view?.label);
+      setToolLabel(title2, view);
       setSite(entry, title2, view?.site);
     }
     pending.clear();
   }
   const observer = new MutationObserver((records) => {
     for (const { target, addedNodes, removedNodes } of records) {
-      const entry = (target instanceof Element ? target : target.parentElement)?.closest(activitySelector);
-      if (entry) pending.add(entry);
+      const element7 = target instanceof Element ? target : target.parentElement;
+      if (!element7 || element7.closest(thinkingBody)) continue;
+      if (element7.matches(messageContent)) pendingMessages.add(element7);
+      const entry = element7.closest(labelSelector);
+      if (entry) queue(entry);
       else for (const node3 of addedNodes) collect(node3);
       for (const node3 of removedNodes) {
         if (!(node3 instanceof Element) || node3.isConnected) continue;
@@ -11183,14 +11850,17 @@ function registerChatActivity(ctx, active2) {
         for (const entry2 of node3.querySelectorAll(activitySelector)) if (siteEntries.has(entry2)) setSite(entry2);
       }
     }
-    if (pending.size && !frame) frame = requestAnimationFrame(flush);
+    if ((pending.size || pendingMessages.size) && !frame) frame = requestAnimationFrame(flush);
   });
   function clearActivity() {
+    groups2.clear();
+    clearActivityDetails();
     for (const entry of document.querySelectorAll(`[${iconAttribute}]`)) {
       siteEntries.delete(entry);
       entry.removeAttribute(iconAttribute);
     }
     for (const node3 of document.querySelectorAll(`[${nativeLabel}]`)) node3.removeAttribute(nativeLabel);
+    for (const node3 of document.querySelectorAll(`[${editPrefix}]`)) node3.removeAttribute(editPrefix);
     for (const node3 of document.querySelectorAll(`[${customLabel}], img[${favicon}]`)) node3.remove();
   }
   function sync() {
@@ -11202,14 +11872,21 @@ function registerChatActivity(ctx, active2) {
     cancelAnimationFrame(frame);
     frame = 0;
     pending.clear();
+    pendingMessages.clear();
     if (next) {
       collect(document.body);
       flush();
       observer.observe(document.body, { childList: true, characterData: true, subtree: true });
     } else clearActivity();
   }
-  const theme2 = new MutationObserver(sync);
-  theme2.observe(document.documentElement, { attributes: true, attributeFilter: ["data-hermes-theme"] });
+  const theme2 = new MutationObserver((records) => {
+    sync();
+    if (connected && records.some((record) => record.attributeName === "lang")) {
+      collect(document.body);
+      if (!frame) frame = requestAnimationFrame(flush);
+    }
+  });
+  theme2.observe(document.documentElement, { attributes: true, attributeFilter: ["data-hermes-theme", "lang"] });
   ctx.addEventListener(forcedColors, "change", sync);
   sync();
   ctx.onDispose(() => {
@@ -11222,6 +11899,8 @@ function registerChatActivity(ctx, active2) {
     style.remove();
   });
   registerChatImages(ctx, active2);
+  registerActivityDetails(ctx, chat3, output);
+  registerChatReasoning(ctx, active2);
   registerChatSkills(ctx, active2);
 }
 
@@ -11257,16 +11936,16 @@ var labels10 = {
   }
 };
 var strings = () => document.documentElement.lang.toLowerCase().startsWith("ru") ? labels10.ru : labels10.en;
-function make2(tag, marker3, value = "") {
-  const element6 = document.createElement(tag);
-  element6.setAttribute(marker3, value);
-  return element6;
+function make2(tag, marker4, value = "") {
+  const element7 = document.createElement(tag);
+  element7.setAttribute(marker4, value);
+  return element7;
 }
 function button(action, label3) {
-  const element6 = make2("button", "data-hcv-table-action", action);
-  element6.type = "button";
-  element6.setAttribute("aria-label", label3);
-  return element6;
+  const element7 = make2("button", "data-hcv-table-action", action);
+  element7.type = "button";
+  element7.setAttribute("aria-label", label3);
+  return element7;
 }
 function copyOf(table) {
   const clone = table.cloneNode(true);
@@ -11278,15 +11957,15 @@ function copyOf(table) {
 function markColumns(table) {
   const rows = [...table.rows];
   const longest = [];
-  for (const row4 of rows) {
-    for (const cell of row4.cells) {
+  for (const row5 of rows) {
+    for (const cell of row5.cells) {
       const index = cell.cellIndex;
       longest[index] = Math.max(longest[index] || 0, cell.textContent.length);
       if (cell.tagName === "TD") cell.toggleAttribute("data-hcv-table-number", /^\d+$/.test(cell.textContent));
     }
   }
   const sizes = longest.map((length) => length <= 40 ? "sm" : length <= 100 ? "md" : length <= 160 ? "lg" : "xl");
-  for (const row4 of rows) for (const cell of row4.cells) {
+  for (const row5 of rows) for (const cell of row5.cells) {
     const size = sizes[cell.cellIndex];
     if (cell.getAttribute(columnMark) !== size) cell.setAttribute(columnMark, size);
   }
@@ -11309,7 +11988,7 @@ function markdownSource(table) {
   return null;
 }
 function renderedMarkdown(table) {
-  const rows = Array.from(table.rows, (row4) => Array.from(row4.cells));
+  const rows = Array.from(table.rows, (row5) => Array.from(row5.cells));
   if (!rows.length) return "";
   const pipeRow = (cells) => "| " + cells.join(" | ") + " |";
   const cellText = (cell) => cell.textContent.trim().replaceAll("\\", "\\\\").replaceAll("|", "\\|").replace(/\s+/g, " ");
@@ -11317,7 +11996,7 @@ function renderedMarkdown(table) {
   return [
     pipeRow(rows[0].map(cellText)),
     pipeRow(rows[0].map((cell) => alignment[cell.style.textAlign || cell.getAttribute("align")] || "---")),
-    ...rows.slice(1).map((row4) => pipeRow(row4.map(cellText)))
+    ...rows.slice(1).map((row5) => pipeRow(row5.map(cellText)))
   ].join("\n");
 }
 function clipboardHtml(table) {
@@ -11326,8 +12005,8 @@ function clipboardHtml(table) {
     emphasis.append(...node3.childNodes);
     node3.replaceWith(emphasis);
   }
-  for (const element6 of [table, ...table.querySelectorAll("*")]) {
-    for (const name of ["node", tableMark, columnMark, "data-hcv-table-number"]) element6.removeAttribute(name);
+  for (const element7 of [table, ...table.querySelectorAll("*")]) {
+    for (const name of ["node", tableMark, columnMark, "data-hcv-table-number"]) element7.removeAttribute(name);
   }
   return table.outerHTML;
 }
@@ -11622,14 +12301,14 @@ function registerChatTables(ctx, active2) {
     tipButton = null;
     tip2.hidden = true;
   }
-  function showTip(element6) {
+  function showTip(element7) {
     hideTip();
-    tipButton = element6;
+    tipButton = element7;
     tipTimer = setTimeout(() => {
-      if (!element6.isConnected || tipButton !== element6) return;
-      tip2.textContent = element6.getAttribute("aria-label");
+      if (!element7.isConnected || tipButton !== element7) return;
+      tip2.textContent = element7.getAttribute("aria-label");
       tip2.hidden = false;
-      const anchor = element6.getBoundingClientRect();
+      const anchor = element7.getBoundingClientRect();
       const half = tip2.offsetWidth / 2;
       tip2.style.left = Math.min(innerWidth - half - 6, Math.max(half + 6, anchor.x + anchor.width / 2)) + "px";
       tip2.style.top = anchor.top - 3 + "px";
@@ -11658,18 +12337,18 @@ function registerChatTables(ctx, active2) {
   function openPreview(state) {
     if (preview3) closePreview();
     hideTip();
-    const copy6 = strings();
+    const copy7 = strings();
     const modal = make2("dialog", dialogMark);
     const stage = make2("div", "data-hcv-table-stage");
     const panel2 = make2("div", "data-hcv-table-panel");
     const region = document.createElement("div");
     const content = make2("div", "data-hcv-table-content");
-    const close2 = button("close", copy6.close);
+    const close2 = button("close", copy7.close);
     close2.autofocus = true;
-    modal.setAttribute("aria-label", copy6.preview);
+    modal.setAttribute("aria-label", copy7.preview);
     modal.setAttribute("role", "dialog");
     region.setAttribute("role", "region");
-    region.setAttribute("aria-label", copy6.scroll);
+    region.setAttribute("aria-label", copy7.scroll);
     region.tabIndex = 0;
     region.append(content);
     panel2.append(region);
@@ -11760,15 +12439,15 @@ function registerChatTables(ctx, active2) {
     const wrapper = table.parentElement;
     const toolbar2 = make2("div", toolbarMark);
     const bar = document.createElement("div");
-    const copy6 = button("copy", strings().copy);
+    const copy7 = button("copy", strings().copy);
     const expand = button("expand", strings().expand);
     const listeners = new AbortController();
     const options = { signal: listeners.signal };
     const nativeAttributes = Object.fromEntries(["role", "tabindex", "aria-label"].map((name) => [name, wrapper.getAttribute(name)]));
-    const state = { table, wrapper, toolbar: toolbar2, copy: copy6, expand, listeners, nativeAttributes };
+    const state = { table, wrapper, toolbar: toolbar2, copy: copy7, expand, listeners, nativeAttributes };
     expand.setAttribute("aria-haspopup", "dialog");
     expand.setAttribute("aria-expanded", "false");
-    bar.append(copy6, expand);
+    bar.append(copy7, expand);
     toolbar2.append(bar);
     wrapper.prepend(toolbar2);
     wrapper.setAttribute(wrapMark, "");
@@ -11787,7 +12466,7 @@ function registerChatTables(ctx, active2) {
     wrapper.addEventListener("blur", () => queueMicrotask(() => {
       if (document.activeElement !== wrapper && !toolbar2.contains(document.activeElement)) state.restoreOverlay();
     }), { ...options, capture: true });
-    for (const control3 of [copy6, expand]) {
+    for (const control3 of [copy7, expand]) {
       control3.addEventListener("pointerenter", () => showTip(control3), options);
       control3.addEventListener("focus", () => {
         if (control3.matches(":focus-visible")) showTip(control3);
@@ -11795,8 +12474,8 @@ function registerChatTables(ctx, active2) {
       control3.addEventListener("pointerleave", hideTip, options);
       control3.addEventListener("blur", hideTip, options);
     }
-    copy6.addEventListener("click", async () => {
-      if (state.copying || copy6.hasAttribute("data-copied")) return;
+    copy7.addEventListener("click", async () => {
+      if (state.copying || copy7.hasAttribute("data-copied")) return;
       const clone = copyOf(table);
       const source = markdownSource(table) || renderedMarkdown(clone);
       if (!source) return;
@@ -11805,17 +12484,17 @@ function registerChatTables(ctx, active2) {
         if (!writeRichCopy(source, clipboardHtml(clone)) && !await ctx.os.writeClipboard(source)) {
           throw new Error("Clipboard unavailable");
         }
-        if (!copy6.isConnected) return;
-        copy6.setAttribute("data-copied", "");
-        copy6.setAttribute("aria-label", strings().copied);
-        if (tipButton === copy6 && !tip2.hidden) tip2.textContent = strings().copied;
+        if (!copy7.isConnected) return;
+        copy7.setAttribute("data-copied", "");
+        copy7.setAttribute("aria-label", strings().copied);
+        if (tipButton === copy7 && !tip2.hidden) tip2.textContent = strings().copied;
         state.copyTimer = setTimeout(() => {
-          copy6.removeAttribute("data-copied");
-          copy6.setAttribute("aria-label", strings().copy);
-          if (tipButton === copy6 && !tip2.hidden) tip2.textContent = strings().copy;
+          copy7.removeAttribute("data-copied");
+          copy7.setAttribute("aria-label", strings().copy);
+          if (tipButton === copy7 && !tip2.hidden) tip2.textContent = strings().copy;
         }, 1500);
       } catch {
-        if (copy6.isConnected) host14.notify({ kind: "error", message: ctx.i18n.t("copyMessageError") });
+        if (copy7.isConnected) host14.notify({ kind: "error", message: ctx.i18n.t("copyMessageError") });
       } finally {
         state.copying = false;
       }
@@ -11888,9 +12567,9 @@ function registerChatTables(ctx, active2) {
     if (!root.matches(active2)) return;
     let removed = false;
     for (const { target, addedNodes, removedNodes } of records) {
-      const element6 = target instanceof Element ? target : target.parentElement;
-      if (element6?.closest(`[${toolbarMark}], [${dialogMark}], [data-hcv-table-tip]`)) continue;
-      const table = element6?.closest("table");
+      const element7 = target instanceof Element ? target : target.parentElement;
+      if (element7?.closest(`[${toolbarMark}], [${dialogMark}], [data-hcv-table-tip]`)) continue;
+      const table = element7?.closest("table");
       if (table?.matches(nativeTable)) pending.add(table);
       for (const node3 of addedNodes) {
         if (!(node3 instanceof Element)) continue;
@@ -11933,8 +12612,585 @@ function registerChatTables(ctx, active2) {
   });
 }
 
-// source/draft-setup.js
+// source/review-proposals.js
 import { host as host15 } from "@hermes/plugin-sdk";
+
+// source/review-proposal-data.js
+var idPattern = "[0-9a-f]{8}";
+function pendingProposals(kind, output) {
+  if (kind !== "skills" && kind !== "memory") return null;
+  const header2 = output.match(new RegExp(`^Pending ${kind} writes \\((\\d+)\\):\\n`));
+  if (!header2) return null;
+  const footer = `
+
+Apply: /${kind} approve <id>   Reject: /${kind} reject <id>` + (kind === "skills" ? "\nReview full diff: /skills diff <id>" : "");
+  if (!output.endsWith(footer)) return null;
+  const body2 = output.slice(header2[0].length, -footer.length);
+  const starts = [...body2.matchAll(new RegExp(`^ {2}(${idPattern})( \\[auto\\])? {2}`, "gm"))];
+  if (!starts.length || starts[0].index !== 0 || starts.length !== Number(header2[1])) return null;
+  const items2 = starts.map((match, index) => ({
+    id: match[1],
+    kind,
+    auto: Boolean(match[2]),
+    gist: body2.slice(match.index + match[0].length, starts[index + 1]?.index).trimEnd()
+  }));
+  return new Set(items2.map((item) => item.id)).size === items2.length ? items2 : null;
+}
+function skillProposal(output) {
+  const prefix = output.match(new RegExp(`^# Pending skill write (${idPattern}): ([^\\n]+)\\n\\n`));
+  if (!prefix) return null;
+  const content = output.slice(prefix[0].length);
+  if (!content.trim()) return null;
+  return { id: prefix[1], kind: "skills", gist: prefix[2], content };
+}
+function skillSubject(gist) {
+  const match = gist.match(/^(create|rewrite|patch|delete) '([^'\n]+)'/);
+  if (match) return { operation: match[1], name: match[2] };
+  const file = gist.match(/^(write|remove) .+ (?:in|from) '([^'\n]+)'$/);
+  return file ? { operation: file[1], name: file[2] } : { operation: "change", name: "" };
+}
+function pairedSkillLines(content) {
+  const lines = content.split("\n");
+  if (!lines[0]?.startsWith("--- ") || !lines[1]?.startsWith("+++ ")) return null;
+  if (!/^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/.test(lines[2] || "")) return null;
+  const change = lines.slice(3);
+  if (change.some((line) => line.startsWith("@@") || line.startsWith("--- ") || line.startsWith("+++ "))) return null;
+  const before = change.filter((line) => line.startsWith("-")).map((line) => line.slice(1));
+  const after = change.filter((line) => line.startsWith("+")).map((line) => line.slice(1));
+  if (before.length !== 1 || after.length !== 1) return null;
+  if (change.indexOf("+" + after[0]) !== change.indexOf("-" + before[0]) + 1) return null;
+  return { before: before[0], after: after[0] };
+}
+function memoryProposal(record, id2) {
+  if (record?.id !== id2 || record.subsystem !== "memory") return null;
+  const payload = record.payload;
+  if (!payload || !["user", "memory"].includes(payload.target) || record.action !== payload.action) return null;
+  const operations = payload.action === "batch" ? payload.operations : [payload];
+  if (!Array.isArray(operations) || !operations.length) return null;
+  const changes2 = [];
+  for (const op of operations) {
+    const { action, old_text: old, matched_entry: entry } = op || {};
+    const content = op?.content ?? op?.new_text;
+    if (action === "add" && typeof content === "string" && content.trim()) {
+      changes2.push({ action, content });
+      continue;
+    }
+    if (typeof entry !== "string" || !entry.trim()) return null;
+    if (action === "remove") changes2.push({ action, entry });
+    else if (action === "replace" && typeof content === "string") changes2.push({ action, entry, content });
+    else if (action === "patch" && typeof old === "string" && old.trim() && typeof content === "string") {
+      changes2.push({ action, entry, old, content });
+    } else return null;
+  }
+  return { target: payload.target, changes: changes2 };
+}
+
+// source/review-proposals.js
+var surface4 = '[data-chat-surface][data-composer-target="main"]:not([data-hud-shell] *)';
+var nativeRow = '[data-slot="aui_system-message-root"][data-role="system"]';
+var stack = "[data-hcv-proposals]";
+var enhanced2 = "[data-hcv-review-notice]";
+var hidden = "[hidden], [data-pane-hidden]";
+var copy4 = {
+  ru: {
+    skills: "\u041F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u044F \u043F\u043E \u0441\u043A\u0438\u043B\u043B\u0430\u043C",
+    memory: "\u041F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u044F \u0434\u043B\u044F \u043F\u0430\u043C\u044F\u0442\u0438",
+    auto: "\u0418\u0437 \u0430\u0432\u0442\u043E\u0440\u0430\u0437\u0431\u043E\u0440\u0430",
+    create: "\u0421\u043E\u0437\u0434\u0430\u0442\u044C \u0441\u043A\u0438\u043B\u043B",
+    rewrite: "\u041F\u0435\u0440\u0435\u043F\u0438\u0441\u0430\u0442\u044C \u0441\u043A\u0438\u043B\u043B",
+    patch: "\u041E\u0431\u043D\u043E\u0432\u0438\u0442\u044C \u0441\u043A\u0438\u043B\u043B",
+    delete: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0441\u043A\u0438\u043B\u043B",
+    write: "\u0417\u0430\u043F\u0438\u0441\u0430\u0442\u044C \u0444\u0430\u0439\u043B \u0441\u043A\u0438\u043B\u043B\u0430",
+    remove: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0444\u0430\u0439\u043B \u0441\u043A\u0438\u043B\u043B\u0430",
+    change: "\u0418\u0437\u043C\u0435\u043D\u0438\u0442\u044C \u0441\u043A\u0438\u043B\u043B",
+    remember: "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C \u0432 \u043F\u0430\u043C\u044F\u0442\u044C",
+    profile: "\u041F\u0440\u043E\u0444\u0438\u043B\u044C \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044F",
+    notes: "\u041F\u0430\u043C\u044F\u0442\u044C \u0413\u0435\u0440\u043C\u0435\u0441\u0430",
+    future: "\u0411\u0443\u0434\u0435\u0442 \u0443\u0447\u0438\u0442\u044B\u0432\u0430\u0442\u044C\u0441\u044F \u0432 \u0431\u0443\u0434\u0443\u0449\u0438\u0445 \u0447\u0430\u0442\u0430\u0445 \u044D\u0442\u043E\u0433\u043E \u043F\u0440\u043E\u0444\u0438\u043B\u044F.",
+    before: "\u0411\u044B\u043B\u043E",
+    after: "\u0421\u0442\u0430\u043D\u0435\u0442",
+    entry: "\u0422\u0435\u043A\u0443\u0449\u0430\u044F \u0437\u0430\u043F\u0438\u0441\u044C",
+    fragment: "\u0417\u0430\u043C\u0435\u043D\u0438\u0442\u044C \u0444\u0440\u0430\u0433\u043C\u0435\u043D\u0442",
+    addNote: "\u041D\u043E\u0432\u0430\u044F \u0437\u0430\u043C\u0435\u0442\u043A\u0430",
+    removeNote: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0437\u0430\u043C\u0435\u0442\u043A\u0443",
+    skillText: "\u041F\u0440\u0435\u0434\u043B\u0430\u0433\u0430\u0435\u043C\u0430\u044F \u043F\u0440\u0430\u0432\u043A\u0430",
+    inspect: "\u041F\u043E\u0441\u043C\u043E\u0442\u0440\u0435\u0442\u044C \u043F\u0440\u0430\u0432\u043A\u0443",
+    hide: "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u043F\u0440\u0430\u0432\u043A\u0443",
+    load: "\u041E\u0442\u043A\u0440\u044B\u0432\u0430\u044E \u043F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u0435\u2026",
+    inspectNote: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0437\u0430\u043C\u0435\u0442\u043A\u0443",
+    accept: "\u041F\u0440\u0438\u043D\u044F\u0442\u044C",
+    reject: "\u041E\u0442\u043A\u043B\u043E\u043D\u0438\u0442\u044C",
+    saved: "\u041F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u0435 \u043F\u0440\u0438\u043D\u044F\u0442\u043E",
+    rejected: "\u041F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u0435 \u043E\u0442\u043A\u043B\u043E\u043D\u0435\u043D\u043E",
+    unavailable: "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u043F\u043E\u043B\u043D\u044B\u0439 \u0442\u0435\u043A\u0441\u0442. \u041C\u043E\u0436\u043D\u043E \u043E\u0431\u043D\u043E\u0432\u0438\u0442\u044C \u0441\u043F\u0438\u0441\u043E\u043A \u043A\u043E\u043C\u0430\u043D\u0434\u043E\u0439",
+    details: "\u0414\u0430\u043D\u043D\u044B\u0435 \u0413\u0435\u0440\u043C\u0435\u0441\u0430",
+    changed: "\u041F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u0435 \u0438\u0437\u043C\u0435\u043D\u0438\u043B\u043E\u0441\u044C. \u041F\u0440\u043E\u0432\u0435\u0440\u044C \u0435\u0433\u043E \u043F\u0435\u0440\u0435\u0434 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043D\u0438\u0435\u043C.",
+    unconfirmed: "\u0420\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442 \u043D\u0435 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0451\u043D. \u041E\u0431\u043D\u043E\u0432\u0438 \u0441\u043F\u0438\u0441\u043E\u043A \u043A\u043E\u043C\u0430\u043D\u0434\u043E\u0439"
+  },
+  en: {
+    skills: "Skill proposals",
+    memory: "Memory proposals",
+    auto: "From background review",
+    create: "Create skill",
+    rewrite: "Rewrite skill",
+    patch: "Update skill",
+    delete: "Delete skill",
+    write: "Write skill file",
+    remove: "Remove skill file",
+    change: "Change skill",
+    remember: "Save to memory",
+    profile: "User profile",
+    notes: "Hermes memory",
+    future: "This will be used in future chats in this profile.",
+    before: "Before",
+    after: "After",
+    entry: "Current entry",
+    fragment: "Replace passage",
+    addNote: "New note",
+    removeNote: "Remove note",
+    skillText: "Proposed change",
+    inspect: "View proposed change",
+    hide: "Hide change",
+    load: "Opening proposal\u2026",
+    inspectNote: "Open note",
+    accept: "Approve",
+    reject: "Reject",
+    saved: "Proposal approved",
+    rejected: "Proposal rejected",
+    unavailable: "Could not open the full proposal. Refresh the list with",
+    details: "Hermes details",
+    changed: "The proposal changed. Review it before approving.",
+    unconfirmed: "The result is unconfirmed. Refresh the list with"
+  }
+};
+function element5(tag, part, text) {
+  const node3 = document.createElement(tag);
+  if (part) node3.dataset.hcvProposalPart = part;
+  if (text !== void 0) node3.textContent = text;
+  return node3;
+}
+function currentScope(row5) {
+  if (!row5.isConnected || !row5.closest(surface4) || row5.closest(hidden)) return null;
+  const session = host15.state.activeSessionId.get();
+  const profile2 = host15.state.profile.get() || "default";
+  const connection = host15.state.connectionId.get();
+  const focused = host15.state.focusedSessionId.get();
+  const owner = host15.state.focusedSessionOwner?.get();
+  const socket = host15.getGateway();
+  if (!session || !socket || focused && focused !== session) return null;
+  if (owner && (owner.profile !== profile2 || connection && owner.connectionId !== connection)) return null;
+  return { session, profile: profile2, connection: owner?.connectionId ?? connection, socket };
+}
+function sameScope(a, b) {
+  return Boolean(a && b && a.session === b.session && a.profile === b.profile && a.connection === b.connection && a.socket === b.socket);
+}
+function normalize(text) {
+  return text.replaceAll("\r\n", "\n").trim();
+}
+async function slash(scope3, kind, operation, id2) {
+  const command2 = [kind, operation, id2].filter(Boolean).join(" ");
+  const response3 = await scope3.socket.request("slash.exec", { session_id: scope3.session, command: command2 }, 12e3);
+  if (response3?.warning || typeof response3?.output !== "string") throw new Error("No confirmed command output");
+  return response3.output.replaceAll("\r\n", "\n");
+}
+async function loadMemory(scope3, id2) {
+  if (scope3.connection !== "local" || !/^[\w-]+$/.test(scope3.profile)) return null;
+  const desktop = window.hermesDesktop;
+  const info = await desktop?.getVersion?.();
+  const home = info?.hermesHome;
+  if (!home || !desktop?.readFileText) return null;
+  const path = home.replace(/[\\/]+$/, "") + (scope3.profile === "default" ? "" : "/profiles/" + scope3.profile) + "/pending/memory/" + id2 + ".json";
+  const file = await desktop.readFileText(path);
+  const pathKey2 = (value) => {
+    const normalized2 = String(value).replaceAll("\\", "/");
+    return info.platform === "win32" ? normalized2.toLowerCase() : normalized2;
+  };
+  if (file?.truncated || file?.binary || typeof file?.text !== "string" || pathKey2(file.path) !== pathKey2(path)) return null;
+  const data = memoryProposal(JSON.parse(file.text), id2);
+  return data && { data, signature: file.text };
+}
+async function loadPreview(scope3, item) {
+  if (item.kind === "memory") return loadMemory(scope3, item.id);
+  const signature = await slash(scope3, "skills", "diff", item.id);
+  const data = skillProposal(signature);
+  if (data?.id !== item.id || /^\s*\((?:patch (?:would fail|['"])|[^)]* on ')/.test(data.content)) return null;
+  return { signature, data };
+}
+function block(label3, text, part = "excerpt") {
+  const section2 = element5("div", part);
+  section2.append(element5("div", "label", label3), element5("div", "text", text));
+  return section2;
+}
+function changedPair(before, after, t) {
+  const pair2 = element5("div", "pair");
+  pair2.append(block(t.before, before, "before"), block(t.after, after, "after"));
+  return pair2;
+}
+function showPreview(body2, item, data, t) {
+  const content = document.createDocumentFragment();
+  if (item.kind === "skills") {
+    const pair2 = pairedSkillLines(data.content);
+    content.append(pair2 ? changedPair(pair2.before, pair2.after, t) : block(t.skillText, data.content, "full"));
+  } else {
+    for (const op of data.changes) {
+      if (op.action === "add") content.append(block(t.addNote, op.content));
+      if (op.action === "remove") content.append(block(t.removeNote, op.entry, "before"));
+      if (op.action === "replace") content.append(changedPair(op.entry, op.content, t));
+      if (op.action === "patch") {
+        content.append(block(t.entry, op.entry), element5("div", "label", t.fragment), changedPair(op.old, op.content, t));
+      }
+    }
+    if (data.changes.some((op) => op.action !== "remove")) content.append(element5("p", "context", t.future));
+  }
+  body2.replaceChildren(content);
+}
+function button2(text, part, handler) {
+  const control3 = element5("button", part, text);
+  control3.type = "button";
+  control3.addEventListener("click", (event) => {
+    if (event.isTrusted) void handler();
+  });
+  return control3;
+}
+function card(item, t, bound, isCurrent, completed, onComplete) {
+  const skill = item.kind === "skills";
+  const subject = skill ? skillSubject(item.gist) : null;
+  const headingText = skill ? t[subject.operation] : t.remember;
+  const article = element5("section", "card");
+  article.setAttribute("aria-label", headingText);
+  article.addEventListener("focus", () => article.setAttribute("data-overlay-surface", ""), true);
+  article.addEventListener("blur", () => queueMicrotask(() => {
+    if (!article.contains(document.activeElement)) article.removeAttribute("data-overlay-surface");
+  }), true);
+  const header2 = element5("div", "header");
+  const icon8 = element5("span", skill ? "skill-icon" : "memory-icon");
+  icon8.setAttribute("aria-hidden", "true");
+  const heading = element5("div", "heading");
+  const title = element5("h3", "title", headingText);
+  const info = element5("div", "subtitle");
+  heading.append(title, info);
+  header2.append(icon8, heading);
+  const body2 = element5("div", "body");
+  const footer = element5("div", "actions");
+  const status2 = element5("span", "status");
+  status2.setAttribute("role", "status");
+  status2.tabIndex = -1;
+  const inspect = button2(t.inspect, "inspect", open);
+  inspect.setAttribute("aria-expanded", "false");
+  const reject = button2(t.reject, "reject", () => decide("reject"));
+  const accept = button2(t.accept, "accept", () => decide("approve"));
+  footer.append(status2, inspect, reject, accept);
+  article.append(header2, body2, footer);
+  let preview3 = item.content ? { data: item, signature: item.original } : null;
+  let shown = Boolean(preview3);
+  let incomplete = false;
+  let busy = false;
+  let finished2 = false;
+  function update() {
+    const target = preview3?.data?.target ?? (item.gist.includes("user profile") ? "user" : "memory");
+    info.textContent = [skill ? subject.name : t[target === "user" ? "profile" : "notes"], item.auto ? t.auto : ""].filter(Boolean).join(" \xB7 ");
+    info.hidden = !info.textContent;
+    body2.hidden = !(preview3 && shown) && !incomplete;
+    inspect.hidden = finished2 || !skill && (Boolean(preview3) || busy);
+    inspect.disabled = !bound || busy;
+    inspect.textContent = skill ? shown ? t.hide : t.inspect : t.inspectNote;
+    inspect.setAttribute("aria-expanded", String(shown));
+    reject.hidden = !bound || finished2;
+    accept.hidden = !bound || finished2 || !preview3 || !shown;
+    accept.disabled = reject.disabled = busy;
+  }
+  function describe() {
+    incomplete = false;
+    shown = true;
+    showPreview(body2, item, preview3.data, t);
+    update();
+  }
+  function close2(message, focus) {
+    finished2 = true;
+    status2.textContent = message;
+    update();
+    if (focus) status2.focus({ preventScroll: true });
+  }
+  function needsList(message) {
+    return message + " /" + item.kind + " pending";
+  }
+  function unavailable() {
+    preview3 = null;
+    shown = false;
+    incomplete = true;
+    const details = element5("details", "details");
+    details.append(element5("summary", "label", t.details), element5("div", "text", item.gist));
+    body2.replaceChildren(details);
+    status2.textContent = needsList(t.unavailable);
+  }
+  async function open() {
+    if (busy || finished2 || !isCurrent()) return;
+    if (preview3) {
+      shown = !shown;
+      update();
+      return;
+    }
+    busy = true;
+    status2.textContent = t.load;
+    update();
+    try {
+      const result = await loadPreview(bound, item);
+      if (!isCurrent()) return;
+      if (!result) {
+        unavailable();
+        return;
+      }
+      preview3 = result;
+      status2.textContent = "";
+      describe();
+    } catch {
+      if (isCurrent()) unavailable();
+    } finally {
+      busy = false;
+      update();
+    }
+  }
+  async function decide(action) {
+    if (busy || finished2 || !isCurrent() || action === "approve" && (!preview3 || !shown)) return;
+    busy = true;
+    status2.textContent = "";
+    update();
+    let attempted = false;
+    try {
+      if (action === "approve") {
+        const fresh = await loadPreview(bound, item);
+        if (!isCurrent()) return;
+        if (!fresh) {
+          unavailable();
+          return;
+        }
+        if (fresh.signature !== preview3.signature) {
+          preview3 = fresh;
+          status2.textContent = t.changed;
+          describe();
+          return;
+        }
+      } else {
+        const queue = pendingProposals(item.kind, normalize(await slash(bound, item.kind, "pending")));
+        if (!isCurrent()) return;
+        if (!queue?.some((proposal) => proposal.id === item.id && proposal.gist === item.gist)) {
+          status2.textContent = needsList(t.unavailable);
+          return;
+        }
+      }
+      attempted = true;
+      const output = normalize(await slash(bound, item.kind, action, item.id));
+      const success = action === "approve" ? output.split("\n", 1)[0] === "Approved 1 " + item.kind + " write(s)." : output === "Rejected pending " + item.kind + " write '" + item.id + "'.";
+      if (success) onComplete(action);
+      if (!isCurrent()) return;
+      if (success) close2(action === "approve" ? t.saved : t.rejected, true);
+      else close2(needsList(t.unconfirmed), true);
+    } catch {
+      if (!isCurrent()) return;
+      if (attempted) close2(needsList(t.unconfirmed), true);
+      else status2.textContent = needsList(t.unavailable);
+    } finally {
+      busy = false;
+      update();
+    }
+  }
+  if (preview3) describe();
+  if (completed) close2(completed === "approve" ? t.saved : t.rejected, false);
+  else if (bound && !skill) queueMicrotask(() => {
+    void open();
+  });
+  else if (!bound && !preview3) unavailable();
+  update();
+  return article;
+}
+function styles3(active2) {
+  const s = active2 + " " + stack;
+  const row5 = active2 + " " + enhanced2;
+  const part = (name) => s + ' [data-hcv-proposal-part="' + name + '"]';
+  return `
+    ${row5} {
+      inline-size: min(100%, 48rem); max-inline-size: 100%; padding: 6px 0 10px; text-align: start;
+    }
+    ${row5} > :not(${stack}) { display: none; }
+    ${s} {
+      display: grid; gap: 10px; inline-size: 100%; min-inline-size: 0;
+      color: var(--hcv-text); font: 14px/1.5 ${codexReference.font};
+    }
+    ${part("card")} {
+      container-type: inline-size; min-inline-size: 0; border-radius: 14px;
+      background: light-dark(#f7f7f7, #222222); border: 1px solid var(--hcv-stroke);
+    }
+    ${part("header")} { display: flex; align-items: center; gap: 12px; padding: 14px 16px 10px; }
+    ${part("heading")} { min-inline-size: 0; }
+    ${part("title")} { margin: 0; color: var(--hcv-text); font-size: 14px; font-weight: 600; }
+    ${part("subtitle")}, ${part("context")}, ${part("status")} {
+      color: var(--hcv-muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere;
+    }
+    ${part("subtitle")} { margin-block-start: 2px; }
+    ${part("skill-icon")}, ${part("memory-icon")} {
+      flex: 0 0 40px; block-size: 40px; display: grid; place-items: center; border-radius: 8px;
+      color: var(--hcv-text); background: light-dark(#ededed, #181818);
+    }
+    ${part("skill-icon")}::before, ${part("memory-icon")}::before {
+      content: ""; inline-size: 18px; block-size: 18px; background: currentColor;
+    }
+    ${part("skill-icon")}::before { mask: ${codexMask("chatSkill")} center / contain no-repeat; }
+    ${part("memory-icon")}::before { mask: ${codexMask("memory")} center / contain no-repeat; }
+    ${part("body")} {
+      display: grid; gap: 8px; min-inline-size: 0; padding: 2px 16px 10px;
+      overflow-wrap: anywhere;
+    }
+    ${part("pair")} { display: grid; gap: 8px; }
+    ${part("before")}, ${part("after")}, ${part("excerpt")}, ${part("full")} {
+      min-inline-size: 0; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--hcv-stroke);
+      background: light-dark(#ffffff, #1c1c1c);
+    }
+    ${part("before")} { border-inline-start: 2px solid light-dark(#ac2d35, #e37479); }
+    ${part("after")} { border-inline-start: 2px solid light-dark(#257445, #6acf8b); }
+    ${part("label")} { color: var(--hcv-muted); font-size: 12px; font-weight: 500; margin-block-end: 3px; }
+    ${part("text")} { color: var(--hcv-text); white-space: pre-wrap; overflow-wrap: anywhere; }
+    ${part("full")} { max-block-size: 340px; overflow: auto; overscroll-behavior: contain; }
+    ${part("context")} { margin: 0; }
+    ${part("actions")} {
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end;
+      gap: 8px; padding: 2px 16px 14px;
+    }
+    ${part("status")} { margin-inline-end: auto; }
+    ${part("status")}:empty { display: none; }
+    ${s} button {
+      min-block-size: 32px; max-inline-size: 100%; padding: 4px 12px; border: 1px solid var(--hcv-stroke);
+      border-radius: 8px; color: var(--hcv-text); background: transparent; font: 500 13px/1.4 ${codexReference.font};
+      cursor: pointer; white-space: normal;
+    }
+    ${s} button:is(:hover, :focus-visible) { background: var(--hcv-hover); }
+    ${s} button:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: 2px; }
+    ${s} button:disabled { cursor: default; opacity: .55; }
+    ${s} button[data-hcv-proposal-part="accept"] {
+      border-color: transparent; background: var(--hcv-action); color: var(--hcv-ink);
+    }
+    ${s} button[data-hcv-proposal-part="accept"]:hover:not(:disabled) { opacity: .86; }
+    ${s} [hidden] { display: none; }
+    @container (max-width: 332px) {
+      ${part("actions")} { align-items: stretch; flex-direction: column; }
+      ${part("status")} { margin: 0; }
+    }
+  `;
+}
+function readRow(row5) {
+  const label3 = row5.firstElementChild;
+  if (!label3?.classList.contains("font-mono")) return null;
+  const kind = label3.textContent.trim().slice(1);
+  if (label3.textContent.trim() !== "/" + kind || !["skills", "memory"].includes(kind)) return null;
+  const output = normalize(row5.querySelector(":scope > .whitespace-pre-wrap")?.textContent ?? "");
+  const queue = pendingProposals(kind, output);
+  if (queue) return { kind, output, items: queue };
+  const detail = kind === "skills" ? skillProposal(output) : null;
+  return detail && { kind, output, items: [{ ...detail, original: output }] };
+}
+function registerReviewProposals(ctx, active2) {
+  const root = document.documentElement;
+  mountCSS(ctx, "data-hcv-proposals-style", styles3(active2), chatStyles);
+  const rows = /* @__PURE__ */ new Map();
+  const pending = /* @__PURE__ */ new Set();
+  const decisions = /* @__PURE__ */ new Map();
+  let frame = 0;
+  const enabled = () => root.matches(active2);
+  const locale = () => root.lang.toLowerCase().startsWith("ru") ? "ru" : "en";
+  function clear(row5) {
+    rows.get(row5)?.panel.remove();
+    rows.delete(row5);
+    row5.removeAttribute("data-hcv-review-notice");
+  }
+  function render(row5) {
+    if (!row5.isConnected || !row5.closest(surface4)) return clear(row5);
+    const notice2 = readRow(row5);
+    if (!notice2) return clear(row5);
+    const lang = locale();
+    const scope3 = currentScope(row5);
+    const last = rows.get(row5);
+    if (last?.output === notice2.output && lang === last.lang && last.panel.isConnected && (!last.scope && !scope3 || sameScope(last.scope, scope3))) return;
+    clear(row5);
+    const panel2 = element5("div");
+    panel2.dataset.hcvProposals = notice2.kind;
+    panel2.setAttribute("role", "group");
+    panel2.setAttribute("aria-label", copy4[lang][notice2.kind]);
+    for (const item of notice2.items) {
+      const key = scope3 && JSON.stringify([scope3.connection, scope3.profile, item.kind, item.id]);
+      panel2.append(card(
+        item,
+        copy4[lang],
+        scope3,
+        () => enabled() && panel2.isConnected && sameScope(scope3, currentScope(row5)),
+        key && decisions.get(key),
+        (action) => {
+          if (!key) return;
+          decisions.set(key, action);
+          if (decisions.size > 256) decisions.delete(decisions.keys().next().value);
+        }
+      ));
+    }
+    row5.append(panel2);
+    row5.dataset.hcvReviewNotice = "";
+    rows.set(row5, { panel: panel2, output: notice2.output, lang, scope: scope3 });
+  }
+  function flush() {
+    frame = 0;
+    for (const row5 of rows.keys()) if (!row5.isConnected) clear(row5);
+    for (const row5 of pending) render(row5);
+    pending.clear();
+  }
+  function collect(node3) {
+    const el2 = node3 instanceof Element ? node3 : node3.parentElement;
+    if (!el2 || el2.closest(stack)) return;
+    const row5 = el2.closest(nativeRow);
+    if (row5?.closest(surface4)) pending.add(row5);
+    for (const entry of el2.querySelectorAll(nativeRow)) if (entry.closest(surface4)) pending.add(entry);
+  }
+  function schedule() {
+    if (!frame) frame = requestAnimationFrame(flush);
+  }
+  const observer = new MutationObserver((records) => {
+    for (const record of records) {
+      if (record.type === "characterData") collect(record.target);
+      else for (const node3 of record.addedNodes) collect(node3);
+    }
+    if (pending.size || rows.size) schedule();
+  });
+  function sync() {
+    observer.disconnect();
+    cancelAnimationFrame(frame);
+    frame = 0;
+    pending.clear();
+    if (enabled()) {
+      collect(document.body);
+      schedule();
+      observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    } else for (const row5 of rows.keys()) clear(row5);
+  }
+  const theme2 = new MutationObserver(sync);
+  theme2.observe(root, { attributes: true, attributeFilter: ["data-hermes-theme", "lang"] });
+  const unsubscribe = [
+    host15.state.activeSessionId,
+    host15.state.focusedSessionId,
+    host15.state.focusedSessionOwner,
+    host15.state.connectionId,
+    host15.state.profile,
+    host15.state.gateway
+  ].filter(Boolean).map((atom7) => atom7.listen(sync));
+  sync();
+  ctx.onDispose(() => {
+    observer.disconnect();
+    theme2.disconnect();
+    cancelAnimationFrame(frame);
+    for (const stop of unsubscribe) stop();
+    for (const row5 of rows.keys()) clear(row5);
+    pending.clear();
+    decisions.clear();
+  });
+}
+
+// source/draft-setup.js
+import { host as host16 } from "@hermes/plugin-sdk";
 var primary3 = '[data-chat-surface][data-composer-target="main"]:not([data-hud-shell] *, [inert] *)';
 var formSelector = 'form[data-slot="composer-root"]:not([data-popped-out])';
 var sidebarSelector = '[data-slot="sidebar"][data-tour="sessions-sidebar"]';
@@ -11943,7 +13199,7 @@ var toolbar = "[data-hcv-draft-bar]";
 var settingsRoute = "/settings?tab=connections";
 var menuWidths = { projects: 260, device: 280, git: 260 };
 var toolbarInset = 13 + 5;
-var copy4 = {
+var copy5 = {
   ru: {
     bar: "\u041F\u0430\u0440\u0430\u043C\u0435\u0442\u0440\u044B \u043D\u043E\u0432\u043E\u0433\u043E \u0447\u0430\u0442\u0430",
     projects: "\u0412\u044B\u0431\u0440\u0430\u0442\u044C \u043F\u0440\u043E\u0435\u043A\u0442",
@@ -11993,24 +13249,24 @@ var copy4 = {
     noEnvironment: "No environment"
   }
 };
-var labels11 = () => copy4[document.documentElement.lang.toLowerCase().startsWith("ru") ? "ru" : "en"];
+var labels11 = () => copy5[document.documentElement.lang.toLowerCase().startsWith("ru") ? "ru" : "en"];
 function node2(tag, attrs = {}, text = "") {
-  const element6 = document.createElement(tag);
-  for (const [name, value] of Object.entries(attrs)) element6.setAttribute(name, value);
-  if (text) element6.textContent = text;
-  return element6;
+  const element7 = document.createElement(tag);
+  for (const [name, value] of Object.entries(attrs)) element7.setAttribute(name, value);
+  if (text) element7.textContent = text;
+  return element7;
 }
 function icon7(glyph3) {
-  const element6 = node2("span", { "data-hcv-draft-icon": glyph3, "aria-hidden": "true" });
-  Object.assign(element6.style, codexIconStyle(glyph3));
-  return element6;
+  const element7 = node2("span", { "data-hcv-draft-icon": glyph3, "aria-hidden": "true" });
+  Object.assign(element7.style, codexIconStyle(glyph3));
+  return element7;
 }
-function button2(glyph3, name, action) {
-  const element6 = node2("button", { type: "button", "data-hcv-draft-button": "" });
+function button3(glyph3, name, action) {
+  const element7 = node2("button", { type: "button", "data-hcv-draft-button": "" });
   const label3 = node2("span", { "data-hcv-draft-label": "" }, name);
-  element6.append(icon7(glyph3), label3);
-  if (action) element6.addEventListener("click", action);
-  return { element: element6, label: label3, glyph: (name2) => element6.firstElementChild.replaceWith(icon7(name2)) };
+  element7.append(icon7(glyph3), label3);
+  if (action) element7.addEventListener("click", action);
+  return { element: element7, label: label3, glyph: (name2) => element7.firstElementChild.replaceWith(icon7(name2)) };
 }
 function panel(kind) {
   return node2("div", { popover: "auto", "data-hcv-draft-menu": kind });
@@ -12105,18 +13361,18 @@ function newDraftBar(form, current, localEnvironment) {
   let worktree = { label: "", branch: "" };
   let bridge;
   let disposed = false;
-  const scope3 = () => JSON.stringify([host15.state.connectionId.get(), host15.state.profile.get()]);
+  const scope3 = () => JSON.stringify([host16.state.connectionId.get(), host16.state.profile.get()]);
   const activeHere = (key) => !disposed && current() && key === scope3();
-  const canRequest = () => host15.state.gateway.get() === "open";
-  const request = (method, params) => host15.request(method, { ...params, profile: host15.state.profile.get() }, 5e3);
-  const error = () => host15.notify({ kind: "error", message: labels11().actionsError });
-  const projects2 = button2("folder", labels11().noProject);
-  const device = button2("laptop", labels11().device);
-  const gear = button2("settings", "");
+  const canRequest = () => host16.state.gateway.get() === "open";
+  const request = (method, params) => host16.request(method, { ...params, profile: host16.state.profile.get() }, 5e3);
+  const error = () => host16.notify({ kind: "error", message: labels11().actionsError });
+  const projects2 = button3("folder", labels11().noProject);
+  const device = button3("laptop", labels11().device);
+  const gear = button3("settings", "");
   const search = node2("input", { type: "search", "data-hcv-draft-search": "" });
   const results = node2("div", { "data-hcv-draft-projects": "" });
-  const create = button2("plus", labels11().create, () => void createProject());
-  const noProject = button2("close", labels11().none, () => void selectProject(null));
+  const create = button3("plus", labels11().create, () => void createProject());
+  const noProject = button3("close", labels11().none, () => void selectProject(null));
   const projectFooter = node2("div", { "data-hcv-draft-menu-footer": "" });
   projectFooter.append(create.element, noProject.element);
   const searchRow = node2("label", { "data-hcv-draft-search-row": "" });
@@ -12161,26 +13417,26 @@ function newDraftBar(form, current, localEnvironment) {
       }
     });
   });
-  const manage = button2("settings", labels11().manage, () => {
+  const manage = button3("settings", labels11().manage, () => {
     localMenu.hidePopover();
-    host15.navigate(settingsRoute);
+    host16.navigate(settingsRoute);
   });
   const localHeading = node2("div", { "data-hcv-draft-menu-heading": "" });
-  const selectedLocal = button2("laptop", labels11().device, () => localMenu.hidePopover());
+  const selectedLocal = button3("laptop", labels11().device, () => localMenu.hidePopover());
   selectedLocal.element.append(icon7("check"));
   localMenu.append(localHeading, selectedLocal.element, manage.element);
   const gitHeading = node2("div", { "data-hcv-draft-menu-heading": "" });
-  const localGit = () => host15.state.connectionId.get() === "local" && worktree.branch && window.hermesDesktop?.git;
+  const localGit = () => host16.state.connectionId.get() === "local" && worktree.branch && window.hermesDesktop?.git;
   const worktreeTrigger = () => {
     const label3 = CSS.escape(labels11().nativeWorktree);
-    const cwd = normalized(host15.state.cwd.get());
-    return [...document.querySelectorAll(sidebarSelector + ' button[aria-label="' + label3 + '"]:has(> .codicon-git-branch)')].find((button4) => normalized(nativeWorktreePath(button4)) === cwd);
+    const cwd = normalized(host16.state.cwd.get());
+    return [...document.querySelectorAll(sidebarSelector + ' button[aria-label="' + label3 + '"]:has(> .codicon-git-branch)')].find((button5) => normalized(nativeWorktreePath(button5)) === cwd);
   };
-  const newWorktree = button2("worktree", labels11().worktree, async () => {
+  const newWorktree = button3("worktree", labels11().worktree, async () => {
     if (!localGit()) return;
     const key = scope3();
-    const cwd = host15.state.cwd.get();
-    const ready = () => activeHere(key) && cwd === host15.state.cwd.get();
+    const cwd = host16.state.cwd.get();
+    const ready = () => activeHere(key) && cwd === host16.state.cwd.get();
     gearMenu.hidePopover();
     const trigger = worktreeTrigger();
     if (trigger) return trigger.click();
@@ -12215,11 +13471,11 @@ function newDraftBar(form, current, localEnvironment) {
     if (!opened && ready()) error();
   });
   newWorktree.element.append(node2("span", { "data-hcv-draft-detail": "" }), icon7("right"));
-  const branch = button2("branch", labels11().branch, () => void chooseBranch());
+  const branch = button3("branch", labels11().branch, () => void chooseBranch());
   const branchValue = node2("span", { "data-hcv-draft-detail": "" });
   branch.element.append(branchValue, icon7("right"));
-  const environment = button2("settings", labels11().environment, () => {
-    const cwd = host15.state.cwd.get();
+  const environment = button3("settings", labels11().environment, () => {
+    const cwd = host16.state.cwd.get();
     gearMenu.hidePopover();
     void localEnvironment?.open({ cwd, projectName: worktree.label, trigger: gear.element });
   });
@@ -12237,12 +13493,12 @@ function newDraftBar(form, current, localEnvironment) {
     branch.element.removeAttribute("aria-busy");
     newWorktree.element.disabled = !localGit() || !(worktreeTrigger() || worktree.projectId);
     branch.element.disabled = !localGit();
-    const cwd = host15.state.cwd.get();
+    const cwd = host16.state.cwd.get();
     const key = scope3();
-    environment.element.disabled = !localEnvironment || host15.state.connectionId.get() !== "local" || !cwd;
+    environment.element.disabled = !localEnvironment || host16.state.connectionId.get() !== "local" || !cwd;
     envValue.textContent = labels11().noEnvironment;
     if (!environment.element.disabled) void localEnvironment.name(cwd).then((name) => {
-      if (activeHere(key) && cwd === host15.state.cwd.get() && gearMenu.matches(":popover-open")) {
+      if (activeHere(key) && cwd === host16.state.cwd.get() && gearMenu.matches(":popover-open")) {
         envValue.textContent = name || labels11().noEnvironment;
       }
     });
@@ -12253,14 +13509,14 @@ function newDraftBar(form, current, localEnvironment) {
   });
   async function chooseBranch() {
     const git = localGit();
-    const cwd = host15.state.cwd.get();
+    const cwd = host16.state.cwd.get();
     const key = scope3();
     if (!git || !cwd || branchRequest) return;
     const pending = git.branchList(cwd).catch(() => null);
     branchRequest = pending;
     branch.element.setAttribute("aria-busy", "true");
     branchValue.textContent = labels11().loading;
-    const ready = () => activeHere(key) && cwd === host15.state.cwd.get() && gearMenu.matches(":popover-open");
+    const ready = () => activeHere(key) && cwd === host16.state.cwd.get() && gearMenu.matches(":popover-open");
     const branches = await pending;
     if (branchRequest !== pending) return;
     branchRequest = null;
@@ -12269,32 +13525,32 @@ function newDraftBar(form, current, localEnvironment) {
     if (!ready()) return;
     gitSetup.hidden = true;
     gitHeading.textContent = labels11().branch;
-    const localBranches = branches?.filter((row4) => !row4.isRemote && row4.name) || [];
+    const localBranches = branches?.filter((row5) => !row5.isRemote && row5.name) || [];
     if (!localBranches.length) {
       gitOptions.replaceChildren(node2("p", { role: "status" }, labels11().branchError));
       return;
     }
     gitOptions.replaceChildren(...localBranches.map(({ name }) => {
-      const row4 = button2("branch", name, async () => {
+      const row5 = button3("branch", name, async () => {
         if (!ready()) return;
         gearMenu.hidePopover();
         if (name === worktree.branch) return;
         try {
           const result = await git.branchSwitch(cwd, name);
-          if (activeHere(key) && cwd === host15.state.cwd.get()) {
+          if (activeHere(key) && cwd === host16.state.cwd.get()) {
             worktree.branch = result.branch;
             localize();
             void refresh();
           }
         } catch {
-          host15.notify({ kind: "error", message: labels11().switchError });
+          host16.notify({ kind: "error", message: labels11().switchError });
         }
       }).element;
       if (name === worktree.branch) {
-        row4.setAttribute("aria-current", "true");
-        row4.append(icon7("check"));
+        row5.setAttribute("aria-current", "true");
+        row5.append(icon7("check"));
       }
-      return row4;
+      return row5;
     }));
     gitOptions.querySelector('[aria-current="true"], button')?.focus({ preventScroll: true });
   }
@@ -12302,7 +13558,7 @@ function newDraftBar(form, current, localEnvironment) {
   let catalogRequest;
   function renderProjects() {
     const text = search.value.trim().toLowerCase();
-    const cwd = normalized(host15.state.cwd.get());
+    const cwd = normalized(host16.state.cwd.get());
     const list = catalog?.filter(({ label: label3, path }) => (label3 + " " + path).toLowerCase().includes(text)) || [];
     const focusedPath = results.contains(document.activeElement) ? document.activeElement.title : null;
     if (!list.length) {
@@ -12312,13 +13568,13 @@ function newDraftBar(form, current, localEnvironment) {
       return;
     }
     results.replaceChildren(...list.map(({ label: label3, path }) => {
-      const row4 = button2("folder", label3, () => void selectProject(path)).element;
-      row4.title = path;
+      const row5 = button3("folder", label3, () => void selectProject(path)).element;
+      row5.title = path;
       if (cwd && (cwd === normalized(path) || cwd.startsWith(normalized(path) + "/"))) {
-        row4.setAttribute("aria-current", "true");
-        row4.append(icon7("check"));
+        row5.setAttribute("aria-current", "true");
+        row5.append(icon7("check"));
       }
-      return row4;
+      return row5;
     }));
     if (focusedPath) {
       const target = Array.from(results.children).find((item) => item.title === focusedPath) || search;
@@ -12328,7 +13584,7 @@ function newDraftBar(form, current, localEnvironment) {
   function loadCatalog(key) {
     if (catalogRequest || !canRequest()) return;
     const pending = request("projects.tree", { preview_limit: 1 }).then(
-      (reply) => (reply.projects || []).filter((row4) => !row4.isNoProject && row4.label).map((row4) => ({ label: row4.label, path: row4.path || row4.repos?.find((repo) => repo.path)?.path })).filter((row4) => typeof row4.path === "string" && row4.path.trim())
+      (reply) => (reply.projects || []).filter((row5) => !row5.isNoProject && row5.label).map((row5) => ({ label: row5.label, path: row5.path || row5.repos?.find((repo) => repo.path)?.path })).filter((row5) => typeof row5.path === "string" && row5.path.trim())
     ).catch(() => catalog ?? null);
     catalogRequest = pending;
     void pending.then((next) => {
@@ -12365,7 +13621,7 @@ function newDraftBar(form, current, localEnvironment) {
   async function sidebarFor(selector, key) {
     let found = document.querySelector(selector);
     if (found) return found;
-    host15.revealPane("sessions");
+    host16.revealPane("sessions");
     for (let i = 0; i < 10 && activeHere(key); i++) {
       await new Promise(requestAnimationFrame);
       found = document.querySelector(selector);
@@ -12376,8 +13632,8 @@ function newDraftBar(form, current, localEnvironment) {
   async function selectProject(path) {
     const key = scope3();
     projectMenu2.hidePopover();
-    if (normalized(path) === normalized(host15.state.cwd.get())) return;
-    const draft = await host15.composer.getDraft(null).catch(() => null);
+    if (normalized(path) === normalized(host16.state.cwd.get())) return;
+    const draft = await host16.composer.getDraft(null).catch(() => null);
     const sidebar2 = await sidebarFor(sidebarSelector, key);
     const openDraft = nativeDraftWorkspaceAction(sidebar2);
     if (!activeHere(key)) return;
@@ -12386,9 +13642,9 @@ function newDraftBar(form, current, localEnvironment) {
     if (draft) {
       await new Promise(requestAnimationFrame);
       await new Promise(requestAnimationFrame);
-      const next = await host15.composer.getDraft(null).catch(() => null);
-      if (!next && !host15.state.focusedStoredSessionId.get() && !host15.state.busy.get() && key === scope3()) {
-        await host15.composer.setDraft(null, draft).catch(() => {
+      const next = await host16.composer.getDraft(null).catch(() => null);
+      if (!next && !host16.state.focusedStoredSessionId.get() && !host16.state.busy.get() && key === scope3()) {
+        await host16.composer.setDraft(null, draft).catch(() => {
         });
       }
     }
@@ -12436,30 +13692,30 @@ function newDraftBar(form, current, localEnvironment) {
   async function refresh() {
     const key = scope3();
     const id2 = ++refreshId;
-    const cwd = host15.state.cwd.get();
+    const cwd = host16.state.cwd.get();
     const folderLabel = cwd.split(/[/\\]/).filter(Boolean).at(-1) || "";
     if (cwd !== worktreeCwd || key !== dataScope) {
       worktreeCwd = cwd;
-      const knownProject = key === dataScope && catalog?.find((row4) => normalized(row4.path) === normalized(cwd));
+      const knownProject = key === dataScope && catalog?.find((row5) => normalized(row5.path) === normalized(cwd));
       worktree = { label: knownProject?.label || folderLabel, branch: "" };
     }
     if (key !== dataScope) {
       dataScope = key;
       catalog = void 0;
       catalogRequest = null;
-      const active3 = host15.state.connectionId.get();
+      const active3 = host16.state.connectionId.get();
       connection = active3 && active3 !== "local" ? { kind: "remote", label: "\u2026" } : null;
       for (const menu of [projectMenu2, localMenu, gearMenu]) menu.hidePopover();
     }
     if (catalog === void 0) loadCatalog(key);
     localize();
-    const active2 = host15.state.connectionId.get();
+    const active2 = host16.state.connectionId.get();
     const [devices, info] = await Promise.all([
-      host15.connections().catch(() => []),
+      host16.connections().catch(() => []),
       cwd && canRequest() ? request("projects.for_cwd", { cwd }).catch(() => null) : null
     ]);
     if (!activeHere(key) || id2 !== refreshId) return;
-    connection = devices.find((row4) => row4.id === active2) || connection;
+    connection = devices.find((row5) => row5.id === active2) || connection;
     worktree = {
       label: info?.project?.name || folderLabel,
       branch: info?.branch || "",
@@ -12470,7 +13726,7 @@ function newDraftBar(form, current, localEnvironment) {
   }
   strip2.append(projects2.element, projectMenu2, device.element, localMenu, gear.element, gearMenu);
   form.before(strip2);
-  const unbind = [host15.state.connectionId, host15.state.profile, host15.state.gateway, host15.state.cwd].map((store) => store.listen(refresh));
+  const unbind = [host16.state.connectionId, host16.state.profile, host16.state.gateway, host16.state.cwd].map((store) => store.listen(refresh));
   const resize = () => {
     for (const [popup, control3, end] of [[projectMenu2, projects2, false], [localMenu, device, false], [gearMenu, gear, true]]) {
       if (popup.matches(":popover-open")) position(popup, control3.element, end);
@@ -12491,12 +13747,12 @@ function newDraftBar(form, current, localEnvironment) {
     }
   };
 }
-function styles3(active2) {
+function styles4(active2) {
   const draft = active2 + " " + toolbar;
   const menu = active2 + " [data-hcv-draft-menu]";
   const projectMenu2 = menu + '[data-hcv-draft-menu="projects"]';
   const projectSearch = projectMenu2 + " [data-hcv-draft-search]";
-  const native = active2 + " [data-hcv-draft-native-menu]";
+  const native2 = active2 + " [data-hcv-draft-native-menu]";
   const popper = active2 + " [data-radix-popper-content-wrapper]:has(> [data-hcv-draft-native-menu])";
   const control3 = "[data-hcv-draft-button]";
   const label3 = "[data-hcv-draft-label]";
@@ -12512,11 +13768,11 @@ function styles3(active2) {
     draft + " " + glyph3 + " { display: inline-block; flex: none; inline-size: 16px; block-size: 16px; }",
     draft + " > " + control3 + ':is(:hover, [aria-expanded="true"]) { background: var(--hcv-composer); }',
     draft + " > " + control3 + ":focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }",
-    menu + ", " + native + " { box-sizing: border-box; min-inline-size: 0; max-block-size: var(--hcv-draft-max-height, 60vh); overflow: auto; overscroll-behavior: contain; padding: 4px; border: 1px solid transparent; border-radius: 16px; background: var(--hcv-menu); box-shadow: 0 0 0 .5px var(--hcv-hairline), 0 8px 16px -4px #0000001f; color: var(--hcv-text); font: 13px/20px var(--hcv-ui-font); }",
-    ...Object.entries(menuWidths).map(([kind, width]) => menu + '[data-hcv-draft-menu="' + kind + '"]' + (kind === "device" ? ", " + native : "") + " { inline-size: min(" + width + "px, calc(100vw - 16px)); }"),
+    menu + ", " + native2 + " { box-sizing: border-box; min-inline-size: 0; max-block-size: var(--hcv-draft-max-height, 60vh); overflow: auto; overscroll-behavior: contain; padding: 4px; border: 1px solid transparent; border-radius: 16px; background: var(--hcv-menu); box-shadow: 0 0 0 .5px var(--hcv-hairline), 0 8px 16px -4px #0000001f; color: var(--hcv-text); font: 13px/20px var(--hcv-ui-font); }",
+    ...Object.entries(menuWidths).map(([kind, width]) => menu + '[data-hcv-draft-menu="' + kind + '"]' + (kind === "device" ? ", " + native2 : "") + " { inline-size: min(" + width + "px, calc(100vw - 16px)); }"),
     menu + '[data-hcv-draft-menu="git"] { padding: 8px; }',
     menu + ", " + popper + " { position: fixed !important; inset: auto auto var(--hcv-draft-bottom, 40px) var(--hcv-draft-left, 8px) !important; transform: none !important; margin: 0; }",
-    menu + " " + control3 + ", " + native + ' [role^="menuitem"] { inline-size: 100%; justify-content: flex-start; border-radius: 11px; min-block-size: 28px; }',
+    menu + " " + control3 + ", " + native2 + ' [role^="menuitem"] { inline-size: 100%; justify-content: flex-start; border-radius: 11px; min-block-size: 28px; }',
     menu + " " + control3 + ":disabled { color: var(--hcv-muted); opacity: .55; cursor: default; background: transparent; }",
     menu + " " + control3 + " > " + glyph3 + '[data-hcv-draft-icon="check"] { margin-inline-start: auto; }',
     active2 + " [data-hcv-draft-menu-heading] { min-block-size: 28px; display: flex; align-items: center; padding-inline: 8px; color: var(--hcv-muted); }",
@@ -12536,18 +13792,18 @@ function styles3(active2) {
     projectMenu2 + " [data-hcv-draft-projects] { max-block-size: min(40vh, 230px); overflow-y: auto; overscroll-behavior: contain; }",
     projectMenu2 + " [data-hcv-draft-projects] p { margin: 0; padding: 8px; color: var(--hcv-dropdown-muted); }",
     draft + " [data-hcv-draft-branches] p { margin: 0; padding: 7px; color: var(--hcv-muted); }",
-    native + ' [role^="menuitem"] { padding: 0 8px; }',
-    native + ' [role^="menuitem"] > span:first-child { gap: 6px; }',
-    native + ' [data-slot="dropdown-menu-separator"] { margin-inline: 8px; }',
-    native + ' [data-slot="connection-glyph"] { flex: none; width: 16px; height: 16px; background: currentColor; mask: ' + codexMask("cloud") + " center / contain no-repeat; }",
-    native + ' [data-connection-kind="local"] { mask-image: ' + codexMask("laptop") + "; }",
-    native + ' [data-slot="connection-glyph"] > svg { display: none; }',
-    native + ' [role^="menuitem"] :is(.codicon-settings-gear, .codicon-check) { flex: none; width: 16px; height: 16px; background: currentColor; }',
-    native + " .codicon-settings-gear { mask: " + codexMask("settings") + " center / contain no-repeat; }",
-    native + " .codicon-check { mask: " + codexMask("check") + " center / contain no-repeat; }",
-    native + ' [role^="menuitem"] :is(.codicon-settings-gear, .codicon-check)::before { content: none; }',
-    native + " [data-hcv-device-label] { font-size: 0; }",
-    native + " [data-hcv-device-label]::after { content: attr(data-hcv-device-label); font-size: 13px; }",
+    native2 + ' [role^="menuitem"] { padding: 0 8px; }',
+    native2 + ' [role^="menuitem"] > span:first-child { gap: 6px; }',
+    native2 + ' [data-slot="dropdown-menu-separator"] { margin-inline: 8px; }',
+    native2 + ' [data-slot="connection-glyph"] { flex: none; width: 16px; height: 16px; background: currentColor; mask: ' + codexMask("cloud") + " center / contain no-repeat; }",
+    native2 + ' [data-connection-kind="local"] { mask-image: ' + codexMask("laptop") + "; }",
+    native2 + ' [data-slot="connection-glyph"] > svg { display: none; }',
+    native2 + ' [role^="menuitem"] :is(.codicon-settings-gear, .codicon-check) { flex: none; width: 16px; height: 16px; background: currentColor; }',
+    native2 + " .codicon-settings-gear { mask: " + codexMask("settings") + " center / contain no-repeat; }",
+    native2 + " .codicon-check { mask: " + codexMask("check") + " center / contain no-repeat; }",
+    native2 + ' [role^="menuitem"] :is(.codicon-settings-gear, .codicon-check)::before { content: none; }',
+    native2 + " [data-hcv-device-label] { font-size: 0; }",
+    native2 + " [data-hcv-device-label]::after { content: attr(data-hcv-device-label); font-size: 13px; }",
     "}"
   ].join("\n");
 }
@@ -12555,13 +13811,13 @@ function registerDraftSetup(ctx, active2, localEnvironment) {
   const root = document.documentElement;
   const contrast = matchMedia("(forced-colors: none)");
   const sheet = node2("style", { "data-hcv-draft-setup-style": "" });
-  sheet.textContent = styles3(active2);
+  sheet.textContent = styles4(active2);
   mountStyle(ctx, sheet, chatStyles);
   let form;
   let bar;
   let frame = 0;
   const target = () => {
-    if (!contrast.matches || !root.matches(active2) || host15.state.focusedStoredSessionId.get() || host15.state.activeSessionId.get() || host15.state.busy.get()) return null;
+    if (!contrast.matches || !root.matches(active2) || host16.state.focusedStoredSessionId.get() || host16.state.activeSessionId.get() || host16.state.busy.get()) return null;
     const chat3 = document.querySelector(primary3);
     const transcript4 = chat3?.querySelector('[data-slot="aui_thread-content"]');
     if (!transcript4 || transcript4.querySelector('[data-slot="aui_message-group"]')) return null;
@@ -12589,7 +13845,7 @@ function registerDraftSetup(ctx, active2, localEnvironment) {
     attributeFilter: ["data-hermes-theme", "data-hermes-codex-visual", "data-popped-out"]
   });
   contrast.addEventListener("change", queue);
-  const off = [host15.state.focusedStoredSessionId, host15.state.activeSessionId, host15.state.busy].map((store) => store.subscribe(queue));
+  const off = [host16.state.focusedStoredSessionId, host16.state.activeSessionId, host16.state.busy].map((store) => store.subscribe(queue));
   ctx.i18n.onLocaleChange(() => bar?.localize());
   ctx.onDispose(() => {
     observer.disconnect();
@@ -12603,7 +13859,157 @@ function registerDraftSetup(ctx, active2, localEnvironment) {
 }
 
 // source/interface.js
-import { host as host16 } from "@hermes/plugin-sdk";
+import { host as host17 } from "@hermes/plugin-sdk";
+
+// source/command-palette.js
+var commandRoot = '[data-slot="command"]';
+var paletteDialog = '[role="dialog"][data-state]:not([data-slot])';
+var paletteRoot = `${commandRoot}[cmdk-root]`;
+var icons2 = {
+  plus: "newChat",
+  "app-window": "activityBrowser",
+  settings: "settings",
+  tool: "skills",
+  "message-circle": "chatTab",
+  package: "artifacts",
+  clock: "schedule",
+  users: "team",
+  cpu: "system",
+  "chart-dots-3": "graph",
+  folder: "folder",
+  "chevron-right": "right",
+  check: "check"
+};
+function commandPaletteStyles(active2) {
+  const dialog2 = `${active2} ${paletteDialog}:has(> ${paletteRoot})`;
+  const root = `${active2} ${paletteDialog} > ${paletteRoot}`;
+  const search = `${root} > [data-slot="command-input-wrapper"]`;
+  const list = `${root} > [data-slot="command-list"]`;
+  const item = `${list} [data-slot="command-item"]`;
+  const enabled = `${item}:not([aria-disabled="true"], [data-disabled="true"])`;
+  const heading = `${list} [cmdk-group-heading]`;
+  return `
+  /* Codex global search (757723.3067c948bc.js, 20dca5934f5d.css).
+     Keep the surface opaque so moving the highlight never samples the chat. */
+  ${dialog2} {
+    --hcv-palette-top: max(calc(var(--titlebar-height, 34px) + 6px), calc((100dvh - 504px) / 2));
+    inset-block-start: var(--hcv-palette-top);
+    display: flex;
+    inline-size: min(768px, 92vw);
+    max-block-size: calc(100dvh - var(--hcv-palette-top) - 16px);
+    border: 1px solid var(--hcv-dropdown-outline);
+    border-radius: 16px;
+    background: var(--hcv-dropdown-background);
+    box-shadow: 0 16px 32px -8px #00000030;
+    color: var(--hcv-dropdown-text);
+    outline: none;
+    transform-origin: top center;
+    animation: none;
+  }
+  ${dialog2}[data-state="closed"] { pointer-events: none; }
+  ${root} {
+    min-block-size: 0;
+    block-size: auto;
+    padding: 4px;
+    border-radius: inherit;
+    background: transparent;
+    color: inherit;
+    font: 430 14px/20px var(--hcv-ui-font);
+  }
+  ${search} {
+    flex: none;
+    block-size: 44px;
+    padding-inline: 10px;
+    border-block-end: 1px solid var(--hcv-dropdown-outline);
+    color: var(--hcv-muted);
+  }
+  ${search} > input {
+    min-inline-size: 0;
+    block-size: 100%;
+    padding: 0;
+    color: var(--hcv-dropdown-text);
+    font: inherit;
+  }
+  ${search} > input::placeholder { color: var(--hcv-muted); opacity: 1; }
+  ${search} > svg {
+    inline-size: 16px;
+    block-size: 16px;
+    color: inherit;
+  }
+  ${codexIconRules(`${search} > svg.tabler-icon-search`, "search")}
+  ${root} > button:first-of-type {
+    flex: none;
+    border-radius: 8px;
+    border-color: var(--hcv-dropdown-outline);
+    transition: none;
+  }
+  ${list} {
+    min-block-size: 0;
+    max-block-size: min(440px, calc(90dvh - 64px));
+    contain: layout paint;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
+    scroll-padding-block: 4px;
+  }
+  ${list} [data-slot="command-group"] { padding: 4px 0 0; }
+  ${heading} {
+    padding: 4px 10px 2px;
+    color: var(--hcv-muted);
+    font: 500 12px/18px var(--hcv-ui-font);
+    text-transform: none;
+    letter-spacing: normal;
+  }
+  ${item} {
+    content-visibility: auto;
+    contain-intrinsic-block-size: auto 36px;
+    gap: 8px;
+    min-block-size: 36px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    color: inherit;
+    font: inherit;
+    transition: none;
+  }
+  ${enabled} { cursor: pointer; opacity: .75; }
+  ${enabled}:is([data-selected="true"], :focus-visible, :active) {
+    background-color: var(--hcv-dropdown-hover);
+    color: inherit;
+    opacity: 1;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    ${enabled}:hover { opacity: 1; }
+    ${enabled}:hover:not([data-selected="true"], :active, :focus-visible) {
+      background-color: color-mix(in srgb, var(--hcv-dropdown-hover) 25%, transparent);
+    }
+  }
+  ${item} > :is([data-slot="kbd-group"], [data-slot="command-shortcut"], kbd) { display: none; }
+  ${item} > svg {
+    inline-size: 16px;
+    block-size: 16px;
+    flex: none;
+  }
+  ${item} > svg:is(.tabler-icon-chevron-right, .tabler-icon-check):not(:first-child) { margin-inline-start: auto; }
+  ${Object.entries(icons2).map(([native2, glyph3]) => codexIconRules(`${item} > svg.tabler-icon-${native2}`, glyph3)).join("")}
+  @supports (corner-shape: superellipse(1.5)) {
+    ${dialog2} { border-radius: 20px; corner-shape: superellipse(1.5); }
+    ${item} { border-radius: 12.5px; corner-shape: superellipse(1.5); }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    ${dialog2}[data-state="open"] { animation: hcv-palette-in 150ms var(--hcv-enter) both; }
+    ${dialog2}[data-state="closed"] { animation: hcv-palette-out 150ms var(--hcv-enter) both; }
+  }
+  @keyframes hcv-palette-in {
+    from { opacity: 0; scale: .98; }
+    to { opacity: 1; scale: 1; }
+  }
+  @keyframes hcv-palette-out {
+    from { opacity: 1; scale: 1; }
+    to { opacity: 0; scale: .98; }
+  }
+  `;
+}
+
+// source/interface.js
 var menus = ':is([data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"], [data-slot="context-menu-content"], [data-slot="context-menu-sub-content"], [data-slot="select-content"]):not([data-hcv-window-menu-content])';
 var modelCatalog = '[data-slot="dropdown-menu-content"]:has(> [data-slot="dropdown-menu-search"]):has(> [data-slot="dropdown-menu-item"] > .codicon-settings-gear)';
 var modelRow = '[data-slot="dropdown-menu-sub-trigger"]';
@@ -12615,7 +14021,7 @@ var items = ':is([data-slot^="dropdown-menu-"][role^="menuitem"], [data-slot^="c
 var menuRows = `${menus} ${items}`;
 var popover2 = '[data-slot="popover-content"]';
 var tip = '[data-slot="tooltip-content"]';
-var button3 = ':is(button, [role="button"], [data-slot="button"])';
+var button4 = ':is(button, [role="button"], [data-slot="button"])';
 var quietIcon = '[data-variant="ghost"][data-size^="icon"]';
 var dialog = '[data-slot="dialog-content"]';
 var dialogOverlay = '[data-slot="dialog-overlay"]';
@@ -12697,19 +14103,19 @@ function watchModelEffortBadges(ctx) {
   });
 }
 function catalogGroupHover(ctx) {
-  const marker3 = "data-catalog-hover-group";
-  const selector = "[" + marker3 + "]";
+  const marker4 = "data-catalog-hover-group";
+  const selector = "[" + marker4 + "]";
   const disabled = /* @__PURE__ */ new Map();
   let watching = false;
   function disable(node3) {
     const groups2 = node3.matches(selector) ? [node3] : node3.querySelectorAll(selector);
     for (const group2 of groups2) {
-      disabled.set(group2, group2.getAttribute(marker3));
-      group2.removeAttribute(marker3);
+      disabled.set(group2, group2.getAttribute(marker4));
+      group2.removeAttribute(marker4);
     }
   }
   function restore(group2, value) {
-    group2.setAttribute(marker3, value);
+    group2.setAttribute(marker4, value);
     disabled.delete(group2);
   }
   const mounts = new MutationObserver((records) => {
@@ -12777,7 +14183,7 @@ function registerInterface(ctx, active2) {
     const control3 = event.target.closest?.(rescan);
     if (!control3 || control3.matches(':disabled, [aria-disabled="true"]')) return;
     const russian = root.lang.toLowerCase().startsWith("ru");
-    host16.notify({
+    host17.notify({
       id: "hermes-codex-visual:plugins-rescan",
       kind: "info",
       message: russian ? "\u0417\u0430\u043F\u0443\u0449\u0435\u043D\u043E \u0441\u043A\u0430\u043D\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435 \u043F\u043B\u0430\u0433\u0438\u043D\u043E\u0432" : "Plugin scan started"
@@ -12804,7 +14210,7 @@ function registerInterface(ctx, active2) {
   const mainTabs = tabs.replace("[data-zone-tabstrip]", '[data-zone-tabstrip="grp-main"]');
   const projectRow2 = `${active2} [data-sessions-project]:not([data-sessions-mode]) > :first-child`;
   const paneAdd = `${active2} [data-zone-tabstrip] button:has(> .codicon-add)`;
-  const card = `${active2} [data-hcv-context-card]`;
+  const card2 = `${active2} [data-hcv-context-card]`;
   const catalogDetail = `${active2}[data-hcv-screen="capabilities"] [data-slot="dialog-content"]:has([data-catalog-detail])`;
   const nav = `${shown} [data-tour="overlay-nav"]`;
   const notice2 = `${active2} ${notification}`;
@@ -12864,7 +14270,7 @@ function registerInterface(ctx, active2) {
     ${active2} { --hcv-dropdown-radius: 20px; --hcv-dropdown-row-radius: 15px; }
   }
   /* A button label can carry its own underline independently of the button. */
-  ${active2} :is(${button3}, ${button3} :where(.underline, [class*=':underline'])) {
+  ${active2} :is(${button4}, ${button4} :where(.underline, [class*=':underline'])) {
     text-decoration-line: none;
   }
   ${active2} :where(${quietIcon}) { border-radius: ${codexReference.quietControl.radius}; }
@@ -13091,7 +14497,7 @@ function registerInterface(ctx, active2) {
       transition: background-color var(--hcv-enter-time) var(--hcv-ease),
         color var(--hcv-enter-time) var(--hcv-ease);
     }
-    ${tabs}, ${paneAdd}, ${card} button, ${projectRow2}, ${projectRow2} button {
+    ${tabs}, ${paneAdd}, ${card2} button, ${projectRow2}, ${projectRow2} button {
       transition: background-color var(--hcv-enter-time) var(--hcv-ease),
         color var(--hcv-enter-time) var(--hcv-ease),
         border-color var(--hcv-enter-time) var(--hcv-ease);
@@ -13252,7 +14658,7 @@ ${active2} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/la
     margin: 4px 8px;
     background: var(--hcv-dropdown-outline);
   }
-  ${Object.entries(menuGlyphs).map(([native, name]) => codexIconRules(`${active2} ${items} .codicon-${native}`, name)).join("")}
+  ${Object.entries(menuGlyphs).map(([native2, name]) => codexIconRules(`${active2} ${items} .codicon-${native2}`, name)).join("")}
   ${codexIconRules(`${active2} ${items} ${checkIcon}`, "check")}
   ${active2} ${commandItems} { border-radius: 8px; }
   ${active2} ${commandItems}:is(:focus, [data-selected="true"]):not([data-disabled="true"], [aria-disabled="true"]) {
@@ -13287,8 +14693,9 @@ ${active2} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/la
       pointer-events: none;
     }
   }
+  ${commandPaletteStyles(active2)}
 }
-`, { surface: `:is(${menus}, ${popover2}, ${dialog}, ${dialogOverlay}, ${items}, ${commandItems})` });
+`, { surface: `:is(${menus}, ${popover2}, ${dialog}, ${dialogOverlay}, ${items}, ${commandRoot})` });
   mountCSS(ctx, "data-hcv-interface-pages", `
 @media (forced-colors: none) {
   /* Shells share spacing but keep their own controls, labels and content. */
@@ -13757,6 +15164,189 @@ function registerDesktopCorners(ctx, active2) {
   });
 }
 
+// source/settings-layout.js
+var settingsRowHost = '[class~="@container"]';
+var body = ".grid.gap-3.py-3";
+var hostBody = `${settingsRowHost} > ${body}`;
+var row3 = `${settingsRowHost}:has(> ${body})`;
+var wrapped = ':is([id^="setting-field-"], [id^="aux-task-"], [id^="archived-session-"]):not([class~="@container"])';
+var member = `:is(${settingsRowHost}, ${wrapped})`;
+function settingsLayoutRules(screen, main) {
+  const grid = `${main} ${hostBody}`;
+  const copy7 = `${grid} > div:first-child`;
+  const trailing = `${grid} > div:nth-child(2)`;
+  const group2 = `${main} :where(div, section):where(:not(${member}):has(> ${hostBody}, > ${wrapped} > ${hostBody}):not(:has(> :not(${member}))))`;
+  const delegation = `${main} [id="setting-field-delegation.model"]`;
+  const delegationRows = `${delegation} .grid.gap-1:has(> ${hostBody})`;
+  const moa = `${screen}[data-hcv-settings-tab="config:model"][data-hcv-settings-page="moa"] [data-overlay-surface] main`;
+  const addReference = 'button[data-slot="button"][data-variant="textStrong"]';
+  const moaRows = `${moa} .grid.gap-1:has(> ${settingsRowHost} + ${addReference} + ${hostBody})`;
+  const loose = `${main} :where(${row3}:not(${group2} > *, ${group2} > ${wrapped} > *, ${delegation} *, ${moaRows} > *))`;
+  const looseRun = `${main} .grid.gap-1:has(> ${settingsRowHost} + ${hostBody}):not(:where(${group2}, ${delegationRows}, ${moaRows}))`;
+  const attachmentSize = '[id="setting-field-chat.attachment-size"]';
+  const imageMode = '[id="setting-field-agent.image_input_mode"]:only-child';
+  const attachmentTail = `${main} ${attachmentSize} + .grid:has(> ${imageMode} > ${hostBody})`;
+  const attachmentHead = `${main} ${attachmentSize}:has(+ .grid > ${imageMode} > ${hostBody})`;
+  const divider = "1px solid var(--hcv-settings-group-stroke)";
+  const profile2 = `${main} .grid.gap-2:has(> .flex.flex-wrap[class~="gap-1.5"] > button.rounded-full.border[type="button"])`;
+  const auxIntro = `${screen}[data-hcv-settings-page="auxiliary"] [data-overlay-surface] main section:has(> .grid > [id^="aux-task-"])`;
+  const actionRail = `${main} [id^="aux-task-"] ${hostBody} > div:nth-child(2) > .flex`;
+  const modelList = `${main} :is([id^="aux-task-"], [id="setting-field-delegation.model"]) ${hostBody}`;
+  const presetBar = `${moa} .flex.flex-wrap:has(> label > [role="switch"]):has(> [data-slot="select-trigger"])`;
+  const modelEditor = `${moaRows} > ${settingsRowHost} > ${body} > div:first-child > .mt-2.flex`;
+  const modelTitle = `:is(${modelList}, ${moaRows} > ${hostBody}) > div:first-child > div:first-child > span.flex`;
+  const fontRow = `${main} :is([id="setting-field-appearance.chat-font"], [id="setting-field-appearance.terminal-font"]) ${hostBody}`;
+  const routeModes = `${main} [role="radiogroup"]:has(> [data-mode] > button[role="radio"])`;
+  return `
+  /* Codex AWNZ.ic / ZEx5: a flat list of rows within one frame. A deep-link
+     wrapper is a member of that list, never another card inside it. */
+  ${group2}, ${loose}, ${moaRows} {
+    min-inline-size: 0;
+    padding-inline: var(--hcv-settings-inset);
+    border: 1px solid var(--hcv-settings-group-stroke);
+    border-radius: var(--hcv-settings-card-radius);
+    background-color: var(--hcv-settings-group);
+  }
+  ${group2}, ${looseRun}, ${delegationRows}, ${moaRows} { gap: 0; }
+  ${group2} > ${member} { min-inline-size: 0; border-radius: 0; }
+  ${group2} > ${member} + ${member},
+  ${delegationRows} > ${settingsRowHost} + ${settingsRowHost},
+  ${moaRows} > ${settingsRowHost} + ${settingsRowHost} { border-block-start: ${divider}; }
+  ${loose} + ${settingsRowHost} {
+    border-start-start-radius: 0;
+    border-start-end-radius: 0;
+    border-block-start-color: var(--hcv-settings-group-stroke);
+  }
+  ${loose}:has(+ ${settingsRowHost} > ${body}) {
+    border-end-start-radius: 0;
+    border-end-end-radius: 0;
+    border-block-end-width: 0;
+  }
+  ${attachmentHead} {
+    border-block-end: 0;
+    border-end-start-radius: 0;
+    border-end-end-radius: 0;
+  }
+  ${attachmentTail} {
+    border-block-start: 0;
+    border-start-start-radius: 0;
+    border-start-end-radius: 0;
+  }
+  ${attachmentTail} > ${imageMode} { border-block-start: ${divider}; }
+
+  ${grid} {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px var(--hcv-settings-row-gap);
+    padding-block: var(--hcv-settings-row-pad);
+  }
+  ${copy7} > div:first-child { font-size: 13px; font-weight: 500; line-height: calc(1.25 / .875); }
+  ${copy7} > div:first-child > span { min-inline-size: 0; overflow-wrap: anywhere; }
+  ${copy7} > .mt-1 { margin-block-start: 2px; overflow-wrap: anywhere; }
+  ${trailing} { min-inline-size: 0; gap: 8px; }
+  ${trailing} > :is(div, button, input) { max-inline-size: 100%; }
+  ${grid}:has(> div:nth-child(2) > [role="switch"]:only-child) {
+    grid-template-columns: minmax(0, 1fr) max-content;
+    align-items: center;
+  }
+  ${grid}:has(> div:nth-child(2) > [role="switch"]:only-child) > div:nth-child(2) {
+    justify-self: end;
+  }
+  @container (min-width: 480px) {
+    ${grid}:has(> div + div) {
+      grid-template-columns: minmax(0, 1fr) fit-content(54%);
+      align-items: center;
+    }
+    ${grid}[class~="@2xl:items-start"] { align-items: start; }
+    ${trailing} { justify-self: end; justify-content: flex-end; }
+  }
+  @container (width < 480px) {
+    ${copy7} > div:first-child { flex-wrap: wrap; gap: 4px 8px; }
+    ${trailing} { justify-self: start; justify-content: flex-start; }
+  }
+
+  /* Hermes-only controls mapped to stacked rows and compact actions. */
+  ${delegationRows} > div.pb-3:empty { display: none; }
+  ${delegationRows} > div.pb-3:not(:empty) { padding-block: 4px 12px; }
+  ${routeModes} {
+    gap: 0;
+    padding-inline: var(--hcv-settings-inset);
+    border: 1px solid var(--hcv-settings-group-stroke);
+    border-radius: var(--hcv-settings-card-radius);
+    background: var(--hcv-settings-group);
+  }
+  ${routeModes} > [data-mode] { border: 0; border-radius: 0; background: transparent; }
+  ${routeModes} > [data-mode] + [data-mode] { border-block-start: ${divider}; }
+  ${routeModes} > [data-mode] > button[role="radio"] { padding: 10px 0; }
+  ${routeModes} > [data-blocked="true"] { background: color-mix(in srgb, #f59e0b 8%, transparent); }
+  @media (hover: hover) and (pointer: fine) {
+    ${routeModes} > [data-mode]:has(> button[role="radio"]:hover:not(:disabled)) { background: var(--hcv-settings-button); }
+  }
+  @container hcv-settings-main (min-width: 540px) {
+    ${auxIntro} {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) max-content;
+      align-items: center;
+      gap: 12px 16px;
+    }
+    ${auxIntro} > * { grid-column: 1 / -1; }
+    ${auxIntro} > div:first-child { grid-area: 1 / 2; margin: 0; }
+    ${auxIntro} > p:nth-child(2) { grid-area: 1 / 1; margin: 0; }
+  }
+  ${modelTitle} { flex-wrap: wrap; gap: 2px 8px; }
+  ${modelTitle} > [data-slot="badge"] {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--hcv-muted);
+    font: 400 12px/16px var(--hcv-ui-font);
+    white-space: normal;
+    text-align: start;
+  }
+  ${actionRail} { flex-wrap: wrap; flex-shrink: 1; justify-content: inherit; gap: 4px 8px; }
+  ${modelList} > div:first-child > .mt-2.grid { margin-block-start: 8px; padding-block-start: 0; }
+  ${presetBar} > [data-slot="select-trigger"] {
+    inline-size: auto;
+    min-inline-size: min(136px, 100%);
+  }
+  ${presetBar} > label:has(> [role="switch"]) {
+    min-block-size: 28px;
+    padding: 2px 8px;
+    border-radius: 8px;
+  }
+  ${moaRows} > ${addReference} {
+    justify-self: end;
+    margin-block: 8px;
+  }
+  ${moaRows} > ${settingsRowHost}:has(+ ${addReference}) { border-block-end: ${divider}; }
+  ${moaRows} > ${addReference} + ${settingsRowHost} { border-block-start: ${divider}; }
+  ${modelEditor} { margin-block-start: 6px; padding-block-start: 0; gap: 6px 8px; }
+  ${modelEditor} > :is(button, div) { max-inline-size: 100%; min-inline-size: 0; }
+  ${modelEditor} > :is([data-slot$="select-trigger"], div:has(> [data-slot="input"])) {
+    inline-size: auto;
+    flex: 1 1 160px;
+  }
+  ${moaRows} > ${hostBody}:has(> div:nth-child(2)) { align-items: start; }
+  ${moaRows} > ${hostBody} > div:nth-child(2) { padding-block-start: 1px; }
+  ${fontRow} > div > .space-y-2 { margin-block-start: 8px; }
+  ${fontRow} > div > .space-y-2 > div:first-child { flex-wrap: wrap; gap: 8px; }
+  ${fontRow} > div > .space-y-2 > div:first-child > div { min-inline-size: min(200px, 100%); }
+  ${fontRow} > div > .space-y-2 > .overflow-hidden {
+    padding: 6px 0 0;
+    overflow-wrap: anywhere;
+  }
+  ${profile2} { gap: 4px; margin-block-end: 16px; }
+  ${profile2} > .flex { gap: 6px; }
+  ${profile2} > .flex > button {
+    padding: 3px 8px;
+    max-inline-size: 100%;
+    min-block-size: 24px;
+    border-radius: 8px;
+    line-height: 16px;
+    overflow-wrap: anywhere;
+  }
+  `;
+}
+
 // source/settings.js
 var groups = {
   "config:model": "model",
@@ -13774,9 +15364,11 @@ var groups = {
   providers: "bolt",
   gateway: "globe",
   connections: "globe",
+  "web-access": "web",
   keybinds: "keyboard",
   keys: "keys",
   sessions: "archive",
+  plugins: "plugins",
   about: "info"
 };
 var nativeIcons = {
@@ -13806,6 +15398,7 @@ var nativeIcons = {
   paw: "paw",
   photo: "image",
   "settings-2": "sliders",
+  "adjustments-horizontal": "sliders",
   "shield-lock": "shield",
   terminal: "terminal",
   "terminal-2": "terminal",
@@ -13820,7 +15413,8 @@ var nativeIcons = {
   "info-circle": "info"
 };
 function registerSettingsStyle(ctx, active2) {
-  const settings = `${active2}[data-hcv-screen="settings"] [data-overlay-surface]`;
+  const screen = `${active2}[data-hcv-screen="settings"]`;
+  const settings = `${screen} [data-overlay-surface]`;
   const rail = `${settings} [data-tour="overlay-nav"]`;
   const searchButton = "button[data-glass-opaque]";
   const searchIcon = "svg.tabler-icon-search";
@@ -13829,21 +15423,22 @@ function registerSettingsStyle(ctx, active2) {
   const compact = `${rail} + div button[aria-haspopup="menu"]`;
   const settingsMenu = `${active2}[data-hcv-screen="settings"] [data-slot="dropdown-menu-content"] [role="menuitem"]`;
   const main = `${settings} main`;
-  const panels = `${active2}[data-hcv-screen="settings"] :is([data-slot="dialog-content"], [data-slot="popover-content"], [data-slot="select-content"], [data-slot="dropdown-menu-content"])`;
+  const panels = `${screen} :is([data-slot="dialog-content"], [data-slot="popover-content"], [data-slot="select-content"], [data-slot="dropdown-menu-content"])`;
+  const selectPanel = `${screen} [data-slot="select-content"]`;
   const system = `${active2}[data-hcv-screen="command-center"] [data-overlay-surface] main`;
   const preferences = `:is(${main}, ${system})`;
   const crumbWrap = `${main} > div:has(> nav > [aria-current="page"])`;
-  const crumbs = `:is(${main} > nav:has(> [aria-current="page"]), ${crumbWrap} > nav)`;
-  const control3 = ':is([data-slot="select-trigger"], [data-slot="searchable-select-trigger"], [data-slot="compact-select-trigger"], [data-slot="input"]:not([type="file"],[type="checkbox"],[type="range"],[type="color"]), [data-slot="textarea"])';
-  const rowHost = '[class~="@container"]';
-  const nativeRow = `${rowHost}:has(> .grid.py-3)`;
-  const field = '[id^="setting-field-"]';
-  const fieldGroup = `${main} .grid:has(> ${field} > ${rowHost} > .grid.py-3):not(:has(> :not(${field})))`;
-  const rowGroup = `${main} :is(div, section):has(> ${rowHost} > .grid.py-3):not(:has(> :not(${rowHost}))):not(:where(${fieldGroup} > *))`;
-  const standalone = `${main} ${nativeRow}:not(:where(${rowGroup} > *, ${fieldGroup} > * > *))`;
+  const directCrumbs = `${main} > nav:has(> [aria-current="page"])`;
+  const crumbs = `:is(${directCrumbs}, ${crumbWrap} > nav)`;
+  const triggers = ':is([data-slot="select-trigger"], [data-slot="searchable-select-trigger"], [data-slot="compact-select-trigger"])';
+  const control3 = `:is(${triggers}, [data-slot="input"]:not([type="file"], [type="checkbox"], [type="range"], [type="color"]), [data-slot="textarea"], [data-slot="combobox-input"])`;
+  const surfaces = `:is(${main}, ${panels})`;
+  const sectionTitle = `${main} .flex.items-center.gap-2.pt-2:has(> svg.size-4)`;
   const segmented = `${main} .inline-grid.grid-flow-col:has(> button[aria-pressed])`;
   const searchField = `${main} div.inline-flex:has(> ${searchIcon} ~ input[placeholder])`;
-  const mainButtons = `:is(${main}, ${panels}) button[data-variant][data-size]:not([data-size="inline"])`;
+  const mainButtons = `${surfaces} :is(button, a[data-slot="button"])[data-variant][data-size]:not([data-size="inline"], [role="switch"])`;
+  const compactButton = `${mainButtons}:is([data-size="sm"], [data-size="default"])`;
+  const quietButton = `${mainButtons}:is([data-variant="ghost"], [data-variant="text"])`;
   const modes = `${main} [id="setting-field-gateway.connection-mode"] > .grid`;
   const mode = `${modes} > button`;
   const selectable = `${main} button.rounded-lg.border.transition-colors.text-left:not([data-slot], [id="setting-field-gateway.connection-mode"] *)`;
@@ -13852,7 +15447,8 @@ function registerSettingsStyle(ctx, active2) {
   const link2 = `:is(${preferences}, ${active2}[data-hcv-screen="settings"] [data-slot="dialog-content"]) a[href]:not([role="button"], [data-slot="button"])`;
   const operationRow = '.flex.items-center.justify-between.gap-3.py-2:has(> div.min-w-0 + button[data-variant="textStrong"])';
   const operation = `${system} section > ${operationRow}`;
-  const toggle2 = `${main} [data-slot="switch"][role="switch"]`;
+  const toggle2 = `${surfaces} [data-slot="switch"][role="switch"]`;
+  const focusable2 = `${surfaces} :is(button, a[href], input, select, textarea, [tabindex="0"])`;
   const sheet = document.createElement("style");
   sheet.dataset.hcvSettings = "";
   sheet.textContent = `
@@ -13908,7 +15504,7 @@ function registerSettingsStyle(ctx, active2) {
     min-block-size: 30px;
     padding-inline: 8px;
     border-radius: 10px;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 400;
     line-height: 20px;
     color: var(--hcv-text);
@@ -13919,8 +15515,13 @@ function registerSettingsStyle(ctx, active2) {
   ${rail} div[id] > button.row-hover { min-block-size: 30px; font-size: 12px; }
   ${rail} div[id] > button.row-hover > svg { inline-size: 14px; block-size: 14px; }
   ${rail} button[data-tour^="nav-toggle-"] { border-radius: 6px; }
-  ${Object.entries(nativeIcons).map(([native, icon8]) => codexIconRules(
-    `:is(${rail} button.row-hover, ${compact}, ${settingsMenu}) > svg.tabler-icon-${native}`,
+  ${rail} :is(button.row-hover, button[data-tour^="nav-toggle-"]):focus-visible,
+  ${search}:focus-visible, ${compact}:focus-visible {
+    outline: 2px solid var(--hcv-focus);
+    outline-offset: -2px;
+  }
+  ${Object.entries(nativeIcons).map(([native2, icon8]) => codexIconRules(
+    `:is(${rail} button.row-hover, ${compact}, ${settingsMenu}) > svg.tabler-icon-${native2}`,
     icon8
   )).join("")}
   ${codexIconRules(`:is(${rail} button.row-hover, ${compact}, ${settingsMenu}) > .codicon-account`, "person")}
@@ -13933,16 +15534,21 @@ function registerSettingsStyle(ctx, active2) {
   ${codexIconRules(`${rail} > div:last-child > button > svg.tabler-icon-upload`, "upload")}
   ${codexIconRules(`${rail} > div:last-child > button > svg.tabler-icon-refresh`, "refresh")}
 
-  /* Personalization, 338923.5e5c677ceb.js: 768px including 20px side padding.
-     ZEx5 in 200452.4e72c790d9.js: grouped rows inside a 16px frame. */
+  /* Desktop settings, 150138.9670f4badd.js: 768px including 20px side
+     gutters. ZEx5 + AWNZ.ic, 200452.c015aea25d.js: grouped rows. */
   ${preferences}, ${panels} {
     --hcv-settings-group: light-dark(#f7f7f7, #232323);
-    --hcv-settings-group-stroke: color-mix(in srgb, var(--hcv-text) 8%, transparent);
+    --hcv-settings-group-stroke: color-mix(in srgb, var(--hcv-text) 9%, transparent);
     --hcv-settings-button: color-mix(in srgb, var(--hcv-text) 5%, transparent);
     --hcv-settings-card-radius: 16px;
     --hcv-settings-control-radius: 8px;
+    --hcv-settings-inset: 16px;
+    --hcv-settings-row-gap: 24px;
+    --hcv-settings-row-pad: 12px;
+    --hcv-settings-fade: 150ms cubic-bezier(0, 0, .2, 1);
     font-family: var(--hcv-ui-font);
   }
+  ${system} { --hcv-settings-group-stroke: color-mix(in srgb, var(--hcv-text) 8%, transparent); }
   /* Codex Desktop's named corner scale, limited to settings contents and portals.
      Native utility classes then use the same curve on wrappers and their contents. */
   :is(${main}, ${panels}) {
@@ -13959,19 +15565,22 @@ function registerSettingsStyle(ctx, active2) {
   ${preferences} :is(div, section, fieldset, pre).rounded-2xl.border { border-radius: 16px; }
   ${main} {
     max-inline-size: 768px;
-    padding-block-start: 32px;
-    padding-block-end: 0;
-    --conversation-text-font-size: 14px;
+    container: hcv-settings-main / inline-size;
+    --hcv-settings-gutter: 20px;
+    padding: 32px 0 0;
+    font-size: 13px;
+    line-height: calc(1.25 / .875);
+    --conversation-text-font-size: 13px;
     --conversation-caption-font-size: 12px;
-    --conversation-caption-line-height: 18px;
+    --conversation-caption-line-height: 16px;
   }
   ${main} > section > div.h-full {
-    padding-inline: 20px;
+    padding-inline: var(--hcv-settings-gutter);
     padding-block-end: 32px;
   }
-  ${crumbWrap} {
-    margin-block-end: 16px;
-    padding-inline: 20px;
+  ${crumbWrap}, ${directCrumbs} {
+    margin-block-end: 20px;
+    padding-inline: var(--hcv-settings-gutter);
   }
   ${crumbs} {
     min-block-size: 30px;
@@ -13991,45 +15600,24 @@ function registerSettingsStyle(ctx, active2) {
   ${crumbs} > button { font-size: 12px; }
   ${crumbs} > svg:has(+ [aria-current="page"]) { display: none; }
   ${codexIconRules(`${crumbs} > svg`, "right")}
-  ${main} :is(h1, h2) { font-weight: 600; text-wrap: balance; }
-  ${main} :is(p, label) { overflow-wrap: anywhere; }
-  ${rowGroup}, ${fieldGroup}, ${modes} {
+  ${main} h1 { font-weight: 500; text-wrap: balance; }
+  ${main} h2, ${sectionTitle} {
+    color: var(--hcv-text);
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 20px;
+  }
+  ${sectionTitle} { margin-block-end: 8px; padding-block-start: 0; }
+  ${sectionTitle} > svg { flex: 0 0 auto; inline-size: 16px; block-size: 16px; color: var(--hcv-muted); }
+  ${Object.entries(nativeIcons).map(([native2, icon8]) => codexIconRules(`${sectionTitle} > svg.tabler-icon-${native2}`, icon8)).join("")}
+  ${main} p { overflow-wrap: anywhere; }
+  ${settingsLayoutRules(screen, main)}
+  ${modes} {
     gap: 0;
     min-inline-size: 0;
     border: 1px solid var(--hcv-settings-group-stroke);
     border-radius: var(--hcv-settings-card-radius);
     background: var(--hcv-settings-group);
-  }
-  ${rowGroup}, ${fieldGroup}, ${standalone} { padding-inline: clamp(8px, 2vw, 16px); }
-  ${fieldGroup} > ${field} + ${field},
-  ${main} ${nativeRow} + ${nativeRow} { border-block-start: 1px solid var(--hcv-hairline); }
-  ${standalone} {
-    min-inline-size: 0;
-    border-inline: 1px solid var(--hcv-settings-group-stroke);
-    background: var(--hcv-settings-group);
-  }
-  ${standalone}:not(:where(${nativeRow} + *)) {
-    border-block-start: 1px solid var(--hcv-settings-group-stroke);
-    border-start-start-radius: var(--hcv-settings-card-radius);
-    border-start-end-radius: var(--hcv-settings-card-radius);
-  }
-  ${standalone}:not(:has(+ ${rowHost} > .grid.py-3)) {
-    border-block-end: 1px solid var(--hcv-settings-group-stroke);
-    border-end-start-radius: var(--hcv-settings-card-radius);
-    border-end-end-radius: var(--hcv-settings-card-radius);
-  }
-  ${main} ${nativeRow} > .grid { gap: 12px 24px; padding-block: 12px; }
-  ${main} ${nativeRow} > .grid > div > div:first-child { font-weight: 500; }
-  ${main} ${nativeRow} > .grid:has(> div:nth-child(2) > [role="switch"]:only-child) {
-    grid-template-columns: minmax(0, 1fr) max-content;
-    align-items: center;
-  }
-  @container (min-width: 672px) {
-    ${main} ${nativeRow} > .grid:has(> div + div) {
-      grid-template-columns: minmax(0, 1fr) minmax(0, max-content);
-      align-items: center;
-    }
-    ${main} ${nativeRow} > .grid > div:nth-child(2) { max-inline-size: 244px; }
   }
   ${modes} { grid-template-columns: minmax(0, 1fr); grid-auto-rows: auto; }
   ${mode} {
@@ -14057,7 +15645,8 @@ function registerSettingsStyle(ctx, active2) {
   ${selectable} { border-color: var(--hcv-hairline); border-radius: 16px; box-shadow: none; }
   ${selectable}.ring-2 { border-color: var(--hcv-stroke); background-color: var(--hcv-hover-menu); }
 
-  /* Button actions and inline documentation have different affordances. */
+  /* Sm6l's toolbar variant: 28px with 8px sides. Quiet secondary
+     actions read as text until hover; the row's main action gets a fill. */
   ${action} {
     min-block-size: 28px;
     max-inline-size: 100%;
@@ -14066,12 +15655,17 @@ function registerSettingsStyle(ctx, active2) {
     background-color: var(--hcv-settings-button);
     color: var(--hcv-text);
     font-size: 13px;
-    font-weight: 500;
+    font-weight: 400;
     line-height: 18px;
     text-decoration: none;
     white-space: normal;
     overflow-wrap: anywhere;
   }
+  ${main} button[data-variant="text"][data-slot="button"]:not([data-size="inline"]) {
+    background-color: transparent;
+    color: var(--hcv-muted);
+  }
+  ${system} button[data-slot="button"]:is([data-variant="text"], [data-variant="textStrong"]):not([data-size="inline"]) { font-weight: 500; }
   ${action}.text-destructive { color: var(--hcv-error); }
   ${action}:active:not(:disabled) { background-color: color-mix(in srgb, var(--hcv-text) 16%, transparent); }
   ${inlineAction}, ${link2} { text-decoration: none; }
@@ -14097,20 +15691,23 @@ function registerSettingsStyle(ctx, active2) {
     border-end-end-radius: 16px;
   }
 
-  /* Personalization uses the default F0xz switch (189497.6182e00931.js). */
+  /* Personalization uses F0xz (956370.aff5cce818.js). */
   ${toggle2} {
+    inline-size: 32px;
     block-size: 20px;
     padding-inline: 2px;
     border: 0;
+    box-shadow: none;
     background-color: color-mix(in srgb, var(--hcv-text) 10%, transparent);
   }
   ${toggle2}[data-state="checked"] { background-color: #339cff; }
-  ${toggle2} > [data-slot="switch-thumb"] { inline-size: 16px; block-size: 16px; background-color: #fff; }
-  ${toggle2}[data-state="checked"] > [data-slot="switch-thumb"] { translate: 12px 0; background-color: #fff; }
+  ${toggle2} > [data-slot="switch-thumb"] { inline-size: 16px; block-size: 16px; background-color: #fff; translate: none; }
+  ${toggle2}[data-state="checked"] > [data-slot="switch-thumb"] { translate: 12px 0; }
   ${toggle2}[data-state="checked"]:dir(rtl) > [data-slot="switch-thumb"] { translate: -12px 0; }
 
-  :is(${main}, ${panels}) ${control3} {
-    min-block-size: 32px;
+  ${surfaces} ${control3} {
+    min-block-size: 28px;
+    max-inline-size: 100%;
     border: 1px solid var(--hcv-hairline);
     border-radius: var(--hcv-settings-control-radius);
     background: var(--hcv-form-surface);
@@ -14119,11 +15716,28 @@ function registerSettingsStyle(ctx, active2) {
     line-height: 18px;
     box-shadow: none;
   }
-  ${main} ${control3}:is(:focus, :focus-within, [data-state="open"]):not(:disabled, [aria-invalid="true"]) {
+  ${surfaces} ${control3}:not(textarea) { block-size: 28px; }
+  ${surfaces} input[role="combobox"][aria-autocomplete="list"] { padding-inline-end: 28px; }
+  ${surfaces} ${control3}:is(:focus, :focus-within, [data-state="open"]):not(:disabled, [aria-invalid="true"]) {
     border-color: color-mix(in srgb, var(--hcv-text) 50%, transparent);
   }
-  ${main} ${control3}[aria-invalid="true"] { border-color: var(--hcv-error); }
-  ${main} textarea[data-slot="textarea"] { padding-block: 8px; }
+  ${surfaces} ${control3}[aria-invalid="true"] { border-color: var(--hcv-error); }
+  ${surfaces} textarea[data-slot="textarea"] { padding-block: 8px; }
+  ${main} input[data-slot="input"][type="number"] { inline-size: min(100%, 96px); }
+  ${surfaces} ${triggers} {
+    min-inline-size: 0;
+    gap: 6px;
+  }
+  ${surfaces} ${triggers} > :is(svg.tabler-icon-chevron-down, .codicon-chevron-down, .codicon-chevron-up),
+  ${main} :has(> input[role="combobox"][aria-autocomplete="list"]) > button > .codicon-chevron-down {
+    inline-size: 14px;
+    block-size: 14px;
+    flex-shrink: 0;
+    color: var(--hcv-muted);
+  }
+  ${codexIconRules(`${surfaces} ${triggers} > :is(svg.tabler-icon-chevron-down, .codicon-chevron-down)`, "down")}
+  ${codexIconRules(`${surfaces} ${triggers} > .codicon-chevron-up`, "down")}
+  ${surfaces} ${triggers} > .codicon-chevron-up { rotate: 180deg; }
   ${searchField} {
     min-block-size: 32px;
     border: 1px solid var(--hcv-hairline);
@@ -14134,11 +15748,13 @@ function registerSettingsStyle(ctx, active2) {
   }
   ${searchField}:focus-within { border-color: var(--hcv-focus); }
   ${searchField} > input:focus-visible { outline: none; }
-  ${segmented} { min-inline-size: 0; max-inline-size: 100%; border-radius: 999px; }
+  ${segmented} { display: inline-flex; flex-wrap: wrap; min-inline-size: 0; max-inline-size: 100%; border-radius: 12px; }
   ${segmented} > button {
     min-block-size: 24px;
+    padding-inline: 6px;
     border-radius: 999px;
     color: var(--hcv-muted);
+    font: 400 12px/16px var(--hcv-ui-font);
   }
   ${segmented} > button[aria-pressed="true"] {
     background: var(--hcv-settings-group);
@@ -14146,21 +15762,27 @@ function registerSettingsStyle(ctx, active2) {
     box-shadow: 0 0 0 .5px var(--hcv-hairline);
   }
   :is(${main}, ${panels}) [data-slot="badge"] { border-radius: 999px; }
-  ${main} [data-slot="select-trigger"] > [data-slot="select-value"] {
+  ${surfaces} [data-slot="select-trigger"] > [data-slot="select-value"] {
     min-inline-size: 0;
     text-overflow: ellipsis;
   }
   ${mainButtons} {
     border-radius: var(--hcv-popup-button-radius);
+    max-inline-size: 100%;
+    white-space: normal;
   }
-  :is(${mainButtons}, ${segmented} > button):focus-visible {
+  ${compactButton} {
+    block-size: auto;
+    min-block-size: 28px;
+    padding: 4px 8px;
+    font: 400 13px/18px var(--hcv-ui-font);
+  }
+  ${quietButton}[data-size^="icon"] { inline-size: 28px; block-size: 28px; border-radius: 8px; }
+  ${focusable2}:focus-visible {
     outline: 2px solid var(--hcv-focus);
     outline-offset: -2px;
   }
-  ${main} button[data-size="sm"]:is([data-variant="default"], [data-variant="outline"], [data-variant="secondary"]) {
-    min-block-size: 28px;
-  }
-  ${main} button:is([data-variant="outline"], [data-variant="secondary"]):not(:disabled) {
+  ${surfaces} button:is([data-variant="outline"], [data-variant="secondary"]):not(:disabled) {
     border-color: var(--hcv-hairline);
   }
   ${settings} button[data-glass-opaque] { font-family: var(--hcv-ui-font); }
@@ -14170,29 +15792,43 @@ function registerSettingsStyle(ctx, active2) {
       background: var(--hcv-hover-menu);
       color: var(--hcv-text);
     }
-    ${main} ${control3}:hover:not(:disabled, :focus, :focus-within, [data-state="open"], [aria-invalid="true"]) { border-color: var(--hcv-stroke); }
+    ${surfaces} ${control3}:hover:not(:disabled, :focus, :focus-within, [data-state="open"], [aria-invalid="true"]) { border-color: var(--hcv-stroke); }
     ${mode}:hover:not(:disabled, .ring-2, :active),
-    ${action}:hover:not(:disabled, :active) { background-color: var(--hcv-hover-menu); }
+    ${action}:hover:not(:disabled, :active),
+    ${main} button[data-variant="text"][data-slot="button"]:not([data-size="inline"], :disabled):hover {
+      background-color: var(--hcv-hover-menu);
+      color: var(--hcv-text);
+    }
     ${rail} button.row-hover:not([aria-current]):hover { background-color: var(--hcv-settings-nav-fill); }
   }
   @media (prefers-reduced-motion: no-preference) {
-    ${rail} button.row-hover { transition: background-color 150ms ease, color 150ms ease; }
-    ${preferences} :is(button:not([role="switch"]), ${control3}) {
+    ${rail} button.row-hover,
+    ${surfaces} :is(button, ${control3}) {
+      transition: color var(--hcv-settings-fade, 150ms ease),
+        background-color var(--hcv-settings-fade, 150ms ease), border-color var(--hcv-settings-fade, 150ms ease);
+    }
+    ${toggle2} > [data-slot="switch-thumb"] { transition: translate var(--hcv-settings-fade); }
+    ${system} button:not([role="switch"]) {
       transition: color var(--hcv-enter-time) var(--hcv-ease), background-color var(--hcv-enter-time) var(--hcv-ease),
         border-color var(--hcv-enter-time) var(--hcv-ease), box-shadow var(--hcv-enter-time) var(--hcv-ease);
     }
+    ${selectPanel}[data-state="open"] { animation: hcv-settings-select-in 300ms var(--hcv-enter) both; transform-origin: var(--radix-select-content-transform-origin); }
+    ${selectPanel}[data-state="closed"] { animation: hcv-settings-select-out 200ms var(--hcv-exit) both; transform-origin: var(--radix-select-content-transform-origin); }
+    @keyframes hcv-settings-select-in { from { opacity: 0; scale: .95; } to { opacity: 1; scale: 1; } }
+    @keyframes hcv-settings-select-out { from { opacity: 1; scale: 1; } to { opacity: 0; scale: .95; } }
   }
   @media (prefers-reduced-motion: reduce) {
     ${rail} button.row-hover { transition: none; }
-    ${preferences} :is(button:not([role="switch"]), ${control3}) { transition: none; }
+    ${surfaces} :is(button, ${control3}, [data-slot="switch-thumb"]) { transition: none; }
+    ${system} button:not([role="switch"]) { transition: none; }
+    ${selectPanel}[data-state] { animation: none; }
   }
   @media (max-width: 760px) {
     ${settings} [data-glass-raised] > div > .grid:has(> [data-tour="overlay-nav"]) {
       grid-template-columns: minmax(0, 1fr);
     }
-    ${main} { padding-block-start: 6px; }
-    ${main} > section > div.h-full { padding-inline: 16px; }
-    ${crumbWrap} { padding-inline: 16px; margin-block-end: 8px; }
+    ${main} { padding-block-start: 8px; --hcv-settings-gutter: 16px; --hcv-settings-inset: 12px; }
+    ${crumbWrap}, ${directCrumbs} { margin-block-end: 12px; }
     ${crumbs} > [aria-current="page"] { font-size: 24px; line-height: 28px; }
     ${search} { background-color: color-mix(in srgb, var(--hcv-text) 8%, var(--hcv-sidebar)); }
   }
@@ -14216,7 +15852,7 @@ function registerSettingsProviders(ctx, active2) {
   const accounts = `${providerMain} section.mb-5.grid.gap-2`;
   const account = `${accounts} > :is(button[data-slot="row-button"], div.group.grid:has(> button))`;
   const endpointShortcut = `${providerMain} > section > div.h-full > button[data-slot="row-button"]`;
-  const keyCard = `${providerMain} [id^="provider-key-"] > [class~="group/card"]`;
+  const keyCard = `${providerMain} :is([id^="provider-key-"], .grid.gap-2) > [class~="group/card"]`;
   const endpointList = `${providerMain} .space-y-6 > section > .divide-y.rounded-md.border`;
   const endpointForm = `${providerMain} .space-y-6 > section > .grid.rounded-md.border.p-3`;
   const endpointName = `${endpointList} > .grid > button:first-child`;
@@ -14323,8 +15959,6 @@ function registerSettingsProviders(ctx, active2) {
 
 // source/settings-special.js
 function registerSettingsSpecial(ctx, active2) {
-  const settings = `${active2}[data-hcv-screen="settings"] [data-overlay-surface]`;
-  const main = `${settings} main`;
   const page = (tab) => `${active2}[data-hcv-settings-tab="${tab}"] [data-overlay-surface] main`;
   const gateways = page("gateway");
   const registryEditor = `${gateways} .space-y-3.rounded-lg.border:has(> .grid.grid-cols-2)`;
@@ -14341,9 +15975,10 @@ function registerSettingsSpecial(ctx, active2) {
   const shortcutCategory = `${shortcutList} [class~="group/kbd-cat"]`;
   const keycap = `${shortcuts} [data-slot="kbd"]`;
   const archiveRow = '[id^="archived-session-"]';
-  const archive = `${main} .grid:has(> ${archiveRow})`;
+  const archive = `${page("sessions")} ${archiveRow}`;
+  const archiveAction = `${archive} ${settingsRowHost} > .grid > div:nth-child(2) > .flex`;
   const pluginRow = 'button[data-testid^="plugin-settings-row-"]';
-  const plugins = `${main} .grid:has(> ${pluginRow})`;
+  const plugins = `${page("plugins")} .grid:has(> ${pluginRow})`;
   const pluginManage = `${page("plugins")} a[data-slot="button"][href*="capabilities"]`;
   const keyRow = '[id^="credential-key-"] > [class~="group/card"]';
   const toolKey = `${page("keys")} ${keyRow}`;
@@ -14357,7 +15992,7 @@ function registerSettingsSpecial(ctx, active2) {
   sheet.textContent = `
 @media (forced-colors: none) {
   /* ZEx5 card surfaces and dividers from Codex 200452.4e72c790d9.js. */
-  ${registryEditor}, ${billingTiles}, ${billingUsage}, ${planTile}, ${archive}, ${plugins}, ${emptyKeys} {
+  ${registryEditor}, ${billingTiles}, ${billingUsage}, ${planTile}, ${plugins}, ${emptyKeys} {
     min-inline-size: 0;
     border: 1px solid var(--hcv-settings-group-stroke);
     border-radius: var(--hcv-settings-card-radius);
@@ -14408,11 +16043,21 @@ function registerSettingsSpecial(ctx, active2) {
   ${shortcutRow}:focus-within { background-color: var(--hcv-hover-menu); }
   ${keycap} { border-radius: 5px; box-shadow: none; }
 
-  ${archive} { gap: 0; padding-inline: clamp(8px, 2vw, 16px); }
-  ${archive} > ${archiveRow} + ${archiveRow} { border-block-start: 1px solid var(--hcv-hairline); }
+  /* Same button roles as archived chats in Codex; Hermes keeps its own
+     preview, folder and message count, and the native action order. */
+  ${archiveAction} { flex-wrap: wrap; gap: 8px; }
+  ${archiveAction} > button[data-variant="textStrong"] > svg.tabler-icon-archive-off { display: none; }
+  ${archiveAction} > button > svg:is(.tabler-icon-trash, .tabler-icon-trash-2) { inline-size: 16px; block-size: 16px; }
+  ${codexIconRules(`${archiveAction} > button > svg:is(.tabler-icon-trash, .tabler-icon-trash-2)`, "trash")}
+  ${archive} ${settingsRowHost} > .grid > .min-w-0 > .font-mono {
+    color: var(--hcv-muted);
+    font: 400 12px/16px var(--hcv-ui-font);
+  }
+  ${plugins} { padding-inline: var(--hcv-settings-inset); overflow: visible; }
   ${plugins} > ${pluginRow} {
     min-block-size: 44px;
     border-color: var(--hcv-hairline);
+    padding-inline: 0;
     background-color: transparent;
   }
   ${plugins} > ${pluginRow}:first-child { border-start-start-radius: 15px; border-start-end-radius: 15px; }
@@ -14441,7 +16086,7 @@ function registerSettingsSpecial(ctx, active2) {
   }
 }
 `;
-  mountStyle(ctx, sheet, { screens: ["settings"], tabs: ["gateway", "billing", "keybinds", "about"] });
+  mountStyle(ctx, sheet, { screens: ["settings"], tabs: ["gateway", "billing", "keybinds", "about", "sessions", "plugins", "keys"] });
 }
 
 // source/app-updates.js
@@ -14458,10 +16103,10 @@ function registerAppUpdatesStyle(ctx, active2) {
   const aboutLayout = `${about} ${layout}:has(${updates})`;
   const versionHero = `:is(${dialogLayout} > ${hero}, ${aboutLayout} > ${hero})`;
   const warning = `${versionHero} > div.rounded-xl.border`;
-  const status = `:is(${dialogLayout} > ${hero} ~ div.rounded-xl.border, ${aboutUpdates} > div.rounded-xl.border)`;
+  const status2 = `:is(${dialogLayout} > ${hero} ~ div.rounded-xl.border, ${aboutUpdates} > div.rounded-xl.border)`;
   const aboutDetails = `${aboutLayout} > div > dl.grid`;
   const details = `:is(${dialogLayout} > dl, ${aboutDetails})`;
-  const quietAction = `:is(${warning}, ${status}) [data-slot="button"]:is([data-variant="text"], [data-variant="textStrong"])`;
+  const quietAction = `:is(${warning}, ${status2}) [data-slot="button"]:is([data-variant="text"], [data-variant="textStrong"])`;
   const sheet = document.createElement("style");
   sheet.dataset.hcvAppUpdates = "";
   sheet.textContent = `
@@ -14502,7 +16147,7 @@ function registerAppUpdatesStyle(ctx, active2) {
     line-height: 16px;
   }
   ${warning} { grid-column: 1 / -1; margin-block-start: 4px; }
-  ${warning}, ${status} {
+  ${warning}, ${status2} {
     min-inline-size: 0;
     padding: 12px;
     border: 1px solid var(--hcv-hairline);
@@ -14516,8 +16161,8 @@ function registerAppUpdatesStyle(ctx, active2) {
   ${warning} > div { gap: 10px; }
   ${warning} > div > svg { color: light-dark(#9a5c00, #f2b94b); }
   ${codexIconRules(`${warning} > div > svg`, "warning")}
-  :is(${warning}, ${status}) p.font-medium { font-weight: 500; }
-  :is(${warning}, ${status}) p.text-xs { color: var(--hcv-muted); font-size: 12px; line-height: 18px; }
+  :is(${warning}, ${status2}) p.font-medium { font-weight: 500; }
+  :is(${warning}, ${status2}) p.text-xs { color: var(--hcv-muted); font-size: 12px; line-height: 18px; }
   ${quietAction} {
     min-block-size: 28px;
     max-inline-size: 100%;
@@ -14529,7 +16174,7 @@ function registerAppUpdatesStyle(ctx, active2) {
     white-space: normal;
   }
   ${quietAction}:not(:disabled):hover { background: var(--hcv-selected); text-decoration: none; }
-  :is(${warning}, ${status}, ${details}) :is(a, button):focus-visible {
+  :is(${warning}, ${status2}, ${details}) :is(a, button):focus-visible {
     outline: 2px solid var(--hcv-focus);
     outline-offset: 2px;
   }
@@ -14572,16 +16217,16 @@ function progressMask(state) {
 }
 function registerInstallOverlayStyle(ctx, active2) {
   const panel2 = `${active2} div.fixed.inset-0[class~="z-(--z-setup)"] > .flex.flex-col[class~="max-h-[90vh]"]:has(> .overflow-y-auto)`;
-  const header = `${panel2} > div:first-child`;
-  const body = `${panel2} > .overflow-y-auto`;
-  const progress = `${body} [data-slot="progress"]`;
-  const row4 = `${body} > ol > li`;
-  const rowLabel = `${row4} > div.min-w-0 > div:first-child`;
+  const header2 = `${panel2} > div:first-child`;
+  const body2 = `${panel2} > .overflow-y-auto`;
+  const progress = `${body2} [data-slot="progress"]`;
+  const row5 = `${body2} > ol > li`;
+  const rowLabel = `${row5} > div.min-w-0 > div:first-child`;
   const icon8 = `${rowLabel} > span:nth-child(2)`;
-  const spinner = `${row4} > div:first-child > [role="status"]`;
-  const error = `${body} > div:has(> .codicon-error)`;
-  const disclosure2 = `${body} > div:last-child > button`;
-  const log = `${body} > div:last-child > [data-selectable-text]`;
+  const spinner = `${row5} > div:first-child > [role="status"]`;
+  const error = `${body2} > div:has(> .codicon-error)`;
+  const disclosure2 = `${body2} > div:last-child > button`;
+  const log = `${body2} > div:last-child > [data-selectable-text]`;
   const footer = `${panel2} > div:nth-child(3)`;
   const sheet = document.createElement("style");
   sheet.dataset.hcvInstallOverlay = "";
@@ -14597,16 +16242,16 @@ function registerInstallOverlayStyle(ctx, active2) {
     font-family: var(--hcv-ui-font);
     overflow: hidden;
   }
-  ${header} { gap: 12px; padding: 20px 20px 12px; }
-  ${header} > span:first-child { inline-size: 36px; block-size: 36px; }
-  ${header} h2 { font-size: 16px; line-height: 22px; font-weight: 600; letter-spacing: normal; }
-  ${header} p { margin-block-start: 4px; font-size: 13px; line-height: 18px; color: var(--hcv-muted); }
-  ${body} { padding: 0 20px 12px; }
-  ${body} > div:has(> [data-slot="progress"]) { margin-block-end: 12px; }
+  ${header2} { gap: 12px; padding: 20px 20px 12px; }
+  ${header2} > span:first-child { inline-size: 36px; block-size: 36px; }
+  ${header2} h2 { font-size: 16px; line-height: 22px; font-weight: 600; letter-spacing: normal; }
+  ${header2} p { margin-block-start: 4px; font-size: 13px; line-height: 18px; color: var(--hcv-muted); }
+  ${body2} { padding: 0 20px 12px; }
+  ${body2} > div:has(> [data-slot="progress"]) { margin-block-end: 12px; }
   ${progress} { block-size: 8px; border-radius: 9999px; background: color-mix(in srgb, var(--hcv-text) 10%, transparent); }
   ${progress} > div { background: var(--hcv-install-info); transition: none; }
   ${progress} > .bg-destructive { background: var(--destructive); }
-  ${body} > ol {
+  ${body2} > ol {
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -14615,11 +16260,11 @@ function registerInstallOverlayStyle(ctx, active2) {
     border: 1px solid var(--hcv-hairline);
     border-radius: 12px;
   }
-  ${row4} { gap: 8px; margin: 0; padding: 0; min-block-size: 18px; }
+  ${row5} { gap: 8px; margin: 0; padding: 0; min-block-size: 18px; }
   ${rowLabel} { gap: 8px; }
   ${rowLabel} > span:first-child { font-size: 13px; line-height: 18px; font-weight: 400; }
-  ${row4}:has(> div:first-child > [role="status"]) > div:first-child { margin: 0; inline-size: 16px; block-size: 16px; }
-  ${row4}:has(> div:first-child > [role="status"]) > div.min-w-0 > div:first-child > span:first-child { color: var(--hcv-install-info); }
+  ${row5}:has(> div:first-child > [role="status"]) > div:first-child { margin: 0; inline-size: 16px; block-size: 16px; }
+  ${row5}:has(> div:first-child > [role="status"]) > div.min-w-0 > div:first-child > span:first-child { color: var(--hcv-install-info); }
   ${rowLabel}:has(> span > .codicon-check) > span:first-child { color: var(--hcv-install-info); }
   ${rowLabel}:has(> span > .codicon-error) > span:first-child { color: var(--destructive); }
   ${icon8}, ${spinner} {
@@ -14648,7 +16293,7 @@ function registerInstallOverlayStyle(ctx, active2) {
     border-radius: 12px;
     background: var(--hcv-form-surface);
   }
-  ${body} > div:last-child { padding-block-start: 12px; }
+  ${body2} > div:last-child { padding-block-start: 12px; }
   ${disclosure2} {
     min-block-size: 28px;
     margin-inline: 0;
@@ -14996,7 +16641,7 @@ function registerShellSurfaces(ctx, active2) {
   const panelEntrance = `:is(${panel2}:not([data-narrow-overlay] *), ${overlay})`;
   const collapsedFiles = '[data-tree-tab="files"][data-vertical]:only-child';
   const filesTrack = `${active2} [data-tree-split] > div:has(> [data-tree-group] > div > [role="tablist"] > ${collapsedFiles})`;
-  const header = `${panel2} [class~="group/project-header"]`;
+  const header2 = `${panel2} [class~="group/project-header"]`;
   const label3 = `${panel2} span:has(> .dither[aria-hidden="true"])`;
   const empty = `${panel2} > div:has(> button > .codicon-folder-opened)`;
   const openFolder = `${empty} > button`;
@@ -15035,7 +16680,7 @@ function registerShellSurfaces(ctx, active2) {
   ${panel2}.border-r { border-start-start-radius: 12px; }
   ${overlay}.right-0 { border-start-start-radius: 12px; border-end-start-radius: 12px; }
   ${overlay}.left-0 { border-start-end-radius: 12px; border-end-end-radius: 12px; }
-  ${header} { block-size: 32px; gap: 2px; padding-inline: 12px 6px; }
+  ${header2} { block-size: 32px; gap: 2px; padding-inline: 12px 6px; }
   ${reviewHeader} { padding-inline: 8px; }
   ${reviewScope} { padding: 0 8px 4px; }
   ${reviewScope} > div:has(> button[aria-pressed]) { display: none; }
@@ -15228,7 +16873,7 @@ import {
   DialogFooter as DialogFooter3,
   DialogHeader as DialogHeader3,
   DialogTitle as DialogTitle3,
-  host as host17,
+  host as host18,
   Input as Input2,
   TITLEBAR_AREAS as TITLEBAR_AREAS5,
   useValue as useValue6
@@ -15236,10 +16881,10 @@ import {
 var tilePrefix = "session-tile:";
 var workspaceTab = '[role="tab"][data-tree-tab="workspace"]';
 var chatTab2 = `${workspaceTab}, [role="tab"][data-tree-tab^="${tilePrefix}"]`;
-var labelSelector = ".pane-tab-content .truncate";
+var labelSelector2 = ".pane-tab-content .truncate";
 var mainChatTab = `[data-zone-tabstrip="grp-main"] :is(${chatTab2}):has(> .pane-tab-content):not([data-vertical])`;
 var draftLabels = /* @__PURE__ */ new Set(["New session", "Untitled session", "\u041D\u043E\u0432\u0430\u044F \u0441\u0435\u0441\u0441\u0438\u044F", "\u0421\u0435\u0430\u043D\u0441 \u0431\u0435\u0437 \u043D\u0430\u0437\u0432\u0430\u043D\u0438\u044F"]);
-var copy5 = {
+var copy6 = {
   ru: {
     fresh: "\u041D\u043E\u0432\u044B\u0439 \u0447\u0430\u0442",
     title: "\u041F\u0435\u0440\u0435\u0438\u043C\u0435\u043D\u043E\u0432\u0430\u0442\u044C \u0447\u0430\u0442",
@@ -15385,7 +17030,7 @@ function sessionTabStyles(active2) {
     overflow: hidden;
     clip-path: inset(50%);
   }
-  ${fadingTitleStyles(`${tab} ${labelSelector}`, "1rem")}
+  ${fadingTitleStyles(`${tab} ${labelSelector2}`, "1rem")}
   ${active2} .hcv-rename-overlay { background: rgb(0 0 0 / 25%); backdrop-filter: none; }
   ${dialog2} {
     inline-size: min(420px, calc(100vw - 32px));
@@ -15450,7 +17095,7 @@ function registerSessionTabs(ctx, active2) {
   let requestKey = 0;
   let frame = 0;
   let disposed = false;
-  const words3 = () => root.matches(":lang(ru)") ? copy5.ru : copy5.en;
+  const words3 = () => root.matches(":lang(ru)") ? copy6.ru : copy6.en;
   const close2 = () => model.set(null);
   const enabled = () => !disposed && root.matches(active2);
   const restore = (text, entry) => {
@@ -15469,19 +17114,19 @@ function registerSessionTabs(ctx, active2) {
     for (const tab of document.querySelectorAll(chatTab2)) {
       const id2 = tabId(tab);
       openIds.add(id2);
-      const label3 = tab.querySelector(labelSelector);
+      const label3 = tab.querySelector(labelSelector2);
       if (label3 && tab.matches(mainChatTab)) mainLabels.push(label3);
       const text = label3?.childNodes.length === 1 ? label3.firstChild : null;
       if (!(text instanceof Text)) continue;
-      const row4 = tabSession(tab)?.session;
-      const nativeTitle = row4?.title?.trim() || "";
+      const row5 = tabSession(tab)?.session;
+      const nativeTitle = row5?.title?.trim() || "";
       if (nativeTitle && translated.get(text)?.shown === nativeTitle) translated.delete(text);
       const previous = translated.get(text);
       const original = previous?.original ?? text.data;
       const renamed = named.get(id2);
-      if (renamed && (row4?.connection_id && row4.connection_id !== renamed.owner.connectionId || row4?.profile && row4.profile !== renamed.owner.profile || original === renamed.title || nativeTitle && nativeTitle !== renamed.previous)) named.delete(id2);
+      if (renamed && (row5?.connection_id && row5.connection_id !== renamed.owner.connectionId || row5?.profile && row5.profile !== renamed.owner.profile || original === renamed.title || nativeTitle && nativeTitle !== renamed.previous)) named.delete(id2);
       const saved = named.get(id2)?.title;
-      const shown = saved ? saved : draftLabels.has(original) && !row4?.title?.trim() && !row4?.preview?.trim() ? words3().fresh : original;
+      const shown = saved ? saved : draftLabels.has(original) && !row5?.title?.trim() && !row5?.preview?.trim() ? words3().fresh : original;
       if (previous?.shown === shown) continue;
       if (previous) restore(text, previous);
       if (shown === original) continue;
@@ -15502,8 +17147,8 @@ function registerSessionTabs(ctx, active2) {
   const observer = new MutationObserver((changes2) => {
     if (!enabled()) return;
     if (changes2.some(({ target, addedNodes }) => {
-      const element6 = target instanceof Element ? target : target.parentElement;
-      return element6?.closest("[data-zone-tabstrip]") || [...addedNodes].some((node3) => node3 instanceof Element && (node3.matches(chatTab2) || node3.querySelector(chatTab2)));
+      const element7 = target instanceof Element ? target : target.parentElement;
+      return element7?.closest("[data-zone-tabstrip]") || [...addedNodes].some((node3) => node3 instanceof Element && (node3.matches(chatTab2) || node3.querySelector(chatTab2)));
     })) schedule();
   });
   const themeObserver = new MutationObserver(() => {
@@ -15532,7 +17177,7 @@ function registerSessionTabs(ctx, active2) {
         finalTitle = result.title || title;
       } catch (error) {
         if (!target.runtime) throw error;
-        const result = await host17.requestProfile({ ...owner, targetProfile: owner.profile }, "session.title", {
+        const result = await host18.requestProfile({ ...owner, targetProfile: owner.profile }, "session.title", {
           session_id: target.runtime,
           title
         });
@@ -15540,19 +17185,19 @@ function registerSessionTabs(ctx, active2) {
       }
     } else {
       const submit = draftSubmit(target.tab);
-      if (!submit || host17.state.focusedStoredSessionId.get() || host17.state.focusedSessionId.get()) {
+      if (!submit || host18.state.focusedStoredSessionId.get() || host18.state.focusedSessionId.get()) {
         throw new Error("New chat not ready");
       }
       window.dispatchEvent(new CustomEvent("hermes:composer-draft-sync", {
         detail: { mode: "flush", target: "main" }
       }));
-      const draft = await host17.composer.getDraft("new");
+      const draft = await host18.composer.getDraft("new");
       await submit(`/title ${title}`, { attachments: [], displayKind: "hidden" });
       const workspace = document.querySelector(workspaceTab);
       id2 = workspace && tabId(workspace);
-      if (!id2 || id2 !== host17.state.focusedStoredSessionId.get()) throw new Error("Chat changed");
-      const retained = await host17.composer.getDraft(id2);
-      if (draft && !retained && !await host17.composer.setDraft(id2, draft)) throw new Error("Draft not restored");
+      if (!id2 || id2 !== host18.state.focusedStoredSessionId.get()) throw new Error("Chat changed");
+      const retained = await host18.composer.getDraft(id2);
+      if (draft && !retained && !await host18.composer.setDraft(id2, draft)) throw new Error("Draft not restored");
       if ((await api(id2)).title !== title) throw new Error("Title not saved");
     }
     named.set(id2, { title: finalTitle, previous, owner });
@@ -15576,12 +17221,12 @@ function registerSessionTabs(ctx, active2) {
     event.preventDefault();
     event.stopPropagation();
     const id2 = tabId(tab);
-    const label3 = tab.querySelector(labelSelector);
+    const label3 = tab.querySelector(labelSelector2);
     const translation = translated.get(label3?.firstChild);
     const title = translation && draftLabels.has(translation.original) && !named.has(id2) ? "" : label3?.textContent.trim() || "";
-    const focused = id2 === host17.state.focusedStoredSessionId.get();
-    const row4 = tabSession(tab)?.session;
-    const owner = focused ? host17.state.focusedSessionOwner.get() : row4?.connection_id && { connectionId: row4.connection_id, profile: row4.profile || "default" };
+    const focused = id2 === host18.state.focusedStoredSessionId.get();
+    const row5 = tabSession(tab)?.session;
+    const owner = focused ? host18.state.focusedSessionOwner.get() : row5?.connection_id && { connectionId: row5.connection_id, profile: row5.profile || "default" };
     if (!owner) return;
     model.set({
       key: ++requestKey,
@@ -15590,7 +17235,7 @@ function registerSessionTabs(ctx, active2) {
       title,
       words: words3(),
       owner,
-      runtime: focused ? host17.state.focusedSessionId.get() : null
+      runtime: focused ? host18.state.focusedSessionId.get() : null
     });
   }, true);
   schedule();
@@ -15607,7 +17252,7 @@ function registerSessionTabs(ctx, active2) {
 }
 
 // source/context-meter.js
-import { Tip as Tip2, host as host18, useValue as useValue7 } from "@hermes/plugin-sdk";
+import { Tip as Tip2, host as host19, useValue as useValue7 } from "@hermes/plugin-sdk";
 import { createElement as h14, useCallback, useEffect as useEffect8, useState as useState10 } from "react";
 function readContext(usage) {
   const used = usage?.context_used;
@@ -15617,29 +17262,29 @@ function readContext(usage) {
 }
 var modelName = (value) => String(value ?? "").toLowerCase().split("/").at(-1);
 function useContext(inMainComposer) {
-  const session = useValue7(host18.state.focusedSessionId);
-  const owner = useValue7(host18.state.focusedSessionOwner);
-  const primary4 = useValue7(host18.state.activeSessionId);
-  const profile2 = useValue7(host18.state.profile) || "default";
-  const connection = useValue7(host18.state.connectionId);
-  const model = useValue7(host18.state.model);
-  const busy = useValue7(host18.state.busy);
-  const gateway = useValue7(host18.state.gateway);
-  const usage = useValue7(host18.state.focusedUsage);
+  const session = useValue7(host19.state.focusedSessionId);
+  const owner = useValue7(host19.state.focusedSessionOwner);
+  const primary4 = useValue7(host19.state.activeSessionId);
+  const profile2 = useValue7(host19.state.profile) || "default";
+  const connection = useValue7(host19.state.connectionId);
+  const model = useValue7(host19.state.model);
+  const busy = useValue7(host19.state.busy);
+  const gateway = useValue7(host19.state.gateway);
+  const usage = useValue7(host19.state.focusedUsage);
   const [snapshot, setSnapshot] = useState10(null);
   const sameGateway = !owner || owner.profile === profile2 && (!connection || owner.connectionId === connection);
   const key = inMainComposer && session && session === primary4 && sameGateway ? JSON.stringify([owner?.connectionId ?? connection, profile2, session, model]) : null;
   useEffect8(() => {
     if (!key || busy || gateway !== "open") return;
-    const socket = host18.getGateway();
+    const socket = host19.getGateway();
     if (!socket) return;
     let request = 0;
     const refresh = () => {
       const current = ++request;
       void socket.request("session.context_breakdown", { session_id: session }).then((data) => {
-        if (current !== request || host18.getGateway() !== socket) return;
+        if (current !== request || host19.getGateway() !== socket) return;
         if (model && data?.model && modelName(model) !== modelName(data.model)) return;
-        setSnapshot({ key, context: readContext(data), seenUsage: host18.state.focusedUsage.get() });
+        setSnapshot({ key, context: readContext(data), seenUsage: host19.state.focusedUsage.get() });
       }).catch(() => {
       });
     };
@@ -15774,21 +17419,21 @@ function registerContextMeter(ctx, active2) {
 }
 
 // source/composer.js
-import { host as host22 } from "@hermes/plugin-sdk";
+import { host as host23 } from "@hermes/plugin-sdk";
 
 // source/queue.js
 import { useI18n as useI18n5 } from "@hermes/plugin-sdk";
 import { createElement as h15, useLayoutEffect as useLayoutEffect3, useRef as useRef8 } from "react";
 
 // source/queue-order.js
-import { host as host19 } from "@hermes/plugin-sdk";
+import { host as host20 } from "@hermes/plugin-sdk";
 var storageKey = "hermes.desktop.composerQueue.v1";
 var dragType = "application/x-hcv-queued-prompt";
 var rowSelector3 = '[data-slot="status-row"]';
 var gripSelector = "[data-hcv-queue-grip]";
 var editing = '[data-slot="composer-surface"] [class~="bg-accent/18"]:has(> div > button + button)';
 function queueIdentity(dock2, panel2) {
-  const state = host19.state;
+  const state = host20.state;
   const runtime = state.focusedSessionId.get();
   const stored = state.focusedStoredSessionId.get();
   const primary4 = dock2.querySelector('form[data-tour="composer"]');
@@ -15802,7 +17447,7 @@ function queueIdentity(dock2, panel2) {
     scope: JSON.stringify([owner?.connectionId ?? state.connectionId.get(), owner?.profile ?? state.profile.get(), stored, runtime])
   };
 }
-function readQueue(dock2, panel2, copy6) {
+function readQueue(dock2, panel2, copy7) {
   const identity = queueIdentity(dock2, panel2);
   const rows = Array.from(panel2.querySelectorAll(`:scope > .status-section-body > ${rowSelector3}`));
   if (!identity || rows.length < 2) return null;
@@ -15815,8 +17460,8 @@ function readQueue(dock2, panel2, copy6) {
       const entries2 = queues[key2];
       return Array.isArray(entries2) && entries2.length === rows.length && entries2.every((entry, index) => {
         if (typeof entry?.id !== "string" || typeof entry.text !== "string" || !Array.isArray(entry.attachments)) return false;
-        const caption = entry.displayKind === "hidden" ? copy6.hiddenQueued : (entry.displayText ?? entry.text).trim() || (entry.attachments.length ? copy6.attachmentOnly : copy6.emptyTurn);
-        return rows[index].querySelector(".status-row-content p")?.textContent === caption;
+        const caption2 = entry.displayKind === "hidden" ? copy7.hiddenQueued : (entry.displayText ?? entry.text).trim() || (entry.attachments.length ? copy7.attachmentOnly : copy7.emptyTurn);
+        return rows[index].querySelector(".status-row-content p")?.textContent === caption2;
       });
     });
     if (matching.length !== 1) return null;
@@ -15846,7 +17491,7 @@ function saveOrder(snapshot, from, to) {
   window.dispatchEvent(new StorageEvent("storage", { key: storageKey, storageArea: localStorage }));
   return true;
 }
-function bindQueueOrder(dock2, panel2, t, copy6) {
+function bindQueueOrder(dock2, panel2, t, copy7) {
   const events = new AbortController();
   const options = { signal: events.signal };
   const announcement = document.createElement("span");
@@ -15854,15 +17499,15 @@ function bindQueueOrder(dock2, panel2, t, copy6) {
   announcement.setAttribute("role", "status");
   panel2.append(announcement);
   let drag;
-  let marker3;
+  let marker4;
   const sync = () => {
-    const snapshot = readQueue(dock2, panel2, copy6);
+    const snapshot = readQueue(dock2, panel2, copy7);
     panel2.toggleAttribute("data-hcv-queue-reorder", Boolean(snapshot));
     if (drag && !sameQueue(drag.snapshot, snapshot)) clearDrag();
   };
   const clearMarker = () => {
-    marker3?.removeAttribute("data-hcv-queue-drop");
-    marker3 = void 0;
+    marker4?.removeAttribute("data-hcv-queue-drop");
+    marker4 = void 0;
   };
   const clearDrag = () => {
     clearMarker();
@@ -15870,7 +17515,7 @@ function bindQueueOrder(dock2, panel2, t, copy6) {
     drag = void 0;
   };
   const move = (before, from, to) => {
-    const current = readQueue(dock2, panel2, copy6);
+    const current = readQueue(dock2, panel2, copy7);
     if (!sameQueue(before, current) || !saveOrder(current, from, to)) return false;
     announcement.textContent = t("queueMoved", to + 1, current.ids.length);
     return true;
@@ -15879,19 +17524,19 @@ function bindQueueOrder(dock2, panel2, t, copy6) {
   const rowOf = (event) => event.target instanceof Element ? event.target.closest(rowSelector3) : null;
   panel2.addEventListener("dragstart", (event) => {
     if (!gripOf(event) || !event.dataTransfer) return;
-    const snapshot = readQueue(dock2, panel2, copy6);
-    const element6 = rowOf(event);
-    const index = snapshot?.rows.indexOf(element6) ?? -1;
+    const snapshot = readQueue(dock2, panel2, copy7);
+    const element7 = rowOf(event);
+    const index = snapshot?.rows.indexOf(element7) ?? -1;
     if (index < 0) {
       event.preventDefault();
       return;
     }
-    drag = { snapshot, element: element6, index };
+    drag = { snapshot, element: element7, index };
     event.dataTransfer.setData(dragType, "queued");
     event.dataTransfer.effectAllowed = "move";
-    const bounds = element6.getBoundingClientRect();
-    event.dataTransfer.setDragImage(element6, event.clientX - bounds.left, event.clientY - bounds.top);
-    element6.dataset.hcvQueueDragging = "";
+    const bounds = element7.getBoundingClientRect();
+    event.dataTransfer.setDragImage(element7, event.clientX - bounds.left, event.clientY - bounds.top);
+    element7.dataset.hcvQueueDragging = "";
     event.stopPropagation();
   }, options);
   panel2.addEventListener("dragover", (event) => {
@@ -15904,8 +17549,8 @@ function bindQueueOrder(dock2, panel2, t, copy6) {
     event.preventDefault();
     event.stopPropagation();
     event.dataTransfer.dropEffect = "move";
-    if (marker3 !== target) clearMarker();
-    marker3 = target;
+    if (marker4 !== target) clearMarker();
+    marker4 = target;
     const box = target.getBoundingClientRect();
     target.dataset.hcvQueueDrop = event.clientY >= box.top + box.height / 2 ? "after" : "before";
   }, options);
@@ -15932,7 +17577,7 @@ function bindQueueOrder(dock2, panel2, t, copy6) {
     if (!grip || !["ArrowUp", "ArrowDown"].includes(event.key)) return;
     event.preventDefault();
     event.stopPropagation();
-    const snapshot = readQueue(dock2, panel2, copy6);
+    const snapshot = readQueue(dock2, panel2, copy7);
     const index = snapshot?.rows.indexOf(rowOf(event)) ?? -1;
     if (index < 0 || !move(snapshot, index, index + (event.key === "ArrowUp" ? -1 : 1))) return;
     requestAnimationFrame(() => {
@@ -15940,9 +17585,9 @@ function bindQueueOrder(dock2, panel2, t, copy6) {
     });
   }, options);
   const release = [
-    host19.state.busy,
-    host19.state.focusedSessionId,
-    host19.state.focusedStoredSessionId
+    host20.state.busy,
+    host20.state.focusedSessionId,
+    host20.state.focusedStoredSessionId
   ].map((state) => state.listen(sync));
   return {
     add(actions) {
@@ -15967,18 +17612,18 @@ function bindQueueOrder(dock2, panel2, t, copy6) {
 }
 
 // source/queue.js
-var stack = '[data-slot="composer-status-stack"]';
+var stack2 = '[data-slot="composer-status-stack"]';
 var section = '[data-slot="status-section"]';
-var row3 = '[data-slot="status-row"]';
+var row4 = '[data-slot="status-row"]';
 var edit2 = "button:has(> svg.tabler-icon-pencil)";
 var steer = "button:has(> svg.tabler-icon-steering-wheel)";
 var send = "button:has(> svg.tabler-icon-corner-down-left)";
 var modeKey = "queueFollowUps";
 function menuButton(icon8) {
-  const button4 = document.createElement("button");
-  button4.type = "button";
-  button4.style.setProperty("--hcv-queue-icon", codexMask(icon8));
-  return button4;
+  const button5 = document.createElement("button");
+  button5.type = "button";
+  button5.style.setProperty("--hcv-queue-icon", codexMask(icon8));
+  return button5;
 }
 function rowMenu(actions, ctx, queueing) {
   const { t } = ctx.i18n;
@@ -15993,15 +17638,15 @@ function rowMenu(actions, ctx, queueing) {
   popup.setAttribute("role", "menu");
   popup.setAttribute("aria-label", t("queueActions"));
   const item = (icon8, run) => {
-    const button4 = menuButton(icon8);
-    button4.setAttribute("role", "menuitem");
-    button4.tabIndex = -1;
-    button4.addEventListener("click", () => {
+    const button5 = menuButton(icon8);
+    button5.setAttribute("role", "menuitem");
+    button5.tabIndex = -1;
+    button5.addEventListener("click", () => {
       popup.hidePopover();
       run();
     });
-    popup.append(button4);
-    return button4;
+    popup.append(button5);
+    return button5;
   };
   const editItem = item("queueEdit", () => actions.querySelector(edit2)?.click());
   const sendItem = item("queueSteer", () => actions.querySelector(send)?.click());
@@ -16076,7 +17721,7 @@ function rowMenu(actions, ctx, queueing) {
 }
 function QueueSurface({ ctx, queueing }) {
   const anchor = useRef8(null);
-  const { locale, t: { composer: copy6 } } = useI18n5();
+  const { locale, t: { composer: copy7 } } = useI18n5();
   useLayoutEffect3(() => {
     const dock2 = anchor.current?.closest('[data-slot="composer-dock"]');
     if (!dock2) return;
@@ -16100,12 +17745,12 @@ function QueueSurface({ ctx, queueing }) {
       expandedByPlugin = false;
     };
     const sync = () => {
-      const icon8 = dock2.querySelector(stack + " .status-section-trigger > .status-section-icon > :is(.codicon-layers, .codicon-debug-pause)");
+      const icon8 = dock2.querySelector(stack2 + " .status-section-trigger > .status-section-icon > :is(.codicon-layers, .codicon-debug-pause)");
       const panel2 = icon8?.closest(section);
       if (panel2 !== current) {
         cleanSection();
         current = panel2;
-        if (panel2) ordering = bindQueueOrder(dock2, panel2, ctx.i18n.t, copy6);
+        if (panel2) ordering = bindQueueOrder(dock2, panel2, ctx.i18n.t, copy7);
       }
       if (!panel2) return;
       if (!panel2.hasAttribute("data-hcv-queue")) {
@@ -16119,7 +17764,7 @@ function QueueSurface({ ctx, queueing }) {
         expandedByPlugin = true;
         collapsed.click();
       }
-      const live = new Set(panel2.querySelectorAll(".status-section-body > " + row3 + " > .status-row-actions"));
+      const live = new Set(panel2.querySelectorAll(".status-section-body > " + row4 + " > .status-row-actions"));
       for (const [actions, dispose] of menus2) {
         if (!live.has(actions)) {
           dispose();
@@ -16149,16 +17794,16 @@ function QueueSurface({ ctx, queueing }) {
       observer.disconnect();
       cleanSection();
     };
-  }, [ctx, locale, copy6, queueing]);
+  }, [ctx, locale, copy7, queueing]);
   return h15("span", { ref: anchor, hidden: true });
 }
 function queueStyles(active2) {
   const panel2 = active2 + " [data-hcv-queue]";
-  const entry = panel2 + " > .status-section-body > " + row3;
+  const entry = panel2 + " > .status-section-body > " + row4;
   const soleQueue = '[data-slot="status-stack-content"] > :only-child > [data-hcv-queue]';
-  const onlyQueue = stack + ":has(" + soleQueue + ")";
-  const bareDock = active2 + ' [data-slot="composer-dock"]:has(' + stack + " " + soleQueue + "):not(:has(.coding-status-bar))";
-  const queueRows = " > .status-section-body > " + row3;
+  const onlyQueue = stack2 + ":has(" + soleQueue + ")";
+  const bareDock = active2 + ' [data-slot="composer-dock"]:has(' + stack2 + " " + soleQueue + "):not(:has(.coding-status-bar))";
+  const queueRows = " > .status-section-body > " + row4;
   const visibleQueue = ".status-drawer:not([data-collapsed]) [data-hcv-queue]" + queueRows;
   const attached = active2 + ' [data-slot="composer-dock"]:not([data-popped-out]):has(> ' + visibleQueue + ")";
   const lastQueue = '[data-slot="status-stack-content"] > :last-child > [data-hcv-queue]';
@@ -16239,7 +17884,7 @@ function queueStyles(active2) {
       opacity: 0;
       cursor: grab;
     }
-    ${panel2}[data-hcv-queue-reorder] > .status-section-body > ${row3} > [data-hcv-queue-grip] { display: grid; }
+    ${panel2}[data-hcv-queue-reorder] > .status-section-body > ${row4} > [data-hcv-queue-grip] { display: grid; }
     ${grip}::before {
       content: "";
       inline-size: 14px;
@@ -16413,7 +18058,7 @@ function queueingPreference(ctx) {
 
 // source/composer-approval.js
 import { createElement as h16, useCallback as useCallback2, useState as useState11, useSyncExternalStore as useSyncExternalStore2 } from "react";
-import { COMPOSER_AREAS, DropdownMenu as DropdownMenu5, DropdownMenuContent as DropdownMenuContent5, DropdownMenuTrigger as DropdownMenuTrigger5, host as host20 } from "@hermes/plugin-sdk";
+import { COMPOSER_AREAS, DropdownMenu as DropdownMenu5, DropdownMenuContent as DropdownMenuContent5, DropdownMenuTrigger as DropdownMenuTrigger5, host as host21 } from "@hermes/plugin-sdk";
 var nativeSelector = '[data-slot="statusbar"]';
 function nativeItem(footer) {
   for (let fiber = committedFiber(footer); fiber; fiber = fiber.return) {
@@ -16423,9 +18068,9 @@ function nativeItem(footer) {
   }
 }
 function nativeButton(footer) {
-  for (const button4 of footer.querySelectorAll('button[aria-haspopup="menu"]')) {
-    for (let fiber = committedFiber(button4); fiber && fiber.stateNode !== footer; fiber = fiber.return) {
-      if (fiber.memoizedProps?.item?.id === "approval-mode") return button4;
+  for (const button5 of footer.querySelectorAll('button[aria-haspopup="menu"]')) {
+    for (let fiber = committedFiber(button5); fiber && fiber.stateNode !== footer; fiber = fiber.return) {
+      if (fiber.memoizedProps?.item?.id === "approval-mode") return button5;
     }
   }
 }
@@ -16482,10 +18127,10 @@ function registerComposerApproval(ctx, active2) {
     listeners.add(listener);
     return () => listeners.delete(listener);
   };
-  const markSource = (button4) => {
-    if (source === button4) return;
+  const markSource = (button5) => {
+    if (source === button5) return;
     source?.removeAttribute("data-hcv-approval-source");
-    source = button4;
+    source = button5;
     source?.setAttribute("data-hcv-approval-source", "");
   };
   function sync() {
@@ -16508,7 +18153,7 @@ function registerComposerApproval(ctx, active2) {
       if (footer) statusChanges.observe(footer, { childList: true, characterData: true, subtree: true });
     }
     const item = footer ? nativeItem(footer) : void 0;
-    const route = JSON.stringify([host20.state.connectionId.get(), host20.state.profile.get()]);
+    const route = JSON.stringify([host21.state.connectionId.get(), host21.state.profile.get()]);
     markSource(item && footer ? nativeButton(footer) : void 0);
     if (item !== current.item || route !== current.route) {
       current = { item, route };
@@ -16526,7 +18171,7 @@ function registerComposerApproval(ctx, active2) {
   observer.observe(document.body, { childList: true, subtree: true });
   themeChanges.observe(root, { attributes: true, attributeFilter: ["data-hermes-theme", "lang"] });
   contrast.addEventListener("change", schedule);
-  const unsubscribe = [host20.state.gateway, host20.state.connectionId, host20.state.profile, host20.state.focusedSessionId].map((atom7) => atom7.listen(schedule));
+  const unsubscribe = [host21.state.gateway, host21.state.connectionId, host21.state.profile, host21.state.focusedSessionId].map((atom7) => atom7.listen(schedule));
   ctx.onDispose(() => {
     observer.disconnect();
     statusChanges.disconnect();
@@ -16541,9 +18186,9 @@ function registerComposerApproval(ctx, active2) {
 }
 
 // source/composer-changes.js
-import { host as host21 } from "@hermes/plugin-sdk";
+import { host as host22 } from "@hermes/plugin-sdk";
 var dockSelector = '[data-chat-surface][data-composer-target="main"]:not([data-hud-shell] *, [data-pane-hidden] *, [inert] *) [data-slot="composer-dock"]:not([data-popped-out])';
-var editTools = /* @__PURE__ */ new Set(["edit_file", "patch", "write_file"]);
+var editTools2 = /* @__PURE__ */ new Set(["edit_file", "patch", "write_file"]);
 var ansi = /\x1b\[[0-?]*[ -/]*[@-~]/g;
 var hunkHeader = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/;
 function resultRecord(value) {
@@ -16583,11 +18228,11 @@ function changedFiles(payload) {
       hunk = null;
       continue;
     }
-    const header = line.match(hunkHeader);
-    if (header) {
+    const header2 = line.match(hunkHeader);
+    if (header2) {
       if (!file) section2(fallback);
-      const oldLines = Number(header[1] ?? 1);
-      const newLines = Number(header[2] ?? 1);
+      const oldLines = Number(header2[1] ?? 1);
+      const newLines = Number(header2[2] ?? 1);
       const countBody = oldLines > 0 && newLines > 0;
       if (!countBody) {
         file.added += newLines;
@@ -16608,18 +18253,18 @@ function changedFiles(payload) {
       section2(filePath(to) || filePath(from));
     }
   }
-  const files = sections.filter((row4) => row4.added || row4.removed);
+  const files = sections.filter((row5) => row5.added || row5.removed);
   if (files.length === 1 && fallback) files[0].path = fallback;
-  return files.filter((row4) => row4.path).map((row4) => ({ ...row4, path: pathKey(row4.path) }));
+  return files.filter((row5) => row5.path).map((row5) => ({ ...row5, path: pathKey(row5.path) }));
 }
-function element5(tag, part) {
+function element6(tag, part) {
   const node3 = document.createElement(tag);
   node3.setAttribute("data-hcv-" + part, "");
   return node3;
 }
 function numberDisplay(part, sign) {
-  const wrap = element5("span", part);
-  const digits = element5("span", "changes-digits");
+  const wrap = element6("span", part);
+  const digits = element6("span", "changes-digits");
   wrap.append(sign, digits);
   const columns = /* @__PURE__ */ new Map();
   let shown;
@@ -16638,8 +18283,8 @@ function numberDisplay(part, sign) {
         }
         let column = columns.get(position2);
         if (!column) {
-          column = element5("span", "changes-digit");
-          const reel = element5("span", "changes-reel");
+          column = element6("span", "changes-digit");
+          const reel = element6("span", "changes-reel");
           for (const digit of "0123456789") {
             const cell = document.createElement("span");
             cell.textContent = digit;
@@ -16672,12 +18317,12 @@ function registerComposerChanges(ctx, active2) {
   const contrast = matchMedia("(forced-colors: none)");
   const turns = /* @__PURE__ */ new Map();
   const key = (connection, profile2, session) => JSON.stringify([connection, profile2, session]);
-  const scope3 = () => [host21.state.connectionId.get(), host21.state.profile.get()];
+  const scope3 = () => [host22.state.connectionId.get(), host22.state.profile.get()];
   const eventKey = (event) => event.session_id && !event.replayed ? key(event.connectionId || scope3()[0], event.profile || scope3()[1], event.session_id) : null;
-  const rail = element5("div", "composer-changes");
-  const chip2 = element5("div", "composer-changes-chip");
-  const label3 = element5("span", "composer-changes-label");
-  const totals = element5("span", "composer-changes-totals");
+  const rail = element6("div", "composer-changes");
+  const chip2 = element6("div", "composer-changes-chip");
+  const label3 = element6("span", "composer-changes-label");
+  const totals = element6("span", "composer-changes-totals");
   const added = numberDisplay("composer-changes-added", "+");
   const removed = numberDisplay("composer-changes-removed", "\u2212");
   totals.append(added.node, removed.node);
@@ -16700,11 +18345,11 @@ function registerComposerChanges(ctx, active2) {
   function sync() {
     frame = 0;
     if (!root.matches(active2) || !contrast.matches) return hide();
-    const session = host21.state.activeSessionId.get();
+    const session = host22.state.activeSessionId.get();
     const address = key(...scope3(), session);
     const turn = turns.get(address);
     const dock2 = turn?.paths.size && document.querySelector(dockSelector);
-    if (!dock2 || !host21.state.busyBySession.get()[session]) return hide();
+    if (!dock2 || !host22.state.busyBySession.get()[session]) return hide();
     if (currentKey !== address || rail.parentElement !== dock2) hide();
     const locale = root.lang.toLowerCase() || "en";
     const formatter = new Intl.NumberFormat(locale);
@@ -16739,16 +18384,16 @@ function registerComposerChanges(ctx, active2) {
   });
   ctx.onEvent("tool.complete", (event) => {
     const payload = event.payload;
-    if (!editTools.has(payload?.name) || !payload.tool_id) return;
+    if (!editTools2.has(payload?.name) || !payload.tool_id) return;
     const turn = turns.get(eventKey(event));
     if (!turn || event.seq < turn.since || turn.calls.has(payload.tool_id)) return;
     const files = changedFiles(payload);
     if (!files.length) return;
     turn.calls.add(payload.tool_id);
-    for (const row4 of files) {
-      turn.paths.add(row4.path);
-      turn.added += row4.added;
-      turn.removed += row4.removed;
+    for (const row5 of files) {
+      turn.paths.add(row5.path);
+      turn.added += row5.added;
+      turn.removed += row5.removed;
     }
     schedule();
   });
@@ -16756,7 +18401,7 @@ function registerComposerChanges(ctx, active2) {
     if (turns.delete(eventKey(event))) schedule();
   });
   const observer = new MutationObserver(() => {
-    const session = host21.state.activeSessionId.get();
+    const session = host22.state.activeSessionId.get();
     if (rail.isConnected || session && turns.get(key(...scope3(), session))?.paths.size) schedule();
   });
   observer.observe(root, {
@@ -16765,7 +18410,7 @@ function registerComposerChanges(ctx, active2) {
     attributes: true,
     attributeFilter: ["data-hermes-theme", "lang", "data-pane-hidden", "data-popped-out"]
   });
-  const unsubscribe = [host21.state.busyBySession, host21.state.activeSessionId, host21.state.connectionId, host21.state.profile].map((atom7) => atom7.listen(schedule));
+  const unsubscribe = [host22.state.busyBySession, host22.state.activeSessionId, host22.state.connectionId, host22.state.profile].map((atom7) => atom7.listen(schedule));
   contrast.addEventListener("change", schedule);
   ctx.onDispose(() => {
     cancelAnimationFrame(frame);
@@ -16779,7 +18424,7 @@ function registerComposerChanges(ctx, active2) {
 // source/composer-layout.js
 function registerComposerLayout(ctx, active2) {
   const dock2 = `${active2} [data-slot="composer-dock"]:not([data-popped-out], [data-hud-shell] *)`;
-  const surface3 = `${dock2} [data-slot="composer-surface"]`;
+  const surface5 = `${dock2} [data-slot="composer-surface"]`;
   const fallback = `${active2} [data-chat-surface]:not([data-hud-shell] *) .composer-fallback-surface`;
   const statusSection = '[data-slot="status-stack-section"]';
   const consentIcon = '[data-slot="status-row"] > .status-row-icon > .codicon-graph';
@@ -16791,7 +18436,7 @@ function registerComposerLayout(ctx, active2) {
   const input = '[class~="[grid-area:input]"]';
   const leading = '[class~="[grid-area:menu]"]';
   const trailing = '[class~="[grid-area:controls]"]';
-  const grid = `${surface3} [data-slot="composer-fade"] > div:has(> ${input} + ${trailing})`;
+  const grid = `${surface5} [data-slot="composer-fade"] > div:has(> ${input} + ${trailing})`;
   const regularGrid = `${grid}:not(:has(> [data-hcv-dictation]))`;
   const editor2 = '[data-slot="composer-rich-input"]';
   const controls2 = `${grid} > :is(${leading}, ${trailing})`;
@@ -16812,7 +18457,7 @@ function registerComposerLayout(ctx, active2) {
       }
       @media (max-width: 760px) { ${active2} { --hcv-composer-light-blur: 40px; } }
       ${active2}[data-hermes-mode="dark"] { --hcv-composer-shadow: inset 0 0 1px #fff3; }
-      ${surface3} {
+      ${surface5} {
         /* Codex ef088f0f36db.css paints the fill and shadow on one surface.
            Hermes reserves a 1px native border. Move that pixel into the padding. */
         border: 0 !important;
@@ -16824,7 +18469,7 @@ function registerComposerLayout(ctx, active2) {
         --composer-surface-pad-y: 8px;
         --hcv-composer-hover: var(--hcv-dropdown-hover);
       }
-      ${surface3} ${backing}, ${fallback} ${backing},
+      ${surface5} ${backing}, ${fallback} ${backing},
       ${dock2} > [data-slot="composer-root"] > .pointer-events-none.absolute.inset-0 {
         display: none;
       }
@@ -16899,7 +18544,7 @@ function registerComposerLayout(ctx, active2) {
         ${consent} { grid-template-columns: 16px minmax(0, 1fr); }
         ${consent} > .status-row-actions { grid-area: 2 / 2; }
       }
-      ${surface3} [data-slot="composer-fade"] { container-type: inline-size; }
+      ${surface5} [data-slot="composer-fade"] { container-type: inline-size; }
       ${regularGrid} {
         grid-template-areas: "input input" "menu controls";
         grid-template-columns: auto minmax(0, 1fr);
@@ -17028,13 +18673,13 @@ var russianGroups = {
   Options: "\u0412\u0430\u0440\u0438\u0430\u043D\u0442\u044B"
 };
 function isBusy(form) {
-  const focused = host22.state.focusedSessionId.get();
+  const focused = host23.state.focusedSessionId.get();
   if (form.dataset.tour === "composer") {
-    const primary4 = host22.state.activeSessionId.get();
-    return primary4 === focused ? host22.state.busy.get() : host22.state.busyBySession.get()[primary4] === true;
+    const primary4 = host23.state.activeSessionId.get();
+    return primary4 === focused ? host23.state.busy.get() : host23.state.busyBySession.get()[primary4] === true;
   }
   const target = form.closest("[data-floating-composer-target]")?.dataset.floatingComposerTarget ?? form.closest("[data-composer-target]")?.dataset.composerTarget;
-  return target === `tile:${host22.state.focusedStoredSessionId.get()}` && host22.state.busy.get();
+  return target === `tile:${host23.state.focusedStoredSessionId.get()}` && host23.state.busy.get();
 }
 function isSlashCommand(input) {
   if (/^\/[^\s/]*(?:\s|$)/.test(input.innerText.trimStart())) return true;
@@ -17155,7 +18800,7 @@ function registerComposer(ctx, active2) {
   const enabled = () => root.matches(active2);
   const menu = `${active2} ${composer} [data-slot="composer-completion-drawer"]`;
   const suggestions = `${active2} ${composer} ${drawer}`;
-  const slash = `${active2} ${composer} ${slashMenu}`;
+  const slash2 = `${active2} ${composer} ${slashMenu}`;
   const rowTip = `${active2}:has(${slashMenu} > button:is([data-state="delayed-open"], [data-state="instant-open"])) [data-slot="tooltip-content"]`;
   const sheet = document.createElement("style");
   sheet.dataset.hcvComposer = "";
@@ -17191,7 +18836,7 @@ function registerComposer(ctx, active2) {
         box-shadow: none;
         backdrop-filter: none;
       }
-      ${slash} > div:not(:has(*)) {
+      ${slash2} > div:not(:has(*)) {
         padding-inline: 8px;
         text-transform: none;
         letter-spacing: normal;
@@ -17208,9 +18853,9 @@ function registerComposer(ctx, active2) {
       ${suggestions} > button:is(:hover, :focus-visible, [data-highlighted]):not(:disabled) {
         background: var(--hcv-dropdown-hover);
       }
-      ${slash} > button > [data-ref],
-      ${slash} > button > span:nth-child(3) { color: var(--hcv-muted); }
-      ${slash} > button > span:nth-child(2) { max-inline-size: 60%; }
+      ${slash2} > button > [data-ref],
+      ${slash2} > button > span:nth-child(3) { color: var(--hcv-muted); }
+      ${slash2} > button > span:nth-child(2) { max-inline-size: 60%; }
       ${rowTip} {
         max-inline-size: min(240px, calc(100vw - 24px), var(--radix-tooltip-content-available-width, 240px));
       }
@@ -17226,7 +18871,7 @@ function registerComposer(ctx, active2) {
 }
 
 // source/dictation.js
-import { host as host23 } from "@hermes/plugin-sdk";
+import { host as host24 } from "@hermes/plugin-sdk";
 
 // source/dictation-caret.js
 var chip = '[contenteditable="false"]';
@@ -17351,16 +18996,16 @@ function nativeVoice(form) {
         target,
         props.sessionId,
         props.queueSessionKey,
-        host23.state.connectionId.get(),
-        host23.state.profile.get(),
-        target === "main" ? host23.state.activeSessionId.get() : null
+        host24.state.connectionId.get(),
+        host24.state.profile.get(),
+        target === "main" ? host24.state.activeSessionId.get() : null
       ])
     };
   }
   return null;
 }
 function nativeMenuOwner(item) {
-  if (!item || item.getAttribute("data-disabled") !== null || !Object.values(captions).some((copy6) => item.textContent.trim() === copy6.record)) return null;
+  if (!item || item.getAttribute("data-disabled") !== null || !Object.values(captions).some((copy7) => item.textContent.trim() === copy7.record)) return null;
   const id2 = item.closest('[role="menu"]')?.id;
   return id2 ? document.querySelector(`${formSelector2} button[aria-controls="${CSS.escape(id2)}"]`) : null;
 }
@@ -17373,16 +19018,16 @@ function createStrip(grid, abort, stop) {
   cancel.addEventListener("click", abort);
   const wave = document.createElement("canvas");
   wave.setAttribute("aria-hidden", "true");
-  const status = document.createElement("span");
-  status.setAttribute("role", "status");
-  status.setAttribute("data-hcv-dictation-caption", "");
+  const status2 = document.createElement("span");
+  status2.setAttribute("role", "status");
+  status2.setAttribute("data-hcv-dictation-caption", "");
   const finish = document.createElement("button");
   finish.type = "button";
   finish.setAttribute("data-hcv-dictation-stop", "");
   finish.addEventListener("click", stop);
-  strip2.append(cancel, wave, status, finish);
+  strip2.append(cancel, wave, status2, finish);
   grid.append(strip2);
-  return { strip: strip2, cancel, wave, status, finish };
+  return { strip: strip2, cancel, wave, status: status2, finish };
 }
 function startWaveform(canvas, stream) {
   const graphics = canvas.getContext("2d");
@@ -17455,50 +19100,50 @@ function startWaveform(canvas, stream) {
     });
   };
 }
-function styles4(active2) {
-  const row4 = `${active2} [data-hcv-dictation]`;
-  const surface3 = `${active2} [data-slot="composer-surface"]:has([data-hcv-dictation])`;
+function styles5(active2) {
+  const row5 = `${active2} [data-hcv-dictation]`;
+  const surface5 = `${active2} [data-slot="composer-surface"]:has([data-hcv-dictation])`;
   const layout = "div:has(> [data-hcv-dictation])";
-  const hub = `${surface3} button[data-hcv-dictation-hub]`;
+  const hub = `${surface5} button[data-hcv-dictation-hub]`;
   return `
 @media (forced-colors: none) {
-  ${surface3} { background-color: var(--hcv-composer); background-clip: padding-box; }
-  ${surface3} [data-slot="composer-fade"] { border-radius: inherit; }
-  ${surface3} ${layout} {
+  ${surface5} { background-color: var(--hcv-composer); background-clip: padding-box; }
+  ${surface5} [data-slot="composer-fade"] { border-radius: inherit; }
+  ${surface5} ${layout} {
     grid-template-areas: "input input input" "menu dictation controls";
     grid-template-columns: auto minmax(28px, 1fr) auto;
     align-items: center; gap: 4px;
   }
-  ${surface3}:not(:has(button[data-hcv-dictation-hub])) ${layout} {
+  ${surface5}:not(:has(button[data-hcv-dictation-hub])) ${layout} {
     grid-template-areas: "input input" "dictation dictation" "menu controls";
     grid-template-columns: auto minmax(0, 1fr);
   }
-  ${surface3} [class~="[grid-area:menu]"] { translate: none; align-self: center; }
-  ${row4} { grid-area: dictation; display: flex; min-inline-size: 0; align-items: center; gap: 8px; color: var(--hcv-muted); }
-  ${row4} button, ${hub} {
+  ${surface5} [class~="[grid-area:menu]"] { translate: none; align-self: center; }
+  ${row5} { grid-area: dictation; display: flex; min-inline-size: 0; align-items: center; gap: 8px; color: var(--hcv-muted); }
+  ${row5} button, ${hub} {
     display: grid; place-items: center; flex: none; inline-size: 28px; block-size: 28px; padding: 0;
     border-radius: 50%; color: var(--hcv-text); background: color-mix(in srgb, currentColor 6%, transparent);
   }
-  ${row4} button:hover, ${hub}:hover { background: color-mix(in srgb, currentColor 13%, transparent); }
-  ${row4} button:focus-visible, ${hub}:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }
-  ${row4} button::before, ${hub}::after { content: ''; }
-  ${row4} [data-hcv-dictation-cancel]::before {
+  ${row5} button:hover, ${hub}:hover { background: color-mix(in srgb, currentColor 13%, transparent); }
+  ${row5} button:focus-visible, ${hub}:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }
+  ${row5} button::before, ${hub}::after { content: ''; }
+  ${row5} [data-hcv-dictation-cancel]::before {
     inline-size: 14px; block-size: 14px; background: currentColor; mask: ${codexMask("close")} center / contain no-repeat;
   }
-  ${row4} [data-hcv-dictation-stop]::before, ${hub}::after {
+  ${row5} [data-hcv-dictation-stop]::before, ${hub}::after {
     inline-size: 16px; block-size: 16px; background: currentColor;
     mask: ${codexMask("dictationStop")} center / contain no-repeat;
   }
   ${hub}::before { display: none !important; }
-  ${surface3}:has(button[data-hcv-dictation-hub]) [data-hcv-dictation-stop],
-  ${row4}:not([data-state="recording"]) [data-hcv-dictation-stop],
-  ${row4}[data-state="recording"] [data-hcv-dictation-caption],
-  ${row4}:not([data-state="recording"]) canvas { display: none; }
-  ${row4} canvas {
+  ${surface5}:has(button[data-hcv-dictation-hub]) [data-hcv-dictation-stop],
+  ${row5}:not([data-state="recording"]) [data-hcv-dictation-stop],
+  ${row5}[data-state="recording"] [data-hcv-dictation-caption],
+  ${row5}:not([data-state="recording"]) canvas { display: none; }
+  ${row5} canvas {
     display: block; flex: 1 1 0; inline-size: 0; min-inline-size: 0; block-size: 28px;
     color: var(--hcv-text);
   }
-  ${row4} [data-hcv-dictation-caption] {
+  ${row5} [data-hcv-dictation-caption] {
     min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px;
   }
   ${hub}[data-hcv-dictation-hub="transcribing"]::after {
@@ -17513,7 +19158,7 @@ function styles4(active2) {
 function registerDictation(ctx, active2) {
   const sheet = document.createElement("style");
   sheet.setAttribute("data-hcv-dictation-style", "");
-  sheet.textContent = styles4(active2);
+  sheet.textContent = styles5(active2);
   mountStyle(ctx, sheet, { surface: "[data-hcv-dictation]" });
   const root = document.documentElement;
   const contrast = matchMedia("(forced-colors: none)");
@@ -17533,34 +19178,34 @@ function registerDictation(ctx, active2) {
   }
   function restoreHub(run) {
     if (!run.hub) return;
-    const { button: button4, label: label3, pressed } = run.hub;
-    button4.removeAttribute("data-hcv-dictation-hub");
+    const { button: button5, label: label3, pressed } = run.hub;
+    button5.removeAttribute("data-hcv-dictation-hub");
     for (const [key, value] of [["aria-label", label3], ["aria-pressed", pressed]]) {
-      if (value === null) button4.removeAttribute(key);
-      else button4.setAttribute(key, value);
+      if (value === null) button5.removeAttribute(key);
+      else button5.setAttribute(key, value);
     }
     run.hub = null;
   }
   function paint(run) {
-    const copy6 = words2();
-    const button4 = run.form.querySelector(hubSelector);
-    if (run.hub?.button !== button4) {
+    const copy7 = words2();
+    const button5 = run.form.querySelector(hubSelector);
+    if (run.hub?.button !== button5) {
       restoreHub(run);
-      if (button4) run.hub = { button: button4, label: button4.getAttribute("aria-label"), pressed: button4.getAttribute("aria-pressed") };
+      if (button5) run.hub = { button: button5, label: button5.getAttribute("aria-label"), pressed: button5.getAttribute("aria-pressed") };
     }
-    if (button4) {
-      button4.dataset.hcvDictationHub = run.phase;
-      button4.setAttribute("aria-label", run.phase === "transcribing" ? copy6.transcribing : copy6.stop);
-      button4.setAttribute("aria-pressed", "true");
+    if (button5) {
+      button5.dataset.hcvDictationHub = run.phase;
+      button5.setAttribute("aria-label", run.phase === "transcribing" ? copy7.transcribing : copy7.stop);
+      button5.setAttribute("aria-pressed", "true");
     }
-    const { strip: strip2, cancel: cancel2, status, finish } = run.ui;
+    const { strip: strip2, cancel: cancel2, status: status2, finish } = run.ui;
     strip2.dataset.state = run.phase;
-    cancel2.setAttribute("aria-label", copy6.cancel);
-    cancel2.title = copy6.cancel;
-    finish.setAttribute("aria-label", copy6.stop);
-    finish.title = copy6.stop;
-    const caption = copy6[run.phase] || copy6.record;
-    if (status.textContent !== caption) status.textContent = caption;
+    cancel2.setAttribute("aria-label", copy7.cancel);
+    cancel2.title = copy7.cancel;
+    finish.setAttribute("aria-label", copy7.stop);
+    finish.title = copy7.stop;
+    const caption2 = copy7[run.phase] || copy7.record;
+    if (status2.textContent !== caption2) status2.textContent = caption2;
   }
   function release(run) {
     clearTimeout(run.timeout);
@@ -17598,9 +19243,9 @@ function registerDictation(ctx, active2) {
       if (text) {
         updateAnchor(run);
         if (!insertDictation(run.editor, run.anchor, text)) throw new Error(words2().insert);
-      } else host23.notify({ kind: "warning", title: words2().empty });
+      } else host24.notify({ kind: "warning", title: words2().empty });
     } catch (error) {
-      if (current === run && valid(run)) host23.notifyError(error, words2().error);
+      if (current === run && valid(run)) host24.notifyError(error, words2().error);
     } finally {
       cancel(run);
     }
@@ -17633,7 +19278,7 @@ function registerDictation(ctx, active2) {
       recorder.onerror = (event) => {
         if (current !== run) return;
         cancel(run);
-        host23.notifyError(event.error, words2().error);
+        host24.notifyError(event.error, words2().error);
       };
       recorder.start();
       run.phase = "recording";
@@ -17643,7 +19288,7 @@ function registerDictation(ctx, active2) {
     } catch (error) {
       if (current !== run) return;
       cancel(run);
-      host23.notifyError(error, words2().error);
+      host24.notifyError(error, words2().error);
     }
   }
   function toggle2(form) {
@@ -17685,7 +19330,7 @@ function registerDictation(ctx, active2) {
     attributes: true,
     attributeFilter: ["data-hermes-theme", "data-hermes-codex-visual", "data-pane-hidden", "contenteditable", "inert", "lang"]
   });
-  const off = [host23.state.activeSessionId, host23.state.connectionId, host23.state.profile].map((state) => state.listen(schedule));
+  const off = [host24.state.activeSessionId, host24.state.connectionId, host24.state.profile].map((state) => state.listen(schedule));
   contrast.addEventListener("change", schedule);
   ctx.addEventListener(document, "selectionchange", rememberSelection);
   ctx.addEventListener(document, "pointerdown", rememberSelection, true);
@@ -17702,8 +19347,8 @@ function registerDictation(ctx, active2) {
     if (current && event.target.closest('button:is([aria-label="\u041D\u0430\u0447\u0430\u0442\u044C \u0433\u043E\u043B\u043E\u0441\u043E\u0432\u043E\u0439 \u0440\u0430\u0437\u0433\u043E\u0432\u043E\u0440"], [aria-label="Start voice conversation"])')) cancel();
     const item = event.target.closest('[role="menuitemcheckbox"]');
     const trigger = item && nativeMenuOwner(item);
-    const button4 = event.target.closest(hubSelector) || trigger;
-    if (!button4 || button4.disabled || !toggle2(button4.closest(formSelector2))) return;
+    const button5 = event.target.closest(hubSelector) || trigger;
+    if (!button5 || button5.disabled || !toggle2(button5.closest(formSelector2))) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     item?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
@@ -17734,9 +19379,9 @@ function registerDictation(ctx, active2) {
 
 // source/plugin.js
 var id = "hermes-codex-visual";
-var marker2 = `data-${id}`;
+var marker3 = `data-${id}`;
 var themeName = "codex-workspace";
-var active = `:root[${marker2}][data-hermes-theme="${themeName}"]`;
+var active = `:root[${marker3}][data-hermes-theme="${themeName}"]`;
 var sidebar = `${active} [data-slot="sidebar"][data-tour="sessions-sidebar"]`;
 var chat2 = `${active} [data-chat-surface]`;
 var dock = `${chat2} [data-slot="composer-dock"]`;
@@ -17867,8 +19512,8 @@ var glyphs3 = [
   [`${composerSurface} button[type="submit"]`, ".codicon-arrow-up", "send"]
 ];
 function iconRules() {
-  return glyphs3.map(([button4, nativeIcon2, icon8, flip]) => {
-    const selector = `${button4}:has(> ${nativeIcon2})`;
+  return glyphs3.map(([button5, nativeIcon2, icon8, flip]) => {
+    const selector = `${button5}:has(> ${nativeIcon2})`;
     return `
   ${selector} > ${nativeIcon2} { display: none; }
   ${selector}::before {
@@ -17884,7 +19529,7 @@ function iconRules() {
   }`;
   }).join("\n");
 }
-var styles5 = `
+var styles6 = `
 @media (forced-colors: none) {
   ${active} {
     ${paletteVariables(light)}
@@ -18137,12 +19782,12 @@ var plugin_default = {
     const root = document.documentElement;
     registerStyleScope(ctx, themeName);
     const sheet = document.createElement("style");
-    sheet.setAttribute(marker2, "");
-    sheet.textContent = styles5;
+    sheet.setAttribute(marker3, "");
+    sheet.textContent = styles6;
     ctx.onDispose(() => {
       sheet.remove();
-      if (!document.head.querySelector(`style[${marker2}]`)) {
-        root.removeAttribute(marker2);
+      if (!document.head.querySelector(`style[${marker3}]`)) {
+        root.removeAttribute(marker3);
       }
     });
     mountStyle(ctx, sheet);
@@ -18465,7 +20110,7 @@ var plugin_default = {
 
 }
 `, { surface: '[data-hcv-turn-line], [data-slot="aui_turn-duration"], [data-slot="aui_response-loading"], [data-slot="aui_turn-activity"], [data-slot="aui_changed-files"]', retainAcrossChatTabs: true });
-    root.setAttribute(marker2, "");
+    root.setAttribute(marker3, "");
     registerWorkspaceChrome(ctx, themeName);
     const roster = registerSubagents(ctx, active);
     const localEnvironment = registerLocalEnvironment(ctx, active);
@@ -18475,6 +20120,7 @@ var plugin_default = {
     registerChatResources(ctx, active);
     registerChatActivity(ctx, active);
     registerChatTables(ctx, active);
+    registerReviewProposals(ctx, active);
     registerInterface(ctx, active);
     registerDesktopPages(ctx, active);
     registerDesktopCorners(ctx, active);

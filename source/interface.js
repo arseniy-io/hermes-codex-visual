@@ -2,6 +2,7 @@ import { mountCSS, mountStyle } from './style-scope.js'
 import { host } from '@hermes/plugin-sdk'
 import { codexIconRules, codexMask, codexReference as codex } from './codex-reference.js'
 import { movedElementMatches } from './dom-changes.js'
+import { commandPaletteStyles, commandRoot } from './command-palette.js'
 
 const menus = ':is([data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"], [data-slot="context-menu-content"], [data-slot="context-menu-sub-content"], [data-slot="select-content"]):not([data-hcv-window-menu-content])'
 const modelCatalog = '[data-slot="dropdown-menu-content"]:has(> [data-slot="dropdown-menu-search"]):has(> [data-slot="dropdown-menu-item"] > .codicon-settings-gear)'
@@ -681,8 +682,9 @@ ${active} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/lab
       pointer-events: none;
     }
   }
+  ${commandPaletteStyles(active)}
 }
-`, { surface: `:is(${menus}, ${popover}, ${dialog}, ${dialogOverlay}, ${items}, ${commandItems})` })
+`, { surface: `:is(${menus}, ${popover}, ${dialog}, ${dialogOverlay}, ${items}, ${commandRoot})` })
   mountCSS(ctx, 'data-hcv-interface-pages', `
 @media (forced-colors: none) {
   /* Shells share spacing but keep their own controls, labels and content. */

@@ -126,6 +126,7 @@ const glyphAliases = {
   activityRead: 'artifacts',
   activitySearch: 'search',
   activityTerminal: 'terminal',
+  shellSuccess: 'messageCopied',
   chatPreviewComputer: 'laptop',
   tableClose: 'close',
   tableCopy: 'copy',

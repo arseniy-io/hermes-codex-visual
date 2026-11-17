@@ -8,6 +8,7 @@ import { registerChatDisplay } from './chat-display.js'
 import { registerChatResources } from './chat-resources.js'
 import { registerChatActivity } from './chat-activity.js'
 import { registerChatTables } from './chat-tables.js'
+import { registerReviewProposals } from './review-proposals.js'
 import { registerSubagents } from './subagents.js'
 import { registerDraftSetup } from './draft-setup.js'
 import { codexMask, codexReference } from './codex-reference.js'
@@ -785,6 +786,7 @@ export default {
     registerChatResources(ctx, active)
     registerChatActivity(ctx, active)
     registerChatTables(ctx, active)
+    registerReviewProposals(ctx, active)
     registerInterface(ctx, active)
     registerDesktopPages(ctx, active)
     registerDesktopCorners(ctx, active)
