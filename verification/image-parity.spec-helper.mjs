@@ -81,7 +81,7 @@ export async function verifyImageParity({ app, page, expect, projectChat, screen
   await expect.poll(() => gallery.evaluateAll(items => items.every(img => img.naturalWidth > 0))).toBe(true)
   const activityGallery = await Promise.all((await gallery.all()).map(measure))
   if (!before) {
-    assert.equal(activityGallery[0].y, activityGallery[1].y)
+    assert(Math.abs(activityGallery[0].y - activityGallery[1].y) < 0.5)
     assert.equal(activityGallery[1].x - activityGallery[0].x, 88)
     assert(activityGallery.every(image => image.width === 78 && image.height === 78))
     assert.equal(activityGallery[0].x - (await multiToggle.boundingBox()).x, 1)

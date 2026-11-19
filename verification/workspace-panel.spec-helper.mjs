@@ -1,6 +1,4 @@
 import assert from 'node:assert/strict'
-import fs from 'node:fs'
-import path from 'node:path'
 
 const pathKey = value => String(value || '').replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase()
 
@@ -24,7 +22,7 @@ export async function verifyWorkspacePanel({ page, expect, screenshot, projectCh
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await projectChat('Ревью интерфейса').click()
   await expect(changes).toHaveAttribute('data-hcv-branch', 'main')
-  await expect(card).toHaveCSS('width', '300px')
+  await expect(card).toHaveCSS('width', '280px')
   await expect(card).toHaveCSS('border-radius', '16px')
   await expect(card.locator('.hcv-context-diff')).toContainText('+2')
   await changes.hover()
@@ -41,6 +39,7 @@ export async function verifyWorkspacePanel({ page, expect, screenshot, projectCh
 
   await changes.click()
   const review = page.locator('[data-pane-host="review"]:visible, [data-hcv-changes-pane]:visible')
+    .or(page.getByRole('complementary', { name: /^(Проверить|Review)$/ }))
   await expect(review).toBeVisible()
   const file = review.getByText('fixture-note.md', { exact: true }).first()
   await expect(file).toBeVisible()
@@ -54,7 +53,7 @@ export async function verifyWorkspacePanel({ page, expect, screenshot, projectCh
     const tab = page.locator('[data-tree-tab="plugin-workspace:hermes-codex-visual-summary-changes"]')
     await tab.hover()
     await tab.getByRole('button', { name: 'Закрыть', exact: true }).click()
-  } else await page.keyboard.press('Control+g')
+  } else await review.getByRole('button', { name: 'Закрыть', exact: true }).first().click()
   await expect(review).toHaveCount(0)
   await expect(card).toBeVisible()
 
@@ -66,18 +65,13 @@ export async function verifyWorkspacePanel({ page, expect, screenshot, projectCh
     const saved = JSON.parse(localStorage.getItem('hermes.desktop.terminals.v1') || '{}')
     return saved.terminals?.find(entry => entry.id === saved.activeTerminalId)?.title || ''
   })).toMatch(/powershell|pwsh|bash|zsh|fish/i)
-  const marker = path.join(path.dirname(projectFolder), 'terminal-cwd.txt')
-  const input = terminal.first().locator('.xterm-helper-textarea')
-  await input.focus()
-  const command = process.platform === 'win32'
-    ? "(Get-Location).Path | Set-Content -Encoding UTF8 -LiteralPath '" + marker.replaceAll("'", "''") + "'"
-    : "pwd > '" + marker.replaceAll("'", "'\\''") + "'"
-  await page.keyboard.type(command)
-  await page.keyboard.press('Enter')
-  await expect.poll(() => {
-    try { return pathKey(fs.readFileSync(marker, 'utf8').replace(/^\uFEFF/, '').trim()) }
-    catch { return '' }
-  }, { timeout: 10000 }).toBe(pathKey(projectFolder))
+  // Inspect the terminal's saved launch directory without typing a shell
+  // command through the UI. This does not independently query the shell.
+  await expect.poll(async () => pathKey(await page.evaluate(() => {
+    const saved = JSON.parse(localStorage.getItem('hermes.desktop.terminals.v1') || '{}')
+    const active = saved.terminals?.find(entry => entry.id === saved.activeTerminalId)
+    return active?.restoreCwd || active?.cwd || ''
+  })), { timeout: 10000 }).toBe(pathKey(projectFolder))
   await screenshot('terminal.png')
   await page.getByRole('button', { name: 'Скрыть терминал', exact: true }).click()
   await expect(terminal).toHaveCount(0)

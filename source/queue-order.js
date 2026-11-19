@@ -41,6 +41,9 @@ function readQueue(dock, panel, copy) {
       const entries = queues[key]
       return Array.isArray(entries) && entries.length === rows.length && entries.every((entry, index) => {
         if (typeof entry?.id !== 'string' || typeof entry.text !== 'string' || !Array.isArray(entry.attachments)) return false
+        // Server-owned rows run in the gateway's FIFO. Changing the local
+        // snapshot cannot change that order and would mislead the user.
+        if (entry.serverStatus != null) return false
         const caption = entry.displayKind === 'hidden'
           ? copy.hiddenQueued
           : (entry.displayText ?? entry.text).trim() || (entry.attachments.length ? copy.attachmentOnly : copy.emptyTurn)

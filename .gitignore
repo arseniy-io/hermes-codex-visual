@@ -12,6 +12,8 @@ __pycache__/
 /.make-feature/
 /evidence/
 /verification/*.py
+!/verification/stop-isolated-gateway.py
 /docs/*
 !/docs/development.md
+!/docs/release-0.15.87.md
 !/docs/images/

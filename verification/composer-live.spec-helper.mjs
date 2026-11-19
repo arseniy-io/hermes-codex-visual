@@ -54,6 +54,14 @@ export async function verifyComposerSize({ page, expect, screenshot, projectChat
 
   await expect(draftBar).toBeVisible()
   await expect(editor).toBeEditable()
+  // A fresh profile may have the native consent card attached above the
+  // composer. Dismiss it in this isolated profile before measuring the
+  // standalone rounded surface; draft-consent tests the attached state.
+  const consent = dock.locator('[data-slot="status-row"]:has(> .status-row-icon > .codicon-graph)')
+  if (await consent.isVisible()) {
+    await consent.getByRole('button', { name: 'Нет, спасибо', exact: true }).click()
+    await expect(consent).toHaveCount(0)
+  }
   if (process.env.HERMES_VISUAL_COMPOSER_SIZE_BEFORE === '1') {
     await expect.poll(measure).toMatchObject({ width: 662, height: 100, top: 16 })
     await capture('new-chat.png')

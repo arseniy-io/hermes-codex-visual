@@ -5,6 +5,7 @@ import {
 } from '@hermes/plugin-sdk'
 import { createElement as h } from 'react'
 import { codexIconStyle, codexReference as codex } from './codex-reference.js'
+import { movedElementMatches } from './dom-changes.js'
 
 const workspacePrefix = 'hermes-codex-visual-summary-'
 const panePrefix = 'plugin-workspace:' + workspacePrefix
@@ -50,13 +51,14 @@ function Picker({ state, open }) {
 export function registerSummaryPanes(ctx, active, views) {
   const menu = atom(null)
   const registrations = new Map()
+  let disposed = false
   const open = kind => {
     if (kind === 'files') {
       host.revealPane('files')
       return
     }
     const render = views[kind]
-    if (!render || !document.documentElement.matches(active) || typeof host.openWorkspace !== 'function') return
+    if (disposed || !render || !document.documentElement.matches(active) || typeof host.openWorkspace !== 'function') return
     const id = paneId(kind)
     if (registrations.has(kind)) { host.revealPane(id); return }
     const sibling = [...registrations.keys()].find(key => document.querySelector(paneTab(key) + '[aria-selected="true"]'))
@@ -67,7 +69,10 @@ export function registerSummaryPanes(ctx, active, views) {
     const dispose = host.openWorkspace(workspacePrefix + kind, {
       dock, minWidth: '280px', title: copy(document.documentElement.lang)[kind],
       render: () => h('div', { 'data-hcv-summary-pane': kind }, render()),
-      onClose: () => registrations.delete(kind),
+      onClose: () => {
+        registrations.delete(kind)
+        queue()
+      },
     })
     registrations.set(kind, dispose)
     queue()
@@ -84,14 +89,28 @@ export function registerSummaryPanes(ctx, active, views) {
   })
   let frame = 0
   function queue() {
-    if (!frame) frame = requestAnimationFrame(syncStrip)
+    if (!disposed && !frame) frame = requestAnimationFrame(syncStrip)
   }
   function syncStrip() {
     frame = 0
+    if (disposed || !registrations.size) { plus.remove(); return }
+    // openWorkspace currently accepts only a static title. Update our own
+    // text-only captions in place: re-registering fronts a different tab and
+    // loses the user's selection. Keep the native pane, content and handlers.
+    const language = copy(document.documentElement.lang)
+    for (const kind of registrations.keys()) {
+      for (const tab of document.querySelectorAll(paneTab(kind))) {
+        const caption = tab.querySelector('.pane-tab-content .truncate')
+        if (caption?.childNodes.length === 1 && caption.firstChild.nodeType === Node.TEXT_NODE &&
+            caption.firstChild.nodeValue !== language[kind]) caption.firstChild.nodeValue = language[kind]
+        if (tab.getAttribute('aria-label') !== language[kind]) tab.setAttribute('aria-label', language[kind])
+      }
+    }
     const selected = document.querySelector('[data-tree-tab^="' + panePrefix + '"][aria-selected="true"]')
     const list = selected?.closest('[data-zone-tabstrip]')?.querySelector('[role="tablist"]')
     if (!list || !document.documentElement.matches(active)) { plus.remove(); return }
-    plus.setAttribute('aria-label', copy(document.documentElement.lang).add)
+    const label = copy(document.documentElement.lang).add
+    if (plus.getAttribute('aria-label') !== label) plus.setAttribute('aria-label', label)
     if (plus.parentNode !== list || plus !== list.lastElementChild) list.append(plus)
   }
 
@@ -106,8 +125,19 @@ export function registerSummaryPanes(ctx, active, views) {
     else queue()
   })
   observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-hermes-theme', 'lang'] })
-  const stripObserver = new MutationObserver(() => { if (registrations.size) queue() })
-  stripObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-selected'] })
+  const stripObserver = new MutationObserver(records => {
+    if (!registrations.size) return
+    if (records.some(record => {
+      const target = record.target instanceof Element ? record.target : record.target.parentElement
+      if (!(target instanceof Element)) return false
+      if (record.type === 'attributes') return target.matches('[role="tab"][data-tree-tab]')
+      if (target.closest('[data-zone-tabstrip]')) return true
+      // Transcript and pane contents cannot mount the host's tab strip.
+      if (target.closest('[data-slot="aui_thread-content"], [data-hcv-summary-pane]')) return false
+      return movedElementMatches(record, '[data-zone-tabstrip]')
+    })) queue()
+  })
+  stripObserver.observe(document.body, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ['aria-selected', 'aria-label'] })
 
   const summaryTab = '[role="tab"][data-tree-tab^="' + panePrefix + '"]:not([data-vertical])'
   const selectedTab = summaryTab + '[aria-selected="true"]'
@@ -156,6 +186,7 @@ export function registerSummaryPanes(ctx, active, views) {
   ].join('\n')
   mountStyle(ctx, style, { surface: '[data-tree-tab^="' + panePrefix + '"]' })
   ctx.onDispose(() => {
+    disposed = true
     observer.disconnect()
     stripObserver.disconnect()
     if (frame) cancelAnimationFrame(frame)

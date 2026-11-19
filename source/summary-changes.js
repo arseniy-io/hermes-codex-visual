@@ -23,6 +23,26 @@ async function readReview(route, cwd, connectionId, profile, params) {
   })
 }
 
+async function readFileDiff(cwd, connectionId, profile, file, staged) {
+  const query = new URLSearchParams({ path: cwd, file })
+  const result = await window.hermesDesktop.api({
+    connectionId, profile, method: 'GET', path: '/api/git/file-diff?' + query, timeoutMs: 15000,
+  })
+  if (typeof result?.diff !== 'string') throw new Error('Diff unavailable')
+  if (result.diff || !staged) return result.diff
+
+  // A new repository has no HEAD, and opposite staged/unstaged edits can
+  // cancel in the combined view. In those cases retain both real diffs.
+  const [index, working] = await Promise.all([true, false].map(value =>
+    readReview('diff', cwd, connectionId, profile, { file, staged: String(value) })))
+  if (typeof index?.diff !== 'string' || typeof working?.diff !== 'string') throw new Error('Diff unavailable')
+  // Hermes synthesizes an all-add diff for a tracked file when there is no
+  // working-tree diff. Do not mistake that fallback for another change.
+  const header = working.diff.split(/^@@ /m, 1)[0]
+  const synthetic = /^(?:--- \/dev\/null\r?$|Binary files \/dev\/null and )/m.test(header)
+  return [index.diff, synthetic ? '' : working.diff].filter(Boolean).join('\n')
+}
+
 function icon(glyph) {
   return h('span', { 'aria-hidden': true, className: 'hcv-changes-icon', style: codexIconStyle(glyph) })
 }
@@ -42,8 +62,8 @@ function FileDiff({ id, cwd, connectionId, profile, path, staged, copy }) {
   const [result, setResult] = useState(null)
   useEffect(() => {
     let live = true
-    void readReview('diff', cwd, connectionId, profile, { file: path, staged: String(staged) }).then(
-      value => { if (live) setResult(typeof value?.diff === 'string' ? { text: value.diff } : {}) },
+    void readFileDiff(cwd, connectionId, profile, path, staged).then(
+      text => { if (live) setResult({ text }) },
       () => { if (live) setResult({}) },
     )
     return () => { live = false }

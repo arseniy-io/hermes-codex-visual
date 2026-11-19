@@ -50,7 +50,7 @@ function sourceFrom(node) {
   }
 
   if (node.matches(filePreview)) {
-    const label = node.previousElementSibling?.previousElementSibling
+    const label = node.parentElement?.querySelector(':scope > span[title]')
     const name = label?.textContent.trim()
     return name ? { kind: 'artifacts', key: label.title, name, meta: label.title, attached, action: node,
       section: attached ? undefined : 'outputs' } : null
@@ -76,6 +76,9 @@ export function useChatSources(getChat, scopeKey, enabled) {
     let frame = 0
     let chat = null
     let body = null
+    // Text changes inside a source must update its label, without observing
+    // every streamed text node in the rest of the conversation.
+    const labels = new MutationObserver(queue)
     const content = new MutationObserver(records => {
       if (records.some(({ type, target, addedNodes, removedNodes }) =>
         (type === 'attributes' && target.matches('a, img')) ||
@@ -106,7 +109,16 @@ export function useChatSources(getChat, scopeKey, enabled) {
         }
       }
       const unique = new Map()
-      for (const node of [...(body?.querySelectorAll(candidates) || [])].reverse()) {
+      const nodes = [...(body?.querySelectorAll(candidates) || [])]
+      labels.disconnect()
+      for (const node of nodes) {
+        // The label of a file preview sits next to its action button.
+        const label = node.matches(filePreview) ? node.parentElement : node
+        if (!(node instanceof HTMLImageElement) && label) {
+          labels.observe(label, { characterData: true, subtree: true })
+        }
+      }
+      for (const node of nodes.reverse()) {
         const row = sourceFrom(node)
         const key = row && `${row.kind}:${row.key}`
         if (key && !unique.has(key)) unique.set(key, row)
@@ -128,6 +140,7 @@ export function useChatSources(getChat, scopeKey, enabled) {
       if (frame) cancelAnimationFrame(frame)
       mounts.disconnect()
       content.disconnect()
+      labels.disconnect()
       body?.removeEventListener('load', queue, true)
     }
   }, [getChat, scopeKey, enabled])

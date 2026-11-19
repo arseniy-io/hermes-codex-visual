@@ -8,7 +8,7 @@ const orderProperty = '--hcv-sidebar-order'
 const localDrag = 'data-hcv-reordering-sidebar'
 const lifted = 'data-hcv-sidebar-lifted'
 
-function sessionRows(list) {
+export function sessionRows(list) {
   const chats = []
   for (const row of list.children) {
     const button = row.querySelector(rowButton)

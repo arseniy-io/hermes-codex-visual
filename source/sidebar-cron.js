@@ -77,15 +77,14 @@ function attachNativeCron(content) {
 
 export function attachSidebarCron(content, storage) {
   const native = attachNativeCron(content)
-  const ru = document.documentElement.matches(':lang(ru)')
+  const ru = () => document.documentElement.matches(':lang(ru)')
   const area = element('section', { 'data-hcv-cron-sidebar': '' })
   const header = element('header')
-  const toggle = element('button', { type: 'button', 'aria-controls': 'hcv-cron-sidebar-list' }, ru ? 'Cron-задачи' : 'Cron jobs')
+  const toggle = element('button', { type: 'button', 'aria-controls': 'hcv-cron-sidebar-list' })
+  const toggleLabel = document.createTextNode('')
+  toggle.append(toggleLabel)
   toggle.append(glyph('right'))
   const all = element('button', { type: 'button', 'data-hcv-cron-manage': '' })
-  const allLabel = ru ? 'Открыть запланированные задачи' : 'Open scheduled tasks'
-  all.setAttribute('aria-label', allLabel)
-  all.title = allLabel
   all.append(glyph('schedule'))
   all.addEventListener('click', () => host.navigate('/cron'))
   header.append(toggle, all)
@@ -96,13 +95,29 @@ export function attachSidebarCron(content, storage) {
 
   let open = storage.get('cron-preview-open', false) === true
   let generation = 0
+  let status = null
   function updateDisclosure() {
     toggle.setAttribute('aria-expanded', String(open))
     details.inert = !open
     area.toggleAttribute('data-hcv-cron-open', open)
   }
-  function note(text) {
-    list.replaceChildren(element('p', { role: 'status' }, text))
+  function note(kind) {
+    status = kind
+    const words = ru()
+      ? { profile: 'Профиль не выбран', loading: 'Загрузка…', empty: 'В этом профиле нет задач', error: 'Не удалось загрузить задачи' }
+      : { profile: 'No profile selected', loading: 'Loading…', empty: 'No tasks in this profile', error: 'Could not load tasks' }
+    const text = words[kind]
+    const current = list.childElementCount === 1 && list.firstElementChild?.matches('[role="status"]') ? list.firstElementChild : null
+    if (!current) list.replaceChildren(element('p', { role: 'status' }, text))
+    else if (current.textContent !== text) current.textContent = text
+  }
+  function localize() {
+    const label = ru() ? 'Cron-задачи' : 'Cron jobs'
+    const allLabel = ru() ? 'Открыть запланированные задачи' : 'Open scheduled tasks'
+    if (toggleLabel.data !== label) toggleLabel.data = label
+    if (all.getAttribute('aria-label') !== allLabel) all.setAttribute('aria-label', allLabel)
+    if (all.title !== allLabel) all.title = allLabel
+    if (status) note(status)
   }
   async function load() {
     if (!open || !area.isConnected) return
@@ -112,10 +127,10 @@ export function attachSidebarCron(content, storage) {
     const isCurrent = () => request === generation && area.isConnected && open &&
       profile === host.state.profile.get() && connectionId === host.state.connectionId.get()
     if (!profile) {
-      note(ru ? 'Профиль не выбран' : 'No profile selected')
+      note('profile')
       return
     }
-    note(ru ? 'Загрузка…' : 'Loading…')
+    note('loading')
     try {
       const path = `/api/cron/jobs?profile=${encodeURIComponent(profile)}`
       const jobs = await window.hermesDesktop.api({ ...(connectionId ? { connectionId } : {}), profile, path, timeoutMs: 8000 })
@@ -123,6 +138,7 @@ export function attachSidebarCron(content, storage) {
       const named = jobs.filter(job => typeof job?.id === 'string' && job.id)
         .map(job => ({ ...job, label: typeof job.name === 'string' && job.name.trim() || job.id }))
       named.sort((a, b) => nextRun(a) - nextRun(b) || a.label.localeCompare(b.label))
+      status = null
       list.replaceChildren()
       for (const job of named.slice(0, 3)) {
         const row = element('button', { type: 'button', title: job.label, 'data-hcv-cron-job': '' })
@@ -132,9 +148,9 @@ export function attachSidebarCron(content, storage) {
         })
         list.append(row)
       }
-      if (!named.length) note(ru ? 'В этом профиле нет задач' : 'No tasks in this profile')
+      if (!named.length) note('empty')
     } catch {
-      if (isCurrent()) note(ru ? 'Не удалось загрузить задачи' : 'Could not load tasks')
+      if (isCurrent()) note('error')
     }
   }
   toggle.addEventListener('click', () => {
@@ -144,12 +160,14 @@ export function attachSidebarCron(content, storage) {
     if (open) void load()
     else ++generation
   })
+  localize()
   updateDisclosure()
   const stopProfile = host.state.profile.subscribe(load)
   const stopConnection = host.state.connectionId.subscribe(load)
   const stopCron = host.onEvent?.('cron.changed', load)
   return {
     sync() {
+      localize()
       native.sync()
       const tree = content.querySelector(`:scope > ${projects}`)
       if (!tree || !content.querySelector('[data-tour="sidebar-nav-cron"]')) {

@@ -159,7 +159,7 @@ export async function verifyDraftSetup({ page, expect, screenshot }) {
   await expect(device).toHaveText('Этот компьютер')
   const stripGeometry = await bar.evaluate(element => {
     const box = element.getBoundingClientRect()
-    const surface = element.nextElementSibling.querySelector('[data-slot="composer-surface"]').getBoundingClientRect()
+    const surface = element.parentElement.querySelector('[data-slot="composer-surface"]').getBoundingClientRect()
     const gear = element.querySelector(':scope > button:last-of-type')
     const button = gear.getBoundingClientRect()
     const icon = gear.firstElementChild.getBoundingClientRect()
@@ -205,9 +205,51 @@ export async function verifyDraftSetup({ page, expect, screenshot }) {
   assert.equal(settingsBox.x + settingsBox.width, gearBox.x + gearBox.width)
   assert.equal(gearBox.y - (settingsBox.y + settingsBox.height), 5)
   await screenshot('draft-settings.png')
+  if (process.env.HERMES_VISUAL_DRAFT_DIAGNOSTIC === '1') await page.evaluate(() => {
+    window.hcvDraftTrace = []
+    const sidebar = document.querySelector('[data-tour="sessions-sidebar"]')
+    const capture = () => {
+      const view = sidebar?.querySelector('[data-sessions-mode]')
+      const buttons = [...(sidebar?.querySelectorAll('button[aria-label*="worktree" i]') ?? [])].map(button => {
+        const keys = Object.keys(button)
+        const raw = button[keys.find(key => key.startsWith('__reactFiber$'))]
+        let fiber = raw
+        const props = button[keys.find(key => key.startsWith('__reactProps$'))]
+        if (fiber?.memoizedProps !== props) fiber = fiber?.alternate
+        const describe = start => {
+          const chain = []
+          for (let node = start; node && chain.length < 18; node = node.return) chain.push({
+            type: typeof node.type === 'function' ? node.type.name : typeof node.type === 'string' ? node.type : node.tag,
+            repo: node.memoizedProps?.repoPath, pendingRepo: node.pendingProps?.repoPath,
+            propsMatch: node.memoizedProps === props,
+          })
+          return chain
+        }
+        let repoPath = ''
+        for (let node = fiber; node; node = node.return) if (typeof node.memoizedProps?.repoPath === 'string') {
+          repoPath = node.memoizedProps.repoPath
+          break
+        }
+        return { label: button.getAttribute('aria-label'), repoPath, hasProps: Boolean(props), hasFiber: Boolean(raw),
+          raw: describe(raw), alternate: describe(raw?.alternate), html: button.outerHTML.slice(0, 180) }
+      })
+      const next = JSON.stringify({ mode: view?.dataset.sessionsMode, project: view?.dataset.sessionsProject, buttons })
+      if (window.hcvDraftTrace.at(-1) !== next && window.hcvDraftTrace.length < 30) window.hcvDraftTrace.push(next)
+    }
+    window.hcvDraftObserver = new MutationObserver(capture)
+    if (sidebar) window.hcvDraftObserver.observe(sidebar, { subtree: true, childList: true, attributes: true })
+    capture()
+  })
   await branchMenu.getByRole('button', { name: 'Новое рабочее дерево' }).click()
   const worktreeDialog = page.getByRole('dialog', { name: 'Новый worktree', exact: true })
-  await expect(worktreeDialog).toBeVisible()
+  try {
+    await expect(worktreeDialog).toBeVisible()
+  } catch (error) {
+    if (process.env.HERMES_VISUAL_DRAFT_DIAGNOSTIC === '1') console.log('Draft worktree diagnostic', await page.evaluate(() => window.hcvDraftTrace))
+    throw error
+  } finally {
+    if (process.env.HERMES_VISUAL_DRAFT_DIAGNOSTIC === '1') await page.evaluate(() => window.hcvDraftObserver?.disconnect())
+  }
   await page.keyboard.press('Escape')
   await expect(worktreeDialog).toHaveCount(0)
   await gear.click()
@@ -235,15 +277,36 @@ export async function verifyDraftSetup({ page, expect, screenshot }) {
   await expect(anchored).toHaveCSS('width', '280px')
   await expect(anchored.locator('[role="menuitemradio"][aria-checked="true"]')).toContainText('This device')
   await screenshot('draft-devices.png')
-  const geometry = await anchored.evaluate(element => {
+  const measureDeviceMenu = () => anchored.evaluate(element => {
     const anchor = document.querySelector('[data-hcv-draft-bar] [data-hcv-native-open]')
     const box = element.getBoundingClientRect()
     const target = anchor.getBoundingClientRect()
     const wrapper = element.closest('[data-radix-popper-content-wrapper]')
     const style = wrapper && getComputedStyle(wrapper)
     return { dx: box.left - target.left, dy: box.bottom - target.top,
-      inset: style?.inset, position: style?.position, transform: style?.transform }
+      inset: style?.inset, position: style?.position, transform: style?.transform,
+      directChild: wrapper && element.parentElement === wrapper,
+      root: { theme: document.documentElement.dataset.hermesTheme, marker: document.documentElement.hasAttribute('data-hermes-codex-visual'), lang: document.documentElement.lang },
+      chain: Array.from((function *() { for (let node = element; node && node !== document.body; node = node.parentElement) yield node })())
+        .map(node => ({ tag: node.tagName, slot: node.getAttribute('data-slot'), wrapper: node.hasAttribute('data-radix-popper-content-wrapper'),
+          style: node.getAttribute('style')?.slice(0, 500) })),
+      stylesheet: Boolean(document.querySelector('style[data-hcv-draft-setup-style]')) }
   })
+  let geometry = await measureDeviceMenu()
+  if (process.env.HERMES_VISUAL_DRAFT_DIAGNOSTIC === '1') {
+    const samples = [{ afterMs: 0, ...geometry }]
+    for (let index = 1; index <= 10; index++) {
+      await page.waitForTimeout(100)
+      geometry = await measureDeviceMenu()
+      samples.push({ afterMs: index * 100, ...geometry })
+    }
+    console.log('Draft device geometry over time', JSON.stringify(samples.map(({ afterMs, dx, dy, transform }) =>
+      ({ afterMs, dx, dy, transform }))))
+  }
+  await expect.poll(async () => {
+    geometry = await measureDeviceMenu()
+    return { dx: geometry.dx, dy: geometry.dy }
+  }, { timeout: 3000 }).toEqual({ dx: 0, dy: -4 })
   console.log(JSON.stringify({ nativeGatewayMenu: geometry }))
   expect(geometry.dy).toBe(-4)
   expect(geometry.dx).toBe(0)
@@ -257,7 +320,12 @@ export async function verifyDraftSetup({ page, expect, screenshot }) {
   await nativeSwitcher.click()
   const local = page.getByRole('menuitemradio', { name: 'This device', exact: true })
   await local.click()
-  await page.getByRole('button', { name: 'Переключить', exact: true }).click()
+  const confirmSwitch = page.getByRole('button', { name: 'Переключить', exact: true })
+  // Recent Hermes can switch an idle draft immediately; other states require
+  // a confirmation. Exercise whichever native path the test profile shows.
+  await expect.poll(async () => await confirmSwitch.isVisible() ? 'confirm'
+    : (await device.textContent())?.trim() === 'Этот компьютер' ? 'switched' : 'waiting', { timeout: 30000 }).not.toBe('waiting')
+  if (await confirmSwitch.isVisible()) await confirmSwitch.click()
   await expect(device).toHaveText('Этот компьютер', { timeout: 45000 })
   await expect(nativeSwitcher).toContainText('This device')
 }
@@ -504,9 +572,29 @@ export async function verifySubagentsParity({ app, page, expect, projectChat, sc
   const from = await storedChat.boundingBox()
   const to = await chat.boundingBox()
   assert(from && to, 'Expected a visible project chat and a workspace to split')
+  // The composer is a link target in current Hermes. Drop on the side of the
+  // chat body, away from that composer, to request a separate pane.
+  const drop = { x: to.x + to.width * .93, y: to.y + to.height * .45 }
+  assert(await chat.evaluate((node, point) => {
+    const hit = document.elementFromPoint(point.x, point.y)
+    return Boolean(hit && node.contains(hit) && !hit.closest('[data-slot="composer-root"]'))
+  }, drop), 'Expected a split target in the chat body outside the composer')
+  if (process.env.HERMES_VISUAL_DRAG_DIAGNOSTIC) {
+    const points = { start: [from.x + Math.min(90, from.width / 2), from.y + from.height / 2],
+      end: [drop.x, drop.y] }
+    console.log('Split drag geometry', JSON.stringify(await page.evaluate(points => ({
+      viewport: [innerWidth, innerHeight], points,
+      hits: Object.fromEntries(Object.entries(points).map(([name, [x, y]]) => {
+        const node = document.elementFromPoint(x, y)
+        return [name, node && { tag: node.tagName, html: node.outerHTML.slice(0, 500),
+          ancestors: [...function* () { for (let el = node; el; el = el.parentElement) yield el }()].slice(0, 5)
+            .map(el => ({ tag: el.tagName, slot: el.getAttribute('data-slot'), role: el.getAttribute('role') })) }]
+      })),
+    }), points)))
+  }
   await page.mouse.move(from.x + Math.min(90, from.width / 2), from.y + from.height / 2)
   await page.mouse.down()
-  await page.mouse.move(to.x + to.width / 2, to.y + to.height * .84, { steps: 15 })
+  await page.mouse.move(drop.x, drop.y, { steps: 15 })
   await page.mouse.up()
   const tile = page.locator('[data-chat-surface][data-session-anchor^="session-tile:"]:visible')
   await expect(tile.getByText(delegationPrompt, { exact: true })).toBeAttached({ timeout: 15000 })

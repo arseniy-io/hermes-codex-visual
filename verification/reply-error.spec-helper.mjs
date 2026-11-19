@@ -11,7 +11,10 @@ export async function installReplyErrorFixture(page) {
         return
       }
       failed = true
-      route.send(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { status: 'streaming' } }))
+      // Current Hermes validates that the admission belongs to this session.
+      route.send(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: {
+        status: 'streaming', admission_id: 'hcv-fixture-error', ref: { session_id: request.params.session_id },
+      } }))
       route.send(JSON.stringify({
         jsonrpc: '2.0',
         method: 'event',
@@ -33,6 +36,44 @@ export async function verifyReplyError({ page, expect, screenshot, projectChat, 
   await input.fill('Проверка карточки ошибки.')
   await input.press('Enter')
   const card = page.locator('[data-slot="aui_assistant-message-content"] [role="alert"]').filter({ has: page.locator('.aui-error-action') })
+  const modernCard = page.locator('[data-slot="aui_error-card"][role="alert"]')
+  await expect.poll(async () => (await card.count()) + (await modernCard.count()), { timeout: 15000 }).toBeGreaterThan(0)
+  if (await modernCard.count()) {
+    await expect(modernCard).toHaveCSS('border-radius', '16px')
+    await expect(modernCard).toHaveCSS('background-color', 'rgb(32, 32, 32)')
+    await expect(modernCard).toHaveCSS('font-family', /Segoe UI/)
+    await expect(modernCard.locator('.aui-error-card-icon')).not.toHaveCSS('mask-image', 'none')
+    // Current Hermes uses a new error surface with one action and a details
+    // toggle instead of the older four-action <details> card.
+    const toggle = modernCard.locator('button[aria-controls][aria-expanded]')
+    const details = modernCard.locator('[data-slot="aui_error-details"]')
+    await expect(modernCard.getByRole('button', { name: /^(Retry|Повторить)$/i })).toBeVisible()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await expect(details).toBeHidden()
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    await expect(details.getByText(fixtureText, { exact: true })).toBeVisible()
+    await screenshot('expanded.png', { clip: await modernCard.boundingBox() })
+    await openThemeSettings()
+    await page.getByText(/^(Светлая|Light)$/, { exact: true }).first().click()
+    await expect(page.locator('html')).toHaveAttribute('data-hermes-mode', 'light')
+    await closeSettings()
+    await page.setViewportSize({ width: 620, height: 760 })
+    await modernCard.scrollIntoViewIfNeeded()
+    await expect(modernCard).toHaveCSS('background-color', 'rgb(250, 250, 250)')
+    await expect.poll(() => modernCard.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
+    await page.emulateMedia({ forcedColors: 'active' })
+    await expect(modernCard).not.toHaveCSS('border-radius', '16px')
+    await expect(toggle).toBeVisible()
+    await page.emulateMedia({ forcedColors: 'none' })
+    // Changing theme may remount the native card, resetting the details state.
+    if (await toggle.getAttribute('aria-expanded') === 'true') await toggle.click()
+    await expect(details).toBeHidden()
+    await modernCard.getByRole('button', { name: /Dismiss|Скрыть ошибку/i }).click()
+    await expect(modernCard).toHaveCount(0)
+    console.log('Verified current Hermes error card details, narrow layout, light theme, forced colors and dismissal')
+    return
+  }
   const details = card.locator('details')
   const summary = details.locator('summary')
   const actions = card.locator('.aui-error-action')

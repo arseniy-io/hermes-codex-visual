@@ -2,11 +2,13 @@
 
 **A Codex-style theme for Hermes Desktop.** Get the compact project sidebar, rounded chat composer, and workspace summary of the Codex desktop interface inside your Hermes Agent workspace.
 
-[Install](#install) · [Download v0.15.46 ZIP](https://raw.githubusercontent.com/arseniy-io/hermes-codex-visual/main/downloads/hermes-codex-visual-v0.15.46.zip) · [Report a bug or request a feature](https://github.com/arseniy-io/hermes-codex-visual/issues/new/choose) · [Русский](README.ru.md)
+[Install](#install) · [Download v0.15.87 ZIP](https://raw.githubusercontent.com/arseniy-io/hermes-codex-visual/main/downloads/hermes-codex-visual-v0.15.87.zip) · [Report a bug or request a feature](https://github.com/arseniy-io/hermes-codex-visual/issues/new/choose) · [Русский](README.ru.md)
 
-![Hermes Desktop with the Codex-style theme, showing a project sidebar, chat with a file preview card, and the workspace summary](docs/images/workspace-dark.png)
+![Codex-style theme v0.15.87 in Hermes Desktop with a project sidebar, a reply containing a table, and the workspace summary](docs/images/workspace-dark.png)
 
-<sub>Hermes Desktop with the plugin enabled. The screenshot shows the Atlas demo project.</sub>
+<sub>v0.15.87 on Hermes Desktop v0.23.1+2062. Public build with the Atlas demo project.</sub>
+
+The current version updates the chat timeline, inline file links, tables, media controls, project navigation, and settings. Open summary tabs follow the interface language. [Release notes and verification limits](docs/release-0.15.87.md).
 
 ## What you can do
 
@@ -14,13 +16,16 @@
 | --- | --- |
 | Organize chats | Drag chats to reorder them within a project. Drop a chat into the workspace to link it. Double-click a tab to rename it. |
 | Work in the composer | Use the compact composer with your model picker, queued prompts, attachments, and dictation. Open and download files directly from a reply. |
+| Read rich replies | Expand tables, copy their contents, and play audio or video without leaving the chat. |
 | Review what changed | Open **Changes**, **Subagents**, and **Sources** from the summary. Use the same workspace to open a terminal, choose a branch, or move a chat into a worktree. |
 | Switch appearance | Use the light or dark theme across chat, panels, menus, and settings. |
 
 <details>
-<summary>See the light theme and compare with the stock workspace</summary>
+<summary>See the light theme, settings, and stock workspace</summary>
 
 ![Hermes Desktop with the Codex-style light theme](docs/images/workspace-light.png)
+
+![Subagent settings with the Codex-style dark theme](docs/images/settings-dark.png)
 
 ![The same demo chat with the stock Hermes appearance](docs/images/stock-dark.png)
 
@@ -39,7 +44,7 @@ Use [Hermes Desktop](https://hermes-agent.nousresearch.com/docs/user-guide/deskt
 
 ### Install from a ZIP
 
-Download the [v0.15.46 ZIP](https://raw.githubusercontent.com/arseniy-io/hermes-codex-visual/main/downloads/hermes-codex-visual-v0.15.46.zip). In **Capabilities → Plugins**, open the app plugins folder and extract the `hermes-codex-visual` folder there. The path should end in `desktop-plugins/hermes-codex-visual/plugin.js`. Click **Rescan**, enable the plugin, and choose **Codex** in Appearance. [SHA-256 checksums](downloads/SHA256SUMS.txt) · [What's in this version](CHANGELOG.md)
+Download the [v0.15.87 ZIP](https://raw.githubusercontent.com/arseniy-io/hermes-codex-visual/main/downloads/hermes-codex-visual-v0.15.87.zip). In **Capabilities → Plugins**, open the app plugins folder and extract the `hermes-codex-visual` folder there. The path should end in `desktop-plugins/hermes-codex-visual/plugin.js`. Click **Rescan**, enable the plugin, and choose **Codex** in Appearance. [SHA-256 checksums](downloads/SHA256SUMS.txt) · [What's in this version](CHANGELOG.md)
 
 To update a ZIP installation, replace `plugin.js` in the same folder and rescan. To switch back, choose a built-in theme and disable the plugin.
 

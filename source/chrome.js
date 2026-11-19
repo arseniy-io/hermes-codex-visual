@@ -2,7 +2,7 @@ import { mountStyle } from './style-scope.js'
 import { createElement as h, Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
-  host, TITLEBAR_AREAS, useTheme,
+  host, TITLEBAR_AREAS, useI18n, useTheme,
 } from '@hermes/plugin-sdk'
 import { codexIconStyle, codexIconRules, codexMask, codexReference as codex } from './codex-reference.js'
 import { attachProjects, projectSidebarStyles } from './sidebar-projects.js'
@@ -26,7 +26,7 @@ export const toolbarOffsetEvent = 'hcv:toolbar-offset'
 const russianPlurals = new Intl.PluralRules('ru')
 const sidebarCopy = {
   en: {
-    projects: 'Projects',
+    projects: 'Projects', showMore: 'Show more',
     recent: 'Recent', recentActions: 'Recent chats actions', newChat: 'New chat',
     refreshRecent: 'Refresh recent chats', findSession: 'Find a session',
     recentEmpty: 'No chats', recentLoading: 'Loading…', recentProfile: 'Open a Hermes profile',
@@ -38,7 +38,7 @@ const sidebarCopy = {
     terminalUnbound: 'Set a shortcut for New terminal in Keyboard shortcuts.',
   },
   ru: {
-    projects: 'Проекты',
+    projects: 'Проекты', showMore: 'Показать больше',
     recent: 'Недавние', recentActions: 'Действия с недавними', newChat: 'Новый чат',
     refreshRecent: 'Обновить недавние', findSession: 'Найти сеанс',
     recentEmpty: 'Нет чатов', recentLoading: 'Загрузка…', recentProfile: 'Откройте нужный профиль Hermes',
@@ -82,7 +82,7 @@ function edit(command) {
   }))
 }
 
-function WindowMenus({ menus }) {
+function WindowMenus({ menus, label }) {
   const [current, setCurrent] = useState(null)
   const openMenu = useRef(null)
   const triggers = useRef(new Map())
@@ -120,7 +120,7 @@ function WindowMenus({ menus }) {
     else triggers.current.get(id)?.focus()
   }
 
-  return h('nav', { 'aria-label': 'Меню окна', 'data-hcv-window-menu': '' }, menus.map(([id, label, items], index) => {
+  return h('nav', { 'aria-label': label, 'data-hcv-window-menu': '' }, menus.map(([id, label, items], index) => {
     const open = current === id
     const change = (next) => {
       if (next || openMenu.current === id) show(next ? id : null)
@@ -171,6 +171,7 @@ function windowMenuShortcut(action, fallback) {
 
 function WindowChrome({ themeName, recentRows }) {
   const selected = useTheme().themeName === themeName
+  const { locale } = useI18n()
   const [historyState, setHistoryState] = useState({ back: false, forward: false })
 
   useLayoutEffect(() => {
@@ -192,30 +193,42 @@ function WindowChrome({ themeName, recentRows }) {
   }, [selected])
 
   if (!selected) return null
+  const ru = locale?.toLowerCase().startsWith('ru')
+  const text = ru ? {
+    menu: 'Меню окна', file: 'Файл', newChat: 'Новый чат', projectFiles: 'Файлы проекта', settings: 'Настройки',
+    edit: 'Правка', undo: 'Отменить ввод', redo: 'Повторить ввод', selectAll: 'Выделить текст ввода',
+    view: 'Вид', sessions: 'Сеансы', bots: 'Боты', grouping: 'Группировка проектов и чатов', right: 'Правая панель',
+    help: 'Справка', about: 'О программе', back: 'Назад', forward: 'Вперёд',
+  } : {
+    menu: 'Window menu', file: 'File', newChat: 'New chat', projectFiles: 'Project files', settings: 'Settings',
+    edit: 'Edit', undo: 'Undo typing', redo: 'Redo typing', selectAll: 'Select input text',
+    view: 'View', sessions: 'Sessions', bots: 'Bots', grouping: 'Group projects and chats', right: 'Right sidebar',
+    help: 'Help', about: 'About', back: 'Back', forward: 'Forward',
+  }
   const menus = [
-    ['file', 'Файл', [
-      ['Новый чат', newChat, false, windowMenuShortcut('session.new', 'mod+n')],
-      ['Файлы проекта', () => host.revealPane('files')],
+    ['file', text.file, [
+      [text.newChat, newChat, false, windowMenuShortcut('session.new', 'mod+n')],
+      [text.projectFiles, () => host.revealPane('files')],
       [null],
-      ['Настройки', () => host.navigate('/settings'), false, windowMenuShortcut('nav.settings', 'mod+,')],
+      [text.settings, () => host.navigate('/settings'), false, windowMenuShortcut('nav.settings', 'mod+,')],
     ]],
-    ['edit', 'Правка', [
-      ['Отменить ввод', () => edit('undo')],
-      ['Повторить ввод', () => edit('redo')],
+    ['edit', text.edit, [
+      [text.undo, () => edit('undo')],
+      [text.redo, () => edit('redo')],
       [null],
-      ['Выделить текст ввода', () => edit('selectAll')],
+      [text.selectAll, () => edit('selectAll')],
     ]],
-    ['view', 'Вид', [['Сеансы', () => host.revealPane('sessions')], ['Боты', () => host.revealPane('hermes-bots:pane')], [null],
-      ['Группировка проектов и чатов', openGrouping, () => !visibleControl(filterSelector)],
-      ['Правая панель', () => visibleControl('[data-tour="right-pane-toggle"]')?.click(), false, windowMenuShortcut('view.toggleRightSidebar', 'mod+j')]]],
-    ['help', 'Справка', [['О программе', () => host.navigate('/settings?tab=about')]]],
+    ['view', text.view, [[text.sessions, () => host.revealPane('sessions')], [text.bots, () => host.revealPane('hermes-bots:pane')], [null],
+      [text.grouping, openGrouping, () => !visibleControl(filterSelector)],
+      [text.right, () => visibleControl('[data-tour="right-pane-toggle"]')?.click(), false, windowMenuShortcut('view.toggleRightSidebar', 'mod+j')]]],
+    ['help', text.help, [[text.about, () => host.navigate('/settings?tab=about')]]],
   ]
   return h(Fragment, null,
     h('div', { 'data-hcv-history': '' },
-      h('button', { type: 'button', 'aria-label': 'Назад', title: 'Назад', disabled: !historyState.back, onClick: () => history.back() }, icon('back')),
-      h('button', { type: 'button', 'aria-label': 'Вперёд', title: 'Вперёд', disabled: !historyState.forward, onClick: () => history.forward() }, icon('forward')),
+      h('button', { type: 'button', 'aria-label': text.back, title: text.back, disabled: !historyState.back, onClick: () => history.back() }, icon('back')),
+      h('button', { type: 'button', 'aria-label': text.forward, title: text.forward, disabled: !historyState.forward, onClick: () => history.forward() }, icon('forward')),
     ),
-    h(WindowMenus, { menus }),
+    h(WindowMenus, { menus, label: text.menu }),
     h(NativeRecentRows, { rows: recentRows }),
   )
 }
@@ -1253,7 +1266,7 @@ export function registerWorkspaceChrome(ctx, themeName) {
     background: currentColor;
     mask: ${codexMask('folder')} center / contain no-repeat;
   }
-  ${side} [data-hcv-project-row]:has([data-hcv-project-name][aria-expanded="true"]) .codicon-folder-library::before { mask-image: ${codexMask('folderOpen')}; }
+  ${side} [data-hcv-project-row]:has([data-hcv-project-name][aria-expanded="true"]) :is(.codicon-folder-library, .codicon-repo)::before { mask-image: ${codexMask('folderOpen')}; }
   ${codexIconRules(`${side} [data-sessions-project]:not([data-sessions-mode]) .codicon-home`, 'home')}
   ${side} [data-hcv-recents] { margin-block: 12px 5px; }
   ${side} [data-hcv-recents-header] { display: flex; align-items: center; justify-content: space-between; padding-inline: 0 4px; min-block-size: 32px; }

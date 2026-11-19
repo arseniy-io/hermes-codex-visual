@@ -116,6 +116,11 @@ export async function verifyVideoParity({
 
   await play.click()
   await expect(play, 'Clicking Play starts the clip').toHaveAttribute('data-icon', 'pause')
+  await page.evaluate(() => { document.documentElement.lang = 'en' })
+  await expect(play).toHaveAttribute('aria-label', 'Pause video')
+  await expect.poll(() => portrait.evaluate(video => video.paused)).toBe(false)
+  await page.evaluate(() => { document.documentElement.lang = 'ru' })
+  await expect(play).toHaveAttribute('aria-label', 'Приостановить воспроизведение видео')
   assert.notEqual(await play.evaluate(el => getComputedStyle(el, '::before').maskImage), playMask)
   await expect.poll(() => portrait.evaluate(video => video.currentTime)).toBeGreaterThan(0)
   const sliderBox = await seek.boundingBox()

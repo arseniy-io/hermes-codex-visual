@@ -5,7 +5,8 @@ import { registerWorkspaceCard } from './workspace-card.js'
 import { registerLocalEnvironment } from './local-environment.js'
 import { registerTurnExperience } from './turns.js'
 import { registerChatDisplay } from './chat-display.js'
-import { registerChatResources } from './chat-resources.js'
+import { registerChatResources, previewResourceCard } from './chat-resources.js'
+import { registerChatFileLinks } from './chat-file-links.js'
 import { registerChatActivity } from './chat-activity.js'
 import { registerChatTables } from './chat-tables.js'
 import { registerReviewProposals } from './review-proposals.js'
@@ -27,6 +28,7 @@ import { sidebarSessionRow } from './sidebar-projects.js'
 import { registerContextMeter } from './context-meter.js'
 import { registerComposer } from './composer.js'
 import { registerDictation } from './dictation.js'
+import { registerZoomBanner } from './zoom-banner.js'
 
 const id = 'hermes-codex-visual'
 const marker = `data-${id}`
@@ -279,7 +281,7 @@ const styles = `
     transition: none;
   }
 
-  ${sidebarNav}:is(:focus-visible, :active, [data-active="true"]) > [data-hcv-sidebar-fill] { opacity: 1; }
+  ${sidebarNav}:is(:focus-visible, :active, [data-active="true"], [class~="bg-(--ui-control-active-background)"]) > [data-hcv-sidebar-fill] { opacity: 1; }
   @media (hover: hover) {
     ${sidebarNav}:hover > [data-hcv-sidebar-fill] { opacity: 1; }
   }
@@ -378,7 +380,48 @@ const styles = `
     color: var(--hcv-chat-prose, var(--hcv-text));
     font-weight: 430;
   }
-  ${assistantRoot} .aui-md.prose { --tw-prose-bold: var(--hcv-chat-prose, var(--hcv-text)); }
+  ${assistantRoot} .aui-md.prose {
+    --tw-prose-bold: var(--hcv-chat-prose, var(--hcv-text));
+    /* Codex assistant Markdown uses 1.625 line height and one font size
+       between adjacent prose paragraphs. */
+    --dt-line-height: 1.625;
+    --paragraph-gap: var(--conversation-text-font-size);
+    line-height: 1.625;
+  }
+  /* Codex Desktop's InlineCode-Cddi3Y in 0cf36033c2f9.css. Keep this
+     scoped to inline snippets so fenced code and the editor stay unchanged. */
+  ${assistantRoot} .aui-md.prose :not(pre) > code {
+    font-family: ui-monospace, 'SFMono-Regular', 'SF Mono', menlo, consolas, 'Liberation Mono', monospace;
+    font-size: .92em;
+    font-weight: 400;
+    line-height: inherit;
+    color: inherit;
+    background: color-mix(in srgb, currentColor 11.1%, transparent);
+    padding: 1px 6px;
+    border-radius: 6px;
+    box-decoration-break: clone;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  /* Hermes already supplies the brand icon and the link's native actions. */
+  ${assistantRoot} .aui-md.prose a.ref:is([href^="http://"], [href^="https://"]) {
+    color: light-dark(#0169cc, #99ceff);
+    font-weight: 500;
+    text-decoration: none;
+  }
+  ${assistantRoot} .aui-md.prose a.ref:is([href^="http://"], [href^="https://"]) > svg {
+    display: inline-block;
+    inline-size: 16px;
+    block-size: 16px;
+    margin-inline-end: 3px;
+    opacity: 1;
+    vertical-align: middle;
+    transform: translateY(calc(.5ex - .5cap));
+  }
+  ${assistantRoot} .aui-md.prose a.ref:is([href^="http://"], [href^="https://"]):is(:hover, :focus-visible) {
+    text-decoration: underline dashed .5px;
+    text-underline-offset: 2px;
+  }
 
   ${chat} [data-slot="aui_intro"] .wordmark { mix-blend-mode: normal; }
   ${chat} [data-slot="aui_intro"] .wordmark + p {
@@ -551,9 +594,10 @@ export default {
     25%, 100% { transform: translateX(-125%); }
   }
   ${liveTurn} > :is([data-hcv-live-time], [aria-hidden="true"]:not(.dither, [data-hcv-thinking])) {
-    color: var(--hcv-muted);
-    font-size: 10px;
-    line-height: 1.2;
+    color: color-mix(in srgb, var(--hcv-text) 38.5%, transparent);
+    font-size: var(--conversation-text-font-size);
+    line-height: calc(var(--conversation-text-font-size) + 8px);
+    letter-spacing: inherit;
   }
   @media (prefers-reduced-motion: reduce) {
     ${chat} button[data-hcv-turn-line]::after { transition: none; }
@@ -784,6 +828,7 @@ export default {
     registerTurnExperience(ctx, active)
     registerChatDisplay(ctx, active)
     registerChatResources(ctx, active)
+    registerChatFileLinks(ctx, active, previewResourceCard)
     registerChatActivity(ctx, active)
     registerChatTables(ctx, active)
     registerReviewProposals(ctx, active)
@@ -802,6 +847,7 @@ export default {
     registerComposer(ctx, active)
     registerDraftSetup(ctx, active, localEnvironment)
     registerDictation(ctx, active)
+    registerZoomBanner(ctx, active, themeName)
     // Local installations record activation through the plugin's own data folder.
     if (typeof HCV_LOCAL_VERSION !== 'undefined' && HCV_LOCAL_VERSION && ctx.files) {
       void ctx.files.writeText(ctx.files.dataFolder, 'loaded-version.json', JSON.stringify({

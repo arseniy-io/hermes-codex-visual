@@ -39,6 +39,67 @@ function verifyGroups(pages) {
   shared('Archived chats', rows('nav-sessions:archived').filter(row => row.id.startsWith('archived-session-')), 'group', 'parent')
 }
 
+async function verifySettingsSpacing({ page, expect, main, jump, screenshot, suffix }) {
+  const result = {}
+  const cases = [
+    ['nav-config:safety:privacy', () => main.locator('#setting-shared-metrics')],
+    ['nav-config:memory:persistent', () => main.locator('[data-testid="memory-layers"]')],
+    ...['conversation', 'transcription', 'speech'].map(id => [
+      `nav-config:voice:${id}`,
+      () => main.getByText('Горячая клавиша записи голоса', { exact: true }).locator('xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " @container ")][1]'),
+    ]),
+    ['nav-pview:keys', () => main.locator(':scope > section > div.h-full > button[data-slot="row-button"]')],
+    ['nav-pview:local', () => main.getByText('No automatic recommendation for this machine', { exact: true })
+      .locator('xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " @container ")][1]')],
+  ]
+  for (const [id, first] of cases) {
+    await jump(id)
+    const top = first()
+    await expect(top).toBeVisible()
+    const next = top.locator('xpath=following-sibling::*[1]')
+    const bottom = id === 'nav-pview:keys' ? next.locator('.inline-flex:has(> svg.tabler-icon-search + input)') : next
+    await expect(bottom).toBeVisible()
+    const topBox = await top.boundingBox()
+    const bottomBox = await bottom.boundingBox()
+    const gap = Math.round((bottomBox.y - topBox.y - topBox.height) * 100) / 100
+    assert(Math.abs(gap - 12) < .1, `${id}: expected a 12px gap, got ${gap}px`)
+    result[id] = gap
+    if (id === 'nav-pview:keys') {
+      const search = bottom.locator('input')
+      await search.fill('Fixture')
+      await expect(main.getByRole('button', { name: 'Fixture', exact: true })).toBeVisible()
+      await search.clear()
+    }
+    if (id === 'nav-pview:local') {
+      await top.scrollIntoViewIfNeeded()
+      await screenshot(`local-model-spacing-${suffix}.png`)
+    }
+  }
+
+  await jump('nav-gateway:connection')
+  const modes = main.locator('[id="setting-field-gateway.connection-mode"] > .grid > button')
+  await expect(modes).toHaveCount(4)
+  const visibility = index => modes.nth(index).evaluate(node => getComputedStyle(node, '::before').visibility)
+  await expect(modes.first()).toHaveClass(/ring-2/)
+  await page.mouse.move(1, 1)
+  assert.equal(await visibility(1), 'hidden', 'The selected row must end without a contrasting divider')
+  assert.equal(await visibility(2), 'visible', 'Other rows keep their divider')
+  await screenshot(`gateway-spacing-${suffix}.png`)
+  await modes.nth(2).click()
+  await expect(modes.nth(2)).toHaveClass(/ring-2/)
+  await page.mouse.move(1, 1)
+  assert.equal(await visibility(2), 'hidden', 'No divider above the selected middle row')
+  assert.equal(await visibility(3), 'hidden', 'No divider below the selected middle row')
+  await modes.first().click()
+  await expect(modes.first()).toHaveClass(/ring-2/)
+  await modes.nth(2).hover()
+  assert.equal(await visibility(2), 'hidden', 'No divider above a hovered row')
+  assert.equal(await visibility(3), 'hidden', 'No divider below a hovered row')
+  await page.mouse.move(1, 1)
+  result.gatewaySelectionAndHover = true
+  return result
+}
+
 async function verifySettingsStates({ page, expect, main, jump, screenshot }) {
   const states = {}
   const dialog = page.locator('[data-slot="dialog-content"]:visible, [role="alertdialog"]:visible')
@@ -219,6 +280,7 @@ export async function verifySettingsAudit({ page, expect, screenshot, openThemeS
   const heading = main.locator('nav [aria-current="page"]').first()
   const nav = id => rail.locator(`button[data-tour="${id}"]`)
   const captured = new Set([
+    'nav-config:safety:privacy', 'nav-config:memory:persistent', 'nav-config:voice:conversation',
     'nav-config:advanced:delegation', 'nav-config:model:delegation', 'nav-config:model:moa',
     'nav-config:model:auxiliary', 'nav-config:chat:attachments', 'nav-sessions:archived',
     'nav-config:appearance:general', 'nav-config:appearance:theme', 'nav-config:appearance:typography',
@@ -260,6 +322,37 @@ export async function verifySettingsAudit({ page, expect, screenshot, openThemeS
         borderStart: css.borderBlockStartWidth, borderEnd: css.borderBlockEndWidth,
       }
     }
+    // Record adjacent painted surfaces, including controls beside cards. A
+    // parent card and its own contents are intentionally not separate frames.
+    const frames = [...element.querySelectorAll('*')].filter(node => {
+      if (!visible(node)) return false
+      const rect = node.getBoundingClientRect()
+      const css = getComputedStyle(node)
+      const border = parseFloat(css.borderTopWidth) > 0 && painted(css.borderTopColor)
+      return rect.width >= element.clientWidth * .4 && rect.height >= 30 &&
+        parseFloat(css.borderTopLeftRadius) >= 8 &&
+        (painted(css.backgroundColor) || border || css.boxShadow !== 'none')
+    })
+    const outer = frames.filter(node => !frames.some(other => other !== node && other.contains(node)))
+    const summary = node => ({
+      tag: node.tagName.toLowerCase(), id: node.id, classes: String(node.className).slice(0, 180),
+      text: node.textContent.trim().replace(/\s+/g, ' ').slice(0, 90),
+      parent: String(node.parentElement?.className || '').slice(0, 180),
+      ...box(node),
+    })
+    const touchingFrames = []
+    for (const top of outer) {
+      const a = top.getBoundingClientRect()
+      for (const bottom of outer) {
+        if (top === bottom) continue
+        const b = bottom.getBoundingClientRect()
+        const gap = b.top - a.bottom
+        const overlap = Math.min(a.right, b.right) - Math.max(a.left, b.left)
+        if (gap >= -1 && gap <= 1 && overlap >= Math.min(a.width, b.width) * .5) {
+          touchingFrames.push({ gap: length(gap), top: summary(top), bottom: summary(bottom) })
+        }
+      }
+    }
     return {
       route: location.hash,
       title: heading?.textContent?.trim(),
@@ -270,6 +363,7 @@ export async function verifySettingsAudit({ page, expect, screenshot, openThemeS
       groups: rows.filter(row => parseFloat(getComputedStyle(row).borderTopLeftRadius) >= 12 ||
         parseFloat(getComputedStyle(row.parentElement).borderTopLeftRadius) >= 12).length,
       controls: [...controls].filter(visible).length,
+      touchingFrames,
       rowGeometry: rows.map(row => {
         const label = row.querySelector(':scope > .grid > div:first-child > div:first-child')
         const actions = row.querySelector(':scope > .grid > div:nth-child(2)')
@@ -347,6 +441,7 @@ export async function verifySettingsAudit({ page, expect, screenshot, openThemeS
   const distinct = new Set(checked.map(row => row.route))
   assert.equal(distinct.size, checked.length, 'Every measured page should have its own native route')
   if (!before) assert.deepEqual(checked.flatMap(row => row.square.map(control => ({ page: row.id, ...control }))), [])
+  if (!before) assert.deepEqual(checked.flatMap(row => row.touchingFrames.map(pair => ({ page: row.id, ...pair }))), [])
   const jump = async (id, { loading = false } = {}) => {
     const target = checked.find(entry => entry.id === id)
     assert(target, `Missing settings page ${id}`)
@@ -357,7 +452,9 @@ export async function verifySettingsAudit({ page, expect, screenshot, openThemeS
   let states
   if (!before) {
     verifyGroups(checked)
+    const spacing = await verifySettingsSpacing({ page, expect, main, jump, screenshot, suffix: 'dark' })
     states = await verifySettingsStates({ page, expect, main, jump, screenshot })
+    states.spacingDark = spacing
   }
 
   const search = overlay.locator('button[data-glass-opaque]:has(> svg.tabler-icon-search)')
@@ -377,6 +474,10 @@ export async function verifySettingsAudit({ page, expect, screenshot, openThemeS
   await expect(heading).toBeVisible()
   await screenshot('light-appearance.png')
   await page.setViewportSize({ width: 740, height: 700 })
+  if (!before) {
+    states.spacingLightNarrow = await verifySettingsSpacing({ page, expect, main, jump, screenshot, suffix: 'light-narrow' })
+    await jump('nav-config:appearance:general')
+  }
   const menu = overlay.locator('[data-tour="overlay-nav"] + div button[aria-haspopup="menu"]')
   await expect(menu).toBeVisible()
   await menu.click()

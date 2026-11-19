@@ -7,6 +7,8 @@ export async function verifyChatResources({
   app, page, expect, projectChat, screenshot, projectFolder, openThemeSettings, closeSettings, themeCard,
 }) {
   await projectChat('Проверка каталога').click()
+  const declineUsage = page.getByRole('button', { name: 'Нет, спасибо', exact: true })
+  if (await declineUsage.isVisible()) await declineUsage.click()
   const thread = page.locator('[data-chat-surface][data-composer-target="main"] [data-slot="aui_thread-content"]')
   const answer = thread.locator('[data-slot="aui_assistant-message-content"]')
   const cards = answer.locator(previewResourceCard)
@@ -31,6 +33,17 @@ export async function verifyChatResources({
       },
     })
   }
+  const openAppearance = async () => {
+    try {
+      await openThemeSettings()
+    } catch (error) {
+      console.log('Appearance dialog diagnostic:', JSON.stringify(await page.evaluate(() =>
+        [...document.querySelectorAll('[role="dialog"], [data-slot="dialog-content"]')]
+          .filter(node => node.getClientRects().length)
+          .map(node => ({ text: node.innerText.slice(0, 1000), html: node.outerHTML.slice(0, 1200) })))))
+      throw error
+    }
+  }
 
   if (process.env.HERMES_VISUAL_RESOURCES_BEFORE === '1') {
     await capture(answer.filter({ hasText: 'Подготовил результаты проверки.' }), 'resources-before.png')
@@ -43,9 +56,11 @@ export async function verifyChatResources({
 
   await expect(cards).toHaveCount(4)
   await expect(folder).toHaveCount(1)
+  const inlineLong = longFile.locator(':scope > [data-hcv-file-reference-control]')
+  const longIsInline = await inlineLong.count() === 1
   const supportsCorners = await page.evaluate(() => CSS.supports('corner-shape', 'superellipse(1.5)'))
   const resourceRadius = supportsCorners ? '12.5px' : '10px'
-  for (const card of [file, longFile, site, folder, artifact]) {
+  for (const card of [file, ...(longIsInline ? [] : [longFile]), site, folder, artifact]) {
     await expect(card).toHaveCSS('border-radius', resourceRadius)
     await expect(card).toHaveCSS('border-width', '0px')
     await expect(card.locator(':scope > span:first-child')).toHaveCSS('width', '40px')
@@ -86,6 +101,7 @@ export async function verifyChatResources({
   await expect(file).toHaveCSS('outline-width', '2px')
   await page.keyboard.press('Enter')
   await expect(close).toBeVisible()
+  if (await declineUsage.isVisible()) await declineUsage.click()
   await close.click()
 
   // A click on the visible filename reaches the same native handler as the caption.
@@ -93,6 +109,7 @@ export async function verifyChatResources({
   await expect(filename).toHaveAttribute('title', /fixture-note\.md$/)
   await filename.click()
   await expect(close).toBeVisible()
+  if (await declineUsage.isVisible()) await declineUsage.click()
   const rendered = page.locator('[data-preview-markdown]')
   if (!(await rendered.isVisible())) {
     await page.getByRole('button', { name: /^предпросмотр$/i }).click()
@@ -137,13 +154,28 @@ export async function verifyChatResources({
   await expect(play).toHaveCSS('width', '32px')
   const darkWaveform = await waveform.evaluate((el) => getComputedStyle(el, '::before').backgroundImage)
   if (process.env.HERMES_VISUAL_EXPECT_LOCAL_ICONS === '1') assert.match(darkWaveform, /4784E1/i)
-  await play.press('Enter')
+  await page.keyboard.down('Tab')
+  await play.focus()
+  await page.keyboard.up('Tab')
+  await expect(play).toBeFocused()
+  await page.keyboard.press('Enter')
   await expect(play).toHaveAttribute('data-playing', 'true')
-  await play.press('Space')
+  await page.keyboard.press('Space')
   await expect(play).toHaveAttribute('data-playing', 'false')
-  await seek.press('End')
+  await page.evaluate(() => { document.documentElement.lang = 'en' })
+  await expect(play).toHaveAttribute('aria-label', /^Play /)
+  await expect(options).toHaveAttribute('aria-label', /^Playback options/)
+  await expect(play).toBeFocused()
+  await expect.poll(() => audio.evaluate(el => el.paused)).toBe(true)
+  await page.evaluate(() => { document.documentElement.lang = 'ru' })
+  await expect(play).toHaveAttribute('aria-label', /^Воспроизвести /)
+  await page.keyboard.down('Tab')
+  await seek.focus()
+  await page.keyboard.up('Tab')
+  await expect(seek).toBeFocused()
+  await page.keyboard.press('End')
   await expect.poll(() => audio.evaluate(el => el.currentTime)).toBe(4)
-  await seek.press('Home')
+  await page.keyboard.press('Home')
   await expect(media).toContainText('0:00 / 0:04')
   await options.click()
   await expect(audio).toBeVisible()
@@ -165,17 +197,40 @@ export async function verifyChatResources({
   await expect(artifactTab).toBeVisible()
 
   await page.setViewportSize({ width: 760, height: 720 })
-  const longTitle = longFile.locator(':scope > span[title]')
-  await longTitle.scrollIntoViewIfNeeded()
-  assert.equal(await longTitle.evaluate((el) => el.scrollWidth > el.clientWidth), true)
-  assert.equal(await longFile.evaluate((el) => el.scrollWidth <= el.clientWidth), true)
-  await expect(longFile.getByRole('button', { name: 'Открыть содержащую папку' })).toBeVisible()
-  assert.equal(await media.evaluate((el) => el.scrollWidth <= el.clientWidth + 1), true)
+  if (longIsInline) {
+    await inlineLong.scrollIntoViewIfNeeded()
+    await expect(inlineLong).toBeVisible()
+    const longGeometry = await inlineLong.evaluate(el => {
+      const parent = el.closest('p').getBoundingClientRect()
+      return { parent: { left: parent.left, right: parent.right }, rects: [...el.getClientRects()].map(rect => ({ left: rect.left, right: rect.right })) }
+    })
+    console.log('Narrow inline file geometry:', JSON.stringify(longGeometry))
+    assert(longGeometry.rects.every(rect => rect.left >= longGeometry.parent.left - 1 && rect.right <= longGeometry.parent.right + 1), 'Inline file link exceeds its paragraph')
+  } else {
+    const longTitle = longFile.locator(':scope > span[title]')
+    await longTitle.scrollIntoViewIfNeeded()
+    assert.equal(await longTitle.evaluate((el) => el.scrollWidth > el.clientWidth), true)
+    assert.equal(await longFile.evaluate((el) => el.scrollWidth <= el.clientWidth), true)
+    await expect(longFile.getByRole('button', { name: 'Открыть содержащую папку' })).toBeVisible()
+  }
+  const audioGeometry = await media.evaluate(el => ({
+    width: el.clientWidth, scrollWidth: el.scrollWidth,
+    left: el.getBoundingClientRect().left, right: el.getBoundingClientRect().right,
+    children: [...el.querySelectorAll('[data-hcv-audio-controls], .hcv-audio-header, .hcv-audio-header > *, .hcv-audio-timeline, .hcv-audio-timeline > *')]
+      .map(node => ({ className: node.className, width: node.getBoundingClientRect().width,
+        left: node.getBoundingClientRect().left, right: node.getBoundingClientRect().right,
+        scrollWidth: node.scrollWidth, clientWidth: node.clientWidth, display: getComputedStyle(node).display })),
+  }))
+  console.log('Narrow audio geometry:', JSON.stringify(audioGeometry))
+  assert(audioGeometry.scrollWidth <= audioGeometry.width + 1, 'Audio player exceeds its container')
+  assert(audioGeometry.children.find(node => node.className === 'hcv-audio-info').width > 10, 'Audio title has no room')
+  assert(audioGeometry.children.every(node => node.left >= audioGeometry.left - 1 && node.right <= audioGeometry.right + 1),
+    'Audio controls exceed their container')
   await capture(media, 'audio-narrow.png')
 
   await page.setViewportSize({ width: 1440, height: 920 })
   const dark = await file.evaluate((el) => getComputedStyle(el).backgroundColor)
-  await openThemeSettings()
+  await openAppearance()
   await page.getByText(/^(Светлая|Light)$/).first().click()
   await closeSettings()
   await page.emulateMedia({ colorScheme: 'light' })
@@ -190,13 +245,18 @@ export async function verifyChatResources({
   await expect(page.locator('[data-preview-browser]:visible')).toBeVisible()
   await expect.poll(() => app.evaluate(({ webContents }) =>
     webContents.getAllWebContents().some((tab) => tab.getTitle() === 'Тестовый сайт'))).toBe(true)
+  const browserProfilePrompt = page.getByRole('dialog').filter({ hasText: /Stay signed in to your sites|Оставаться в аккаунтах/i })
+  if (await browserProfilePrompt.isVisible()) {
+    // The isolated test must never copy the owner's browser profile.
+    await browserProfilePrompt.getByRole('button', { name: /^(Not now|Не сейчас)$/i }).click()
+  }
 
   await page.emulateMedia({ forcedColors: 'active' })
   await expect(media).toHaveCount(0)
   await expect(answer.locator('audio')).toBeVisible()
   await page.emulateMedia({ forcedColors: 'none' })
   await expect(media).toHaveCount(1)
-  await openThemeSettings()
+  await openAppearance()
   await themeCard('Nous').click()
   await closeSettings()
   await expect(media).toHaveCount(0)

@@ -371,7 +371,7 @@ export function registerLocalEnvironment(ctx, active) {
 }
 
 function styles(active) {
-  const form = `${active} [data-hcv-local-environment]`
+  const form = `${active} [data-slot="dialog-content"][data-hcv-local-environment]`
   const vars = `${active} [data-hcv-env-vars]`
   const terminal = `${active} [data-hcv-env-terminal]`
   return `

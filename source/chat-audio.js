@@ -55,7 +55,7 @@ function attachPlayer(card, audio) {
   card.setAttribute(mark, '')
 
   function sync() {
-    const ru = document.documentElement.lang.startsWith('ru')
+    const ru = /^ru\b/i.test(document.documentElement.lang)
     const name = nativeTitle.textContent.trim()
     const unavailable = !!audio.error
     const playing = !audio.paused && !audio.ended
@@ -109,11 +109,14 @@ function attachPlayer(card, audio) {
   for (const event of mediaEvents) audio.addEventListener(event, sync, { signal })
   sync()
 
-  return () => {
-    listeners.abort()
-    player.remove()
-    card.removeAttribute(mark)
-    card.removeAttribute('data-hcv-audio-expanded')
+  return {
+    sync,
+    remove() {
+      listeners.abort()
+      player.remove()
+      card.removeAttribute(mark)
+      card.removeAttribute('data-hcv-audio-expanded')
+    },
   }
 }
 
@@ -136,6 +139,7 @@ export function registerChatAudio(ctx, active, selector) {
     box-sizing: border-box;
     inline-size: 100%;
     max-inline-size: 32rem;
+    container: hcv-audio-card / inline-size;
     padding: 0;
     border: 0;
     border-radius: 10px;
@@ -240,18 +244,27 @@ export function registerChatAudio(ctx, active, selector) {
     outline: 2px solid var(--hcv-focus);
     outline-offset: 1px;
   }
+  @container hcv-audio-card (max-width: 175px) {
+    ${card} .hcv-audio-header { flex-wrap: wrap; }
+    ${card} .hcv-audio-info { flex: 1 1 calc(100% - 64px); }
+    ${card} .hcv-audio-play { margin-inline-start: auto; }
+  }
+  @container hcv-audio-card (max-width: 110px) {
+    ${card} .hcv-audio-timeline { flex-wrap: wrap; }
+    ${card} .hcv-audio-timeline input { flex: 1 1 30px; }
+  }
 }
 `, { surface: `[${mark}]` })
 
   function clear() {
-    for (const remove of players.values()) remove()
+    for (const player of players.values()) player.remove()
     players.clear()
   }
 
   function collect() {
-    for (const [audio, remove] of players) {
+    for (const [audio, player] of players) {
       if (audio.isConnected && audio.matches(selector)) continue
-      remove()
+      player.remove()
       players.delete(audio)
     }
     for (const audio of document.querySelectorAll(selector)) {
@@ -274,8 +287,13 @@ export function registerChatAudio(ctx, active, selector) {
     changes.observe(document.body, { childList: true, subtree: true })
   }
 
-  const theme = new MutationObserver(reconcile)
-  theme.observe(root, { attributes: true, attributeFilter: ['data-hermes-theme'] })
+  const theme = new MutationObserver(records => {
+    if (records.some(record => record.attributeName === 'data-hermes-theme')) reconcile()
+    if (records.some(record => record.attributeName === 'lang')) {
+      for (const player of players.values()) player.sync()
+    }
+  })
+  theme.observe(root, { attributes: true, attributeFilter: ['data-hermes-theme', 'lang'] })
   forcedColors.addEventListener('change', reconcile)
   reconcile()
   ctx.onDispose(() => {

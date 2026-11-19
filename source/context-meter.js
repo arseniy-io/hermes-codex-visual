@@ -1,5 +1,5 @@
 import { chatStyles, mountStyle } from './style-scope.js'
-import { Tip, host, useValue } from '@hermes/plugin-sdk'
+import { Tip, host, useI18n, useValue } from '@hermes/plugin-sdk'
 import { createElement as h, useCallback, useEffect, useState } from 'react'
 
 function readContext(usage) {
@@ -67,20 +67,25 @@ function useContext(inMainComposer) {
   return live?.max === context.max ? live : context
 }
 
-const number = new Intl.NumberFormat('ru-RU')
-const thousands = tokens => number.format(Math.round(tokens / 1000))
+const numbers = { ru: new Intl.NumberFormat('ru-RU'), en: new Intl.NumberFormat('en-US') }
 
 function ContextReadout({ context }) {
+  const { locale } = useI18n()
+  const ru = locale?.toLowerCase().startsWith('ru')
+  const thousands = tokens => numbers[ru ? 'ru' : 'en'].format(Math.round(tokens / 1000))
   const percent = context.used / context.max * 100
   const whole = Math.round(percent)
   const full = whole >= 50
-  const detail = full ? `${whole}% заполнено` : `${whole}% использовано (осталось ${100 - whole}%)`
+  const detail = ru
+    ? full ? `${whole}% заполнено` : `${whole}% использовано (осталось ${100 - whole}%)`
+    : full ? `${whole}% full` : `${whole}% used (${100 - whole}% left)`
   const used = `${context.estimated ? '≈' : ''}${thousands(context.used)}`
-  // Composer strings from the ru-RU resource in Codex Desktop 26.1103.4239.0.
+  // Russian composer strings from Codex Desktop 26.1103.4239.0.
   const label = h('div', { 'data-hcv-context-detail': '' },
-    h('span', { 'data-muted': '' }, 'Контекстное окно:'),
+    h('span', { 'data-muted': '' }, ru ? 'Контекстное окно:' : 'Context window:'),
     h('span', full ? { 'data-muted': '' } : null, detail),
-    h('span', null, `Использовано ${used} к / ${thousands(context.max)} к токенов`),
+    h('span', null, ru ? `Использовано ${used} к / ${thousands(context.max)} к токенов`
+      : `Used ${used}k / ${thousands(context.max)}k tokens`),
   )
 
   // Codex Desktop 26.1103.4239.0, 189497.6182e00931.js, module Kc0j.
@@ -104,7 +109,7 @@ function ContextReadout({ context }) {
       'data-hcv-context-meter': '',
       role: 'img',
       tabIndex: 0,
-      'aria-label': `Использование контекста: ${whole}%`,
+      'aria-label': ru ? `Использование контекста: ${whole}%` : `Context usage: ${whole}%`,
     }, ring),
   )
 }

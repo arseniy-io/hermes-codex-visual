@@ -283,8 +283,10 @@ export function registerChatImages(ctx, active) {
   const marked = new Set()
   const pending = new Set()
   const selectors = `${row}, ${group}, ${nativeDialog}, ${attachments} > ${pill}`
+  const markedSelector = `${analysis}, ${analysisGroup}, ${strip}, ${label}, ${enhanced}, ${close}, ${pager}, [data-hcv-image-path-tip]`
   const colors = matchMedia('(forced-colors: active)')
   let frame = 0
+  let prune = false
   let opener = null
   let nextImage = null
   const dialogKeys = new WeakMap()
@@ -389,6 +391,7 @@ export function registerChatImages(ctx, active) {
         if (successfulVision(node) && decorate(disclosureButton(node), 1)) mark(node, 'data-hcv-viewed-image')
         else {
           node.removeAttribute('data-hcv-viewed-image')
+          marked.delete(node)
           node.querySelector(label)?.remove()
         }
       } else if (node.matches(group) && node.closest(chat)) {
@@ -401,8 +404,10 @@ export function registerChatImages(ctx, active) {
         if (count > 1 && decorate(button, count)) mark(node, 'data-hcv-viewed-image-group')
         else {
           node.removeAttribute('data-hcv-viewed-image-group')
+          marked.delete(node)
           heading?.querySelector(label)?.remove()
           details?.removeAttribute('data-hcv-image-strip')
+          marked.delete(details)
           continue
         }
         const rows = details && !details.hasAttribute('data-tool-ticker') ? Array.from(details.children) : []
@@ -411,6 +416,7 @@ export function registerChatImages(ctx, active) {
           mark(details, 'data-hcv-image-strip')
         } else {
           details?.removeAttribute('data-hcv-image-strip')
+          marked.delete(details)
           if (eligible) {
             for (const item of rows) {
               const inner = disclosureButton(item)
@@ -428,7 +434,14 @@ export function registerChatImages(ctx, active) {
       }
     }
     pending.clear()
-    for (const node of marked) if (!node.isConnected) marked.delete(node)
+    if (prune) {
+      prune = false
+      for (const node of marked) if (!node.isConnected) marked.delete(node)
+      if (opener && !opener.isConnected) opener = null
+      // A connected next thumbnail still needs the detached dialog's native
+      // focus-restored event. Keep that handoff alive until onRestore runs.
+      if (nextImage && !nextImage.target.isConnected) nextImage = null
+    }
   }
 
   function collect(node) {
@@ -436,15 +449,25 @@ export function registerChatImages(ctx, active) {
     if (node.matches(selectors)) pending.add(node)
     for (const child of node.querySelectorAll(selectors)) pending.add(child)
   }
-  function queue() { if (!frame && pending.size) frame = requestAnimationFrame(flush) }
+  function queue() { if (!frame && (pending.size || prune)) frame = requestAnimationFrame(flush) }
   const changes = new MutationObserver(records => {
-    for (const { target, addedNodes, type } of records) {
+    for (const { target, addedNodes, removedNodes, type } of records) {
       const element = target instanceof Element ? target : target.parentElement
       const parent = element?.closest(selectors)
       if (parent) pending.add(parent)
       const toolRun = parent?.matches(row) && parent.closest(group)
       if (toolRun) pending.add(toolRun)
-      if (type === 'childList') for (const child of addedNodes) collect(child)
+      if (type === 'childList') {
+        for (const child of addedNodes) collect(child)
+        // Text tokens and unrelated removals do not walk every image marker.
+        // A pure removal must release old image trees even without new work.
+        if (!prune && marked.size) for (const child of removedNodes) {
+          if (child instanceof Element && (marked.has(child) || child.querySelector(markedSelector))) {
+            prune = true
+            break
+          }
+        }
+      }
     }
     queue()
   })
@@ -452,6 +475,7 @@ export function registerChatImages(ctx, active) {
     changes.disconnect()
     cancelAnimationFrame(frame)
     frame = 0
+    prune = false
     opener = nextImage = null
     pending.clear()
     for (const node of marked) {

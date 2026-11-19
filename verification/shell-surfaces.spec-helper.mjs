@@ -42,7 +42,7 @@ export async function verifyShellSurfaces({ app, page, expect, screenshot, proje
   const before = process.env.HERMES_VISUAL_SHELL_BEFORE === '1'
   const footer = page.locator('[data-slot="statusbar"]:visible')
   const profiles = page.locator('[data-slot="profile-rail"]:visible')
-  const gateway = footer.locator('button').filter({ hasText: /Шлюз/ }).first()
+  const gateway = footer.locator('button').filter({ hasText: /Шлюз|Бэкенд|Gateway|Backend/i }).first()
   const device = footer.locator('[data-slot="connection-switcher"] button[aria-haspopup="menu"]')
   const toggle = page.locator('[data-tour="right-pane-toggle"]:visible')
   const files = page.getByRole('complementary', { name: 'Правая боковая панель', exact: true })

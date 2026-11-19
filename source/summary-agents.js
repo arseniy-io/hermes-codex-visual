@@ -105,6 +105,15 @@ function savedResponse(rows) {
     .filter(message => message.text)
 }
 
+function liveActivity(history, live) {
+  // The saved transcript has tool names; live events can add their previews.
+  // Keep the older history and replace its overlapping tail with live entries.
+  let overlap = Math.min(history.length, live.length)
+  while (overlap && !history.slice(-overlap).every((step, index) =>
+    live[index] === step || live[index].startsWith(step + ' · '))) overlap--
+  return [...history.slice(0, history.length - overlap), ...live]
+}
+
 function useChildResponse({ subagentId, childSession, status, model }, scope) {
   const [snapshot, setSnapshot] = useState(null)
   const key = JSON.stringify([scope, subagentId, childSession])
@@ -210,7 +219,11 @@ function AgentDetail({ agent, scope, now, copy, lang, dark, avatarUrl, onBack, n
   const durationLabel = elapsed == null ? null
     : (completed || snapshot?.elapsed != null ? copy.worked : copy.elapsed)(formatDuration(elapsed))
   const statusLabel = copy.status[agent.status]
-  const activity = snapshot?.steps?.length ? snapshot.steps : agent.activity || []
+  const history = snapshot?.steps || []
+  const live = agent.activity || []
+  const activity = !completed || snapshot?.status !== agent.status
+    ? liveActivity(history, live)
+    : history.length ? history : live
   const source = snapshot?.messages.length ? 'transcript' : agent.summary ? 'summary' : undefined
   const result = source === 'transcript' ? snapshot.messages : source === 'summary' ? [{ text: agent.summary }] : []
   const timestamp = result.at(-1)?.timestamp

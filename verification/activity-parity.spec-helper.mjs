@@ -208,8 +208,25 @@ async function verifyTimeline({ page, expect, chat, screenshot, translationReque
   const turnPanel = history.locator(`[data-hcv-turn-step][${motion}]`).first()
   const turnClosing = await sampleMotion(expect, turnPanel, 'closing', 150)
   await expect(steps).toHaveAttribute('aria-expanded', 'false')
-  await steps.press('Enter')
-  const turnOpening = await sampleMotion(expect, turnPanel, 'opening')
+  // Hermes returns scripted focus to the composer unless it is handling a
+  // keyboard-navigation gesture. Hold Tab while setting the starting focus.
+  await page.keyboard.down('Tab')
+  await steps.focus()
+  await page.keyboard.up('Tab')
+  await expect(steps).toBeFocused()
+  await page.keyboard.press('Enter')
+  let turnOpening
+  try {
+    turnOpening = await sampleMotion(expect, turnPanel, 'opening')
+  } catch (error) {
+    console.log('Turn opening diagnostic:', JSON.stringify(await history.evaluate(node => ({
+      expanded: node.querySelector('button[data-hcv-turn-line]')?.getAttribute('aria-expanded'),
+      focused: document.activeElement?.outerHTML.slice(0, 400),
+      steps: node.querySelectorAll('[data-hcv-turn-step]').length,
+      motion: [...node.querySelectorAll('[data-hcv-activity-motion]')].map(el => el.getAttribute('data-hcv-activity-motion')),
+    }))))
+    throw error
+  }
   await expect(steps).toHaveAttribute('aria-expanded', 'true')
   await thought.click()
   await expect(body).toBeVisible()
@@ -265,6 +282,20 @@ export async function verifyActivityParity({ page, app, expect, projectChat, scr
   const legacySkill = turn.locator('span[title$="/SKILL.md"]')
   const prose = turn.locator('.aui-md').filter({ hasText: 'Для сборки использую' }).first()
   await prose.scrollIntoViewIfNeeded()
+  const proseStyle = await prose.evaluate(node => {
+    const first = node.querySelector('p')
+    if (!first) throw new Error('Expected a paragraph in the activity fixture')
+    const second = document.createElement('p')
+    second.textContent = 'Второй абзац для замера.'
+    first.after(second)
+    const css = getComputedStyle(first)
+    const gap = second.getBoundingClientRect().top - first.getBoundingClientRect().bottom
+    const result = { font: css.fontFamily, size: css.fontSize, weight: css.fontWeight,
+      line: css.lineHeight, color: css.color, gap, paragraphMargin: getComputedStyle(second).marginBlockStart }
+    second.remove()
+    return result
+  })
+  console.log('Activity prose style', JSON.stringify(proseStyle))
 
   if (before) {
     await screenshot('activities.png')
@@ -298,14 +329,28 @@ export async function verifyActivityParity({ page, app, expect, projectChat, scr
       skillFileCard: await legacySkill.evaluate(span => getComputedStyle(span.parentElement).display),
       skillLabels: await turn.locator('[data-hcv-skill-link]').allTextContents(),
       nativeBrowserRows: await turn.locator('[data-tool-summary] button').allTextContents(),
-      thinkingStyle, expanded, tape,
+      thinkingStyle, expanded, tape, proseStyle,
     }
   }
+  assert.equal(proseStyle.size, '14px')
+  assert.equal(proseStyle.weight, '430')
+  assert.equal(proseStyle.line, '22.75px')
+  assert.equal(proseStyle.color, 'rgb(223, 223, 223)')
+  assert.equal(proseStyle.gap, 14)
+  assert.match(proseStyle.font, /Segoe UI/)
+  const progress = turn.getByText('Сначала проверяю подключения браузера.', { exact: true })
+  await expect(progress).toBeVisible()
+  await steps.click()
+  await expect(progress).toBeHidden()
+  await steps.click()
+  await expect(progress).toBeVisible()
   await expect(skill).toBeVisible()
   await expect(skill).toHaveAttribute('href', /^#preview\//)
   await expect(legacySkill).toBeHidden()
   await expect(turn.locator('code').getByText('$fixture-skill', { exact: true })).toBeVisible()
-  await expect(turn.locator('span[title$="/fixture-note.md"]')).toBeVisible()
+  const note = turn.getByRole('button', { name: 'Памятку', exact: true })
+  await expect(note).toBeVisible()
+  await expect(note).toHaveAttribute('title', /[\\/]fixture-note\.md$/)
   await expect(turn.locator('[data-tool-row][data-hcv-activity-icon="chatSkill"]')).toBeVisible()
   const browser = turn.locator(`${icon}[data-tool-summary]`).filter({ has: page.locator(mark).getByText('Использовал браузер и Chrome выполнил команды', { exact: true }) })
   await expect(browser).toBeVisible()
@@ -363,6 +408,41 @@ export async function verifyActivityParity({ page, app, expect, projectChat, scr
   const maskSha256 = { skill: maskHash(skillStyle.mask), browser: maskHash(rowStyle.mask) }
   assert.equal(maskSha256.skill, 'cf5f6cd062f22cce9a3beeae612fbe72bab5c304fbd958a037925f78d19f8afb')
   assert.equal(maskSha256.browser, '6bb6168fe4a94f7495574909b6101a951e189cdd35e91d62582ef682ba4bd62c')
+  // Exercise the live glyph structure used by Hermes without running an
+  // external browser: preserve the named status while replacing its frames.
+  const liveBrowser = await browser.evaluate(summary => {
+    const row = document.createElement('div')
+    row.setAttribute('data-slot', 'tool-block')
+    row.setAttribute('data-tool-row', '')
+    row.setAttribute('data-hcv-activity-icon', 'activityBrowser')
+    row.innerHTML = '<div><div><button><span><span><span><span role="status" aria-label="Running"><span class="glyph-spinner" aria-hidden="true">⠇</span></span></span><span>Browser</span></span></span></button></div></div>'
+    summary.parentElement.append(row)
+    const glyph = row.querySelector('[role="status"]').parentElement
+    const result = { mask: getComputedStyle(glyph).maskImage,
+      opacity: getComputedStyle(row.querySelector('.glyph-spinner')).opacity,
+      name: row.querySelector('[role="status"]').getAttribute('aria-label') }
+    row.remove()
+    return result
+  })
+  assert.equal(maskHash(liveBrowser.mask), maskSha256.browser)
+  assert.equal(liveBrowser.opacity, '0')
+  assert.equal(liveBrowser.name, 'Running')
+  const thoughtClock = await browser.evaluate(summary => {
+    const thought = document.createElement('div')
+    thought.setAttribute('data-slot', 'aui_thinking-disclosure')
+    thought.innerHTML = '<div><button><span><span><span data-hcv-activity-label>Думаю</span></span></span></button><span><span><span class="tabular-nums">3s</span></span></span></div>'
+    summary.parentElement.append(thought)
+    const label = thought.querySelector('[data-hcv-activity-label]')
+    const clock = thought.querySelector('.tabular-nums')
+    const values = node => {
+      const css = getComputedStyle(node)
+      return [css.fontFamily, css.fontSize, css.fontWeight, css.lineHeight, css.color]
+    }
+    const result = { label: values(label), clock: values(clock) }
+    thought.remove()
+    return result
+  })
+  assert.deepEqual(thoughtClock.clock, thoughtClock.label)
   delete skillStyle.mask
   delete rowStyle.mask
   const requests = await app.evaluate(() => globalThis.hcvActivityFaviconRequests.filter(url => url.includes('threads.com')))
@@ -415,6 +495,6 @@ export async function verifyActivityParity({ page, app, expect, projectChat, scr
   await expect(chat.locator('[data-hcv-activity-group]')).toHaveCount(0)
   await expect(chat.locator('[data-hcv-activity-member]')).toHaveCount(0)
   await expect(legacySkill).not.toHaveCSS('display', 'none')
-  return { skillStyle, rowStyle, agentStyle, maskSha256, lightColor, requests, timeline,
+  return { skillStyle, rowStyle, agentStyle, maskSha256, proseStyle, liveBrowser: { opacity: liveBrowser.opacity, name: liveBrowser.name }, lightColor, requests, timeline,
     clickPreview: true, enterClosesPreview: true, terminalDetails: true, errorPreserved: true, themeScoped: true }
 }

@@ -114,29 +114,24 @@ export async function verifyCatalogControls({ page, expect, screenshot, navigati
   await expect(skills.locator(':scope > span').first()).toHaveCSS('text-decoration-line', 'none')
   await expect.poll(async () => (await state(skills)).background).not.toBe(idleTab)
 
-  const filters = page.locator('[data-catalog="plugins"] [data-tour="overlay-nav"] > button[aria-pressed]')
-  const all = filters.filter({ hasText: /^(Все источники|All sources)$/i })
-  const installed = filters.filter({ hasText: /^(Установленные|Installed)$/i })
+  const catalog = page.locator('[data-catalog="plugins"]')
+  const all = catalog.locator('[data-catalog-filters] .catalog-filter-chips')
+    .getByRole('button', { name: /^(Все|All)$/i, exact: true })
   await expect(all).toHaveAttribute('aria-pressed', 'true')
+  await catalog.locator('[data-catalog-filters] .catalog-filter-trigger > button').click()
+  const filters = page.locator('[data-slot="popover-content"]')
+    .filter({ has: page.locator('[data-catalog-expanded-filters]') })
+  const installed = filters.getByRole('button', { name: /^(Установленные|Installed)$/i })
+  await expect(installed).toHaveAttribute('aria-pressed', 'false')
   await installed.click()
   await expect(installed).toHaveAttribute('aria-pressed', 'true')
   await expect(all).toHaveAttribute('aria-pressed', 'true')
-  const next = installed.locator('xpath=following-sibling::*[1][self::button]')
-  await expect(next).toHaveAttribute('aria-pressed', 'false')
-  const idleRow = (await state(next)).background
-  await next.hover()
-  await expect.poll(async () => (await state(next)).background).not.toBe(idleRow)
-
-  const gap = async (above, below) => {
-    const [a, b] = await Promise.all([above.boundingBox(), below.boundingBox()])
-    return Math.round(b.y - a.y - a.height)
-  }
-  await expect.poll(() => gap(all, installed)).toBe(4)
-  await expect.poll(() => gap(installed, next)).toBe(4)
   await screenshot('plugins-filters.png')
   await installed.press('Space')
   await expect(installed).toHaveAttribute('aria-pressed', 'false')
-  console.log(JSON.stringify({ tabUnderline: false, tabHover: true, filterGap: 4, adjacentChecked: true, keyboardToggle: true }))
+  await page.keyboard.press('Escape')
+  await expect(filters).toHaveCount(0)
+  console.log(JSON.stringify({ tabUnderline: false, tabHover: true, categoryPreserved: true, keyboardToggle: true }))
 }
 
 export async function verifyPopupStyles({ page, expect, screenshot, openThemeSettings, closeSettings, themeCard }) {
@@ -231,12 +226,18 @@ export async function verifyPopupStyles({ page, expect, screenshot, openThemeSet
   await screenshot('popup-terminal-warning-light.png')
   await dismiss(light)
 
-  await page.evaluate(() => { location.hash = '#/settings?tab=model' })
-  const picker = page.locator('[data-slot="select-trigger"]:visible').first()
+  await page.evaluate(() => { location.hash = '#/settings' })
+  await page.locator('[data-tour="nav-config:chat"]').click()
+  await page.locator('[data-tour="nav-config:chat:attachments"]').click()
+  // The model provider picker can legitimately contain only the mock provider.
+  // Attachments has several choices, so keyboard movement is testable here.
+  const picker = page.locator('[id="setting-field-agent.image_input_mode"] [data-slot="select-trigger"]')
   await picker.press('Enter')
   const select = page.locator('[data-slot="select-content"]:visible')
   const focusedOption = select.getByRole('option').and(page.locator(':focus'))
   await expectMenuFocus(focusedOption, expect)
+  await expect.poll(() => select.getByRole('option').count()).toBeGreaterThan(1)
+  await page.keyboard.press('Home')
   const optionBefore = await focusedOption.textContent()
   await page.keyboard.press('ArrowDown')
   await expect(focusedOption).not.toHaveText(optionBefore)

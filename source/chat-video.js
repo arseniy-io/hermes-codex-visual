@@ -102,11 +102,12 @@ function saveVideo(video, filename) {
 function attachPlayer(card, video) {
   const controller = new AbortController()
   const { signal } = controller
-  const locale = /^ru\b/i.test(document.documentElement.lang) ? 'ru' : 'en'
-  const copy = labels[locale]
-  const formatPercent = new Intl.NumberFormat(locale, { style: 'percent' })
-  const formatRate = new Intl.NumberFormat(locale)
-  const filename = card.firstElementChild?.textContent.trim() || copy.video
+  let locale = /^ru\b/i.test(document.documentElement.lang) ? 'ru' : 'en'
+  let copy = labels[locale]
+  let formatPercent = new Intl.NumberFormat(locale, { style: 'percent' })
+  let formatRate = new Intl.NumberFormat(locale)
+  const nativeTitle = card.firstElementChild
+  const filename = () => nativeTitle?.textContent.trim() || copy.video
   const nativeAttrs = ['controls', 'tabindex', 'preload', 'aria-label']
     .map(name => [name, video.getAttribute(name)])
 
@@ -154,7 +155,7 @@ function attachPlayer(card, video) {
   video.controls = false
   video.tabIndex = 0
   video.preload = 'metadata'
-  video.setAttribute('aria-label', filename)
+  video.setAttribute('aria-label', filename())
 
   const listen = (el, type, fn, extra) => el.addEventListener(type, fn, { signal, ...extra })
   const duration = () => Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0
@@ -195,6 +196,31 @@ function attachPlayer(card, video) {
 
   function updateSpeed() {
     for (const [i, item] of speedItems.entries()) item.setAttribute('aria-checked', video.playbackRate === rates[i])
+  }
+
+  function localize() {
+    locale = /^ru\b/i.test(document.documentElement.lang) ? 'ru' : 'en'
+    copy = labels[locale]
+    formatPercent = new Intl.NumberFormat(locale, { style: 'percent' })
+    formatRate = new Intl.NumberFormat(locale)
+    status.textContent = copy.error
+    seek.setAttribute('aria-label', copy.seek)
+    volume.setAttribute('aria-label', copy.volume)
+    mute.setAttribute('aria-label', copy.mute)
+    volumeRange.setAttribute('aria-label', copy.volume)
+    sound.setAttribute('aria-label', copy.volume)
+    options.setAttribute('aria-label', copy.options)
+    menu.setAttribute('aria-label', copy.options)
+    save.textContent = copy.save
+    heading.textContent = copy.speed
+    for (const [i, item] of speedItems.entries()) item.textContent = `${formatRate.format(rates[i])}×`
+    if (pip) pip.textContent = copy.pictureInPicture
+    const full = document.fullscreenElement === card
+    fullscreen.setAttribute('aria-label', full ? copy.exitFullscreen : copy.fullscreen)
+    video.setAttribute('aria-label', filename())
+    if (full) card.setAttribute('aria-label', filename())
+    updatePlayback()
+    updateVolume()
   }
 
   const togglePlayback = () => void run(() => video.paused ? video.play() : video.pause())
@@ -264,7 +290,7 @@ function attachPlayer(card, video) {
       void run(action)
     })
   }
-  choose(save, () => saveVideo(video, filename))
+  choose(save, () => saveVideo(video, filename()))
   for (const [i, item] of speedItems.entries()) choose(item, () => { video.playbackRate = rates[i] })
   if (pip) choose(pip, () => document.pictureInPictureElement === video
     ? document.exitPictureInPicture() : video.requestPictureInPicture())
@@ -278,7 +304,7 @@ function attachPlayer(card, video) {
     fullscreen.setAttribute('aria-label', enabled ? copy.exitFullscreen : copy.fullscreen)
     if (enabled) {
       card.setAttribute('role', 'dialog')
-      card.setAttribute('aria-label', filename)
+      card.setAttribute('aria-label', filename())
       video.focus({ preventScroll: true })
     } else if (wasFullscreen) {
       fullscreen.focus({ preventScroll: true })
@@ -309,20 +335,23 @@ function attachPlayer(card, video) {
   updateVolume()
   updateSpeed()
 
-  return () => {
-    controller.abort()
-    if (document.fullscreenElement === card) void document.exitFullscreen().catch(() => {})
-    if (wasFullscreen) {
-      card.removeAttribute('role')
-      card.removeAttribute('aria-label')
-    }
-    if (drag?.resume && video.isConnected) void video.play().catch(() => {})
-    controls.remove()
-    card.removeAttribute('data-hcv-video')
-    for (const [name, value] of nativeAttrs) {
-      if (value === null) video.removeAttribute(name)
-      else video.setAttribute(name, value)
-    }
+  return {
+    localize,
+    remove() {
+      controller.abort()
+      if (document.fullscreenElement === card) void document.exitFullscreen().catch(() => {})
+      if (wasFullscreen) {
+        card.removeAttribute('role')
+        card.removeAttribute('aria-label')
+      }
+      if (drag?.resume && video.isConnected) void video.play().catch(() => {})
+      controls.remove()
+      card.removeAttribute('data-hcv-video')
+      for (const [name, value] of nativeAttrs) {
+        if (value === null) video.removeAttribute(name)
+        else video.setAttribute(name, value)
+      }
+    },
   }
 }
 
@@ -582,7 +611,7 @@ export function registerChatVideo(ctx, active, selector) {
     for (const video of document.querySelectorAll(selector)) {
       if (players.has(video) || !video.controls) continue
       const card = video.parentElement
-      players.set(video, { card, remove: attachPlayer(card, video) })
+      players.set(video, { card, ...attachPlayer(card, video) })
     }
   }
   function clear() {
@@ -601,8 +630,13 @@ export function registerChatVideo(ctx, active, selector) {
     collect()
     changes.observe(document.body, { childList: true, subtree: true })
   }
-  const theme = new MutationObserver(reconcile)
-  theme.observe(root, { attributes: true, attributeFilter: ['data-hermes-theme'] })
+  const theme = new MutationObserver(records => {
+    if (records.some(record => record.attributeName === 'data-hermes-theme')) reconcile()
+    if (records.some(record => record.attributeName === 'lang')) {
+      for (const player of players.values()) player.localize()
+    }
+  })
+  theme.observe(root, { attributes: true, attributeFilter: ['data-hermes-theme', 'lang'] })
   forcedColors.addEventListener('change', reconcile)
   reconcile()
   ctx.onDispose(() => {

@@ -45,6 +45,17 @@ export async function verifySummarySources({ page, expect, projectChat, screensh
   await viewAll.click()
   const pane = page.locator('[data-hcv-sources-pane]:visible')
   await expect(pane).toBeVisible()
+  const sourceLink = page.locator('[data-slot="aui_thread-content"] .aui-md a[href="https://example.invalid/connector-guide"]')
+  await expect(pane.getByRole('button', { name: 'Справка по каталогу', exact: true })).toBeVisible()
+  const changeLinkText = text => sourceLink.evaluate((link, next) => {
+    const node = document.createTreeWalker(link, NodeFilter.SHOW_TEXT).nextNode()
+    if (!node) throw new Error('The source link has no text node')
+    node.data = next
+  }, text)
+  await changeLinkText('Обновлённая справка')
+  await expect(pane.getByRole('button', { name: 'Обновлённая справка', exact: true })).toBeVisible()
+  await changeLinkText('Справка по каталогу')
+  await expect(pane.getByRole('button', { name: 'Справка по каталогу', exact: true })).toBeVisible()
   const attachment = pane.getByRole('listitem').filter({ hasText: 'fixture-rules.txt' })
   await expect(attachment.getByText('Прикреплено к разговору', { exact: true })).toBeVisible()
   await expect(attachment).toHaveCSS('padding-block', '16px')

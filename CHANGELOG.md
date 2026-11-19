@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.15.87
+
+- Update the chat timeline, inline file links, tables, audio and video controls, and new-chat layout.
+- Reduce repeated work during streamed replies and release resources when previews close.
+- Refresh the project list, additional-chat navigation, native worktree dialog, and settings layout.
+- Translate open summary tabs and media controls when the interface language changes. Keep live subagent activity and source labels up to date.
+- Restore selected-section highlighting and adapt the theme to the current Hermes error card and delegation settings.
+- Combine staged and unstaged file changes. Keep server-owned queues in the order Hermes actually sends them.
+
+Обновлены лента чата, ссылки на файлы, таблицы, медиаплееры, проекты и настройки. Исправлены подсветка разделов и перевод открытых вкладок. Снимки в README обновлены на публичной сборке. [Проверки и ограничения / verification notes](docs/release-0.15.87.md).
+
 ## v0.15.46
 
 - Bring the current workspace and settings changes into the GitHub release.

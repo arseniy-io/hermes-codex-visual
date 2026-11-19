@@ -115,6 +115,7 @@ const glyphs = {
 }
 
 const glyphAliases = {
+  inlineFileDocument: 'artifacts',
   resourceDocument: 'artifacts',
   resourceMore: 'more',
   videoPlay: 'play',

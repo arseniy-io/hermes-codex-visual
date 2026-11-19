@@ -3,6 +3,7 @@ import { codexIconRules, codexIconStyle, codexReference as codex } from './codex
 import { committedFiber, nativeProjectActivity } from './sidebar-recents.js'
 import { attachSidebarOrder, sidebarOrderStyles } from './sidebar-chat-order.js'
 import { sidebarMarqueeStyles, trackTitleOverflow } from './title-overflow.js'
+import { attachProjectMore, projectMoreStyles } from './sidebar-more.js'
 
 const media = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
 const folderRows = '[data-sessions-project]:not([data-sessions-mode])'
@@ -363,9 +364,28 @@ export function attachProjects(content, t, storage) {
   const rows = new Map()
   const preview = projectPreview(content, t)
   const order = attachSidebarOrder(content, storage)
+  const more = attachProjectMore(t)
   const measureTitles = trackTitleOverflow({ marquee: true })
   let section
   let reveal
+  let nativeProject
+
+  function clearNativeProject() {
+    nativeProject = undefined
+    content.removeAttribute('data-hcv-native-project-view')
+  }
+  function allowNativeProject(event) {
+    if (localStorage.getItem('hermes.desktop.showAllProfiles') !== 'true') return
+    const button = event.target instanceof Element ? event.target.closest('button[class~="group/more"]') : null
+    const project = button?.closest('[data-sessions-project]:not([data-sessions-mode])')
+    const id = project?.dataset.sessionsProject
+    if (!id || button.disabled || !content.contains(button)) return
+    // In the all-profiles view Hermes opens the full native project instead
+    // of loading another page. Let that explicitly requested view stay open.
+    nativeProject = { id, connection: host.state.connectionId.get(), profile: host.state.profile.get(), entered: false, until: Date.now() + 5000 }
+    content.setAttribute('data-hcv-native-project-view', '')
+  }
+  content.addEventListener('click', allowNativeProject, true)
 
   function clearSection() {
     if (!section) return
@@ -379,6 +399,7 @@ export function attachProjects(content, t, storage) {
     section = undefined
   }
   function clearRow(key, entry) {
+    more.clear(entry)
     entry.detach()
     entry.motion?.dispose()
     entry.row.removeAttribute('data-hcv-project-row')
@@ -433,8 +454,19 @@ export function attachProjects(content, t, storage) {
       const view = content.querySelector('[data-sessions-mode]')
       const mode = view?.dataset.sessionsMode
       if (reveal && (reveal.connection !== host.state.connectionId.get() || reveal.profile !== host.state.profile.get())) reveal = undefined
+      if (nativeProject && (localStorage.getItem('hermes.desktop.showAllProfiles') !== 'true' ||
+        nativeProject.connection !== host.state.connectionId.get() || nativeProject.profile !== host.state.profile.get() ||
+        (!nativeProject.entered && Date.now() > nativeProject.until) || (nativeProject.entered && mode && mode !== 'project'))) clearNativeProject()
       if (mode === 'project') {
         order.sync({ chats: [], projects: [] })
+        if (nativeProject?.id === view.dataset.sessionsProject) {
+          nativeProject.entered = true
+          for (const [key, entry] of rows) clearRow(key, entry)
+          rows.clear()
+          clearSection()
+          return
+        }
+        clearNativeProject()
         // Hermes can enter a project after launch from the palette, project
         // creation, or a restored scope. Use its own back action each time.
         const back = view.querySelector('button[class~="group/back"]')
@@ -452,7 +484,10 @@ export function attachProjects(content, t, storage) {
       const projectLists = []
       for (const item of tree?.querySelectorAll(folderRows) || []) {
         const row = item.querySelector(':scope > [class~="group/workspace"]')
-        const link = row?.querySelector(':scope > div > button[data-slot="row-button"]')
+        // Hermes adds a tooltip to automatically discovered projects, changing
+        // the label's slot to tooltip-trigger. The adjacent disclosure also has
+        // a tooltip, so exclude row actions when finding the project label.
+        const link = row?.querySelector(':scope > div > button:is([data-slot="row-button"], [data-slot="tooltip-trigger"]):not([data-row-actions])')
         const text = link?.textContent.trim()
         if (!text) continue
         const toggle = row.querySelector(':scope > div > button[data-row-actions]:has(> .codicon-chevron-right)')
@@ -513,6 +548,7 @@ export function attachProjects(content, t, storage) {
       for (const [key, entry] of rows) if (!seen.has(key)) clearRow(key, entry)
       syncActivity(tree)
       order.sync({ chats: projectLists, projects: [...rows.values()] })
+      more.sync([...rows.values()])
       if (section && reveal) {
         if (section.button.ariaExpanded === 'false') {
           if (reveal.header !== section.button) {
@@ -530,8 +566,11 @@ export function attachProjects(content, t, storage) {
       }
     },
     dispose() {
+      content.removeEventListener('click', allowNativeProject, true)
+      clearNativeProject()
       measureTitles()
       order.dispose()
+      more.dispose()
       for (const [key, entry] of rows) clearRow(key, entry)
       clearSection()
       preview.dispose()
@@ -557,9 +596,10 @@ export function projectSidebarStyles(active) {
   const readAction = 'button:has(> .codicon-check-all)'
   return `
   ${sidebarOrderStyles(active)}
+  ${projectMoreStyles(active)}
   ${sidebarMarqueeStyles(`${active} [data-tour="sessions-sidebar"] ${scrollingRow}`)}
   ${active} [data-hcv-native-project-action] { display: none !important; }
-  ${active} [data-tour="sessions-sidebar"] [data-sessions-mode="project"]:has(button[class~="group/back"]) { visibility: hidden; }
+  ${active} [data-tour="sessions-sidebar"] [data-slot="sidebar-content"]:not([data-hcv-native-project-view]) [data-sessions-mode="project"]:has(button[class~="group/back"]) { visibility: hidden; }
   ${active} [data-hcv-disclosure-motion] {
     flex: 0 0 auto;
     min-block-size: 0;

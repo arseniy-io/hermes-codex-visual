@@ -2,11 +2,13 @@
 
 **Тема в стиле Codex для Hermes Desktop.** Компактная боковая панель проектов, скруглённое поле ввода и сводка чата работают прямо в Hermes Agent.
 
-[Установка](#установка) · [Скачать ZIP v0.15.46](https://raw.githubusercontent.com/arseniy-io/hermes-codex-visual/main/downloads/hermes-codex-visual-v0.15.46.zip) · [Сообщить об ошибке или предложить идею](https://github.com/arseniy-io/hermes-codex-visual/issues/new/choose) · [English](README.md)
+[Установка](#установка) · [Скачать ZIP v0.15.87](https://raw.githubusercontent.com/arseniy-io/hermes-codex-visual/main/downloads/hermes-codex-visual-v0.15.87.zip) · [Сообщить об ошибке или предложить идею](https://github.com/arseniy-io/hermes-codex-visual/issues/new/choose) · [English](README.md)
 
-![Hermes Desktop с темой Codex. Слева список проектов, в центре чат с карточкой файла, справа сводка](docs/images/workspace-dark.png)
+![Тема Codex v0.15.87 в Hermes Desktop. Слева проекты, в центре ответ с таблицей, справа сводка](docs/images/workspace-dark.png)
 
-<sub>Скриншот Hermes Desktop с включённым плагином и демонстрационным проектом Atlas.</sub>
+<sub>v0.15.87 в Hermes Desktop v0.23.1+2062. Публичная сборка с демонстрационным проектом Atlas.</sub>
+
+В текущей версии обновлены лента чата, ссылки на файлы, таблицы, медиаплееры, навигация по проектам и настройки. Открытые вкладки сводки меняют подписи вместе с языком интерфейса. [Изменения, проверки и ограничения](docs/release-0.15.87.md).
 
 ## Что можно делать
 
@@ -14,13 +16,16 @@
 | --- | --- |
 | Наводить порядок в чатах | Перетаскивай чаты внутри проекта. Чтобы связать чат с открытой рабочей областью, перетащи его туда. Вкладка переименовывается двойным щелчком. |
 | Работать с ответами и черновиками | Пользуйся выбором модели, очередью сообщений, вложениями и диктовкой в компактном поле ввода. Файлы можно открывать и скачивать прямо из ответа. |
+| Читать ответы с таблицами и медиа | Раскрывай таблицы, копируй их содержимое, слушай аудио и смотри видео прямо в чате. |
 | Проверять работу агента | Открывай «Изменения», «Субагенты» и «Источники» из сводки. Оттуда же доступны ветка, терминал и перенос в рабочее дерево. |
 | Выбирать светлую или тёмную тему | Оформление применяется к чатам, панелям, меню и настройкам. |
 
 <details>
-<summary>Светлая тема и исходный интерфейс Hermes для сравнения</summary>
+<summary>Светлая тема, настройки и исходный интерфейс Hermes для сравнения</summary>
 
 ![Hermes Desktop со светлой темой в стиле Codex](docs/images/workspace-light.png)
+
+![Настройки субагентов с тёмной темой в стиле Codex](docs/images/settings-dark.png)
 
 ![Тот же демонстрационный чат со штатным оформлением Hermes](docs/images/stock-dark.png)
 
@@ -39,7 +44,7 @@
 
 ### Установка из ZIP
 
-Скачай [ZIP v0.15.46](https://raw.githubusercontent.com/arseniy-io/hermes-codex-visual/main/downloads/hermes-codex-visual-v0.15.46.zip). В «Возможности → Плагины» открой папку плагинов приложения и распакуй туда папку `hermes-codex-visual`. Путь должен заканчиваться на `desktop-plugins/hermes-codex-visual/plugin.js`. Нажми «Пересканировать», включи плагин и выбери **Codex** во «Внешнем виде». [Контрольные суммы SHA-256](downloads/SHA256SUMS.txt) · [Что вошло в версию](CHANGELOG.md)
+Скачай [ZIP v0.15.87](https://raw.githubusercontent.com/arseniy-io/hermes-codex-visual/main/downloads/hermes-codex-visual-v0.15.87.zip). В «Возможности → Плагины» открой папку плагинов приложения и распакуй туда папку `hermes-codex-visual`. Путь должен заканчиваться на `desktop-plugins/hermes-codex-visual/plugin.js`. Нажми «Пересканировать», включи плагин и выбери **Codex** во «Внешнем виде». [Контрольные суммы SHA-256](downloads/SHA256SUMS.txt) · [Что вошло в версию](CHANGELOG.md)
 
 Чтобы обновить версию из ZIP, замени `plugin.js` в той же папке и запусти пересканирование. Чтобы вернуться к обычному виду, выбери штатную тему и выключи плагин.
 

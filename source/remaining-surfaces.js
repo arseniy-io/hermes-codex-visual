@@ -13,6 +13,11 @@ export function registerRemainingSurfaces(ctx, active) {
   const filterRow = 'button.row-hover[aria-pressed]'
   const filters = `${cap} [data-catalog] [data-tour="overlay-nav"] > ${filterRow}`
   const dialog = `${active} [data-slot="dialog-content"]`
+  // The create-project dialog has a name, an idea textarea, and the native
+  // folder-picker button; scope its row styling without matching other forms.
+  const createProject = `${dialog}.max-w-md:has(> div > input[data-slot="input"]):has(> div > div > div > textarea[data-slot="textarea"])`
+  const projectFolders = `${createProject} > div > div:has(> button[data-slot="button"][data-size="sm"][data-variant="ghost"] > .codicon-add)`
+  const addProjectFolder = `${projectFolders} > button[data-slot="button"][data-size="sm"][data-variant="ghost"]:has(> .codicon-add)`
   const profiles = `${active}[data-hcv-screen="profiles"] [data-overlay-surface]`
   const profileRows = `${profiles} [data-panel-row]`
   const selectedProfile = `${profileRows}[class~="bg-(--ui-row-active-background)"]`
@@ -291,6 +296,13 @@ export function registerRemainingSurfaces(ctx, active) {
   }
   ${dialog} :is([data-slot="input"], [data-slot="select-trigger"]):not([type="file"]) { min-block-size: 32px; }
   ${dialog} button:is([data-variant="outline"], [data-variant="secondary"]) { border-color: var(--hcv-hairline); }
+  /* Codex's rounded-lg token is 10px at the standard 16px root size. */
+  ${projectFolders} > ul > li:has(> .codicon-folder), ${addProjectFolder} {
+    border-radius: var(--hcv-popup-button-radius);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    ${addProjectFolder}:hover:not(:disabled) { background-color: var(--hcv-hover-menu); color: var(--hcv-text); }
+  }
 
   ${codexIconRules(`${dialog} :is(.codicon-close, button[data-slot="dialog-close-button"] > svg.tabler-icon-x)`, 'close')}
 }

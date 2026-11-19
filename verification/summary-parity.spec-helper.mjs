@@ -11,6 +11,45 @@ export async function verifySummaryParity({ page, expect, projectChat, screensho
   await expect(agents).toBeVisible()
   await expect(card.getByRole('button', { name: 'Изменения', exact: true }).first()).toBeEnabled()
   if (tabHeader) return verifyTabHeader({ page, expect, agents, screenshot, before: tabHeader === 'before' })
+  if (process.env.HERMES_VISUAL_SUMMARY_LANGUAGE === '1') {
+    await agents.click()
+    for (const name of ['Источники', 'Изменения']) {
+      await page.getByRole('button', { name: 'Добавить вкладку', exact: true }).click()
+      await page.getByRole('menuitem', { name, exact: true }).click()
+    }
+    await page.locator(summaryPane('agents')).click()
+    await page.evaluate(() => {
+      window.hcvLanguagePanes = [...document.querySelectorAll('[data-hcv-summary-pane]')]
+      window.hcvLanguageScroll = window.hcvLanguagePanes.map(node => node.scrollTop)
+    })
+    for (const [button, searchText, locale, labels] of [
+      ['Сменить язык', 'English', 'en', ['Subagents', 'Sources', 'Changes']],
+      ['Switch language', 'Русский', 'ru', ['Субагенты', 'Источники', 'Изменения']],
+    ]) {
+      await page.evaluate(() => { location.hash = '#/settings?tab=config%3Aappearance&page=general' })
+      await page.getByRole('button', { name: button }).click()
+      const search = page.locator('input[cmdk-input]:visible')
+      await search.fill(searchText)
+      await search.press('Enter')
+      await expect(page.locator('html')).toHaveAttribute('lang', locale)
+      await page.keyboard.press('Escape')
+      if (await page.locator('[data-overlay-surface]').count()) await page.keyboard.press('Escape')
+      for (const [i, kind] of ['agents', 'sources', 'changes'].entries()) {
+        const tab = page.locator(summaryPane(kind))
+        await expect(tab).toHaveAttribute('aria-label', labels[i])
+        await expect(tab.locator('.pane-tab-content .truncate')).toHaveText(labels[i])
+      }
+      await expect(page.locator(summaryPane('agents'))).toHaveAttribute('aria-selected', 'true')
+      assert(await page.evaluate(() => window.hcvLanguagePanes.every((node, i) => node.isConnected && node.scrollTop === window.hcvLanguageScroll[i])), 'Language change must preserve pane contents and scroll')
+    }
+    await screenshot('translated-open-tabs.png')
+    await page.locator(summaryPane('sources')).click()
+    await page.locator(summaryPane('sources')).getByRole('button', { name: 'Закрыть', exact: true }).click()
+    await expect(page.locator(summaryPane('sources'))).toHaveCount(0)
+    await expect(page.locator(summaryPane('agents'))).toBeVisible()
+    console.log('Verified open tab captions and accessible names in both languages, selection, retained contents, scroll and native close')
+    return { language: ['ru', 'en', 'ru'], selectionPreserved: true, contentsPreserved: true, closeVerified: true }
+  }
   await expect(card).toHaveCSS('width', beforeRelease ? '300px' : '280px')
   const cardShot = async name => {
     const clip = await card.boundingBox()
@@ -65,9 +104,14 @@ export async function verifySummaryParity({ page, expect, projectChat, screensho
     await sources.locator(heading).click()
     await cardShot('summary-collapsed.png')
     await site.getByRole('button', { name: 'Изменения', exact: true }).click()
-    await expect(page.locator('[data-hcv-changes-pane]:visible')).toContainText('page.md')
+    const changesPane = page.locator('[data-hcv-changes-pane]:visible')
+    await expect(changesPane).toContainText('page.md')
+    await changesPane.getByRole('button', { name: 'page.md', exact: true }).click()
+    await expect(changesPane.locator('[data-hcv-change-diff]')).toContainText('+Проверка правок сайта')
+    await expect(changesPane.locator('[data-hcv-change-diff]')).toContainText('+Ещё одна правка сайта')
     await page.locator(summaryPane('changes')).getByRole('button', { name: 'Закрыть', exact: true }).click()
     await expect(page.locator(summaryPane('changes'))).toHaveCount(0)
+    await expect(page.locator('[data-hcv-summary-add-tab]')).toHaveCount(0)
     await expect(sources.locator(heading)).toHaveAttribute('aria-expanded', 'false')
   } else {
     await cardShot('summary.png')
@@ -163,6 +207,7 @@ export async function verifySummaryParity({ page, expect, projectChat, screensho
   await expect(result).toHaveCount(0)
   await tab.getByRole('button', { name: 'Закрыть', exact: true }).click()
   await expect(tab).toHaveCount(0)
+  await expect(page.locator('[data-hcv-summary-add-tab]')).toHaveCount(0)
   facts.history = 'canonical stored child transcripts and refused-task result'
   return facts
 }

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
+import path from 'node:path'
 import { setTimeout as pause } from 'node:timers/promises'
 import { measureSidebarScope, sidebarMasks } from './style-scope.spec-helper.mjs'
 
@@ -9,6 +10,35 @@ const chatName = 'Длинный тестовый чат'
 const composer = '[data-slot="composer-rich-input"]:visible'
 const chat = '[data-chat-surface][data-composer-target="main"]'
 const cases = [0, 1, 2]
+const hotspotLinks = 48
+const hotspotMode = process.env.HERMES_VISUAL_PERF_HOTSPOTS === '1'
+const hotspotWaiters = new Map()
+
+function waitForHotspot(message, res) {
+  assert(!hotspotWaiters.has(message), 'Hotspot prompts must run sequentially')
+  const gate = Promise.withResolvers()
+  let timeout
+  const release = reason => {
+    if (hotspotWaiters.get(message) !== release) return
+    hotspotWaiters.delete(message)
+    clearTimeout(timeout)
+    res.off('close', closed)
+    gate.resolve(reason)
+  }
+  const closed = () => release('closed')
+  hotspotWaiters.set(message, release)
+  timeout = setTimeout(() => release('timeout'), 45000)
+  res.once('close', closed)
+  return gate.promise
+}
+
+export function timerSeconds(text) {
+  const value = String(text ?? '').trim()
+  if (/^\d+s$/.test(value)) return Number(value.slice(0, -1))
+  const minutes = /^(\d+):(\d{2})$/.exec(value)
+  if (minutes && Number(minutes[2]) < 60) return Number(minutes[1]) * 60 + Number(minutes[2])
+  throw new Error(`Unexpected thinking timer: ${JSON.stringify(value)}`)
+}
 
 export async function verifyProjectActivity({ app, page, expect, navigation, projectChat, prompt, mock, release }) {
   await app.evaluate(({ BrowserWindow }) => {
@@ -26,14 +56,26 @@ export async function verifyProjectActivity({ app, page, expect, navigation, pro
   const input = page.locator(composer).first()
   await input.fill(prompt)
   await input.press('Enter')
-  await expect(page.locator('[data-slot="aui_response-loading"] [data-hcv-thinking]')).toHaveText('Думаю')
+  const loading = page.locator('[data-slot="aui_response-loading"]')
+  const waitingTimer = loading.locator(':scope > [aria-hidden="true"]:not(.dither)')
+  await expect(loading.locator('[data-hcv-thinking]')).toHaveText('Думаю')
+  await expect(waitingTimer).toBeVisible()
+  assert.equal(timerSeconds('59s'), 59)
+  assert.equal(timerSeconds('1:00'), 60)
+  assert.equal(timerSeconds('10:33'), 633)
+  const beforeTransition = timerSeconds(await waitingTimer.textContent())
+  const waitingSpacing = await waitingTimer.evaluate(node => getComputedStyle(node).letterSpacing)
   release()
   await mock.waitForHeldStream()
   const live = page.locator('[data-hcv-live-turn]')
   const seconds = live.locator('[data-hcv-live-time]')
   await expect(live.locator('[data-hcv-thinking]')).toHaveText('Думаю')
-  const start = parseInt(await seconds.textContent(), 10)
-  await expect.poll(async () => parseInt(await seconds.textContent(), 10), { timeout: 8000 }).toBeGreaterThan(start)
+  const start = timerSeconds(await seconds.textContent())
+  assert(start >= beforeTransition, 'Thinking timer must not reset when streaming starts')
+  const liveSpacing = await seconds.evaluate(node => getComputedStyle(node).letterSpacing)
+  console.log('Thinking timer transition', JSON.stringify({ beforeTransition, start, waitingSpacing, liveSpacing }))
+  assert.equal(waitingSpacing, liveSpacing, 'Thinking timer letter spacing must stay consistent during the transition')
+  await expect.poll(async () => timerSeconds(await seconds.textContent()), { timeout: 8000 }).toBeGreaterThan(start)
   await folder.click()
   await expect(spinner).toBeVisible()
   await navigation('new-session').first().click()
@@ -46,17 +88,48 @@ export async function verifyProjectActivity({ app, page, expect, navigation, pro
   await expect(chatRow.locator('xpath=..').getByRole('status', { name: /не прочитан/ })).toHaveCount(0)
 }
 
-export async function replyToPerformancePrompt(res, request) {
+export async function replyToPerformancePrompt(res, request, projectFolder) {
   const content = request.messages?.findLast(item => item.role === 'user')?.content
   const message = Array.isArray(content) ? content.map(part => part.text || '').join(' ') : content
   if (typeof message !== 'string' || !message.includes(prefix)) return false
   assert(request.stream)
+  if (hotspotMode) assert(projectFolder && path.isAbsolute(projectFolder), 'Hotspot writes require the isolated project folder')
   const identity = { id: 'chatcmpl-perf', model: request.model, created: 1780000000 }
   res.writeHead(200, { 'content-type': 'text/event-stream' })
   const write = (delta, finish_reason = null) => res.write('data: ' + JSON.stringify({
     ...identity, object: 'chat.completion.chunk', choices: [{ index: 0, delta, finish_reason }],
   }) + '\n\n')
-  write({ role: 'assistant', content: 'Начало ответа.\n\n' })
+  let hotspotObserved
+  if (hotspotMode) {
+    const user = request.messages.findLastIndex(item => item.role === 'user')
+    const completed = request.messages.slice(user + 1).some(item => item.role === 'tool')
+    if (!completed) {
+      const suffix = createHash('sha256').update(message).digest('hex').slice(0, 12)
+      write({ role: 'assistant', content: 'Записываю локальный тестовый файл.', tool_calls: [{
+        index: 0, id: 'call_hcv_perf_' + suffix, type: 'function', function: {
+          name: 'write_file', arguments: JSON.stringify({
+            path: path.join(projectFolder, 'performance-hotspot-' + suffix + '.txt'),
+            content: 'Первая строка проверки.\nВторая строка проверки.\n',
+          }),
+        },
+      }] })
+      write({}, 'tool_calls')
+      res.end('data: [DONE]\n\n')
+      return true
+    }
+    const target = path.join(projectFolder, 'fixture-note.md').replaceAll('\\', '/')
+    // Keep the turn live until the real UI has mounted the references and
+    // change chip. Slow initial decoration must not hide the chip before it
+    // can be verified. Socket close and a deadline also release this hold.
+    hotspotObserved = waitForHotspot(message, res)
+    write({ role: 'assistant', content: 'Начало ответа.\n\n' + Array.from({ length: hotspotLinks }, (_, index) =>
+      '[Файл проверки ' + (index + 1) + '](<' + target + '>)').join(' ') + '\n\n' })
+  } else write({ role: 'assistant', content: 'Начало ответа.\n\n' })
+  if (hotspotObserved) {
+    const reason = await hotspotObserved
+    if (res.destroyed) return true
+    assert.equal(reason, 'observed', 'Hotspot references and live changes were not observed within 45 seconds')
+  }
   for (let index = 1; index <= 28 && !res.destroyed; index++) {
     await pause(65)
     write({ content: index % 4 === 0 ? '| A | B |\n| --- | --- |\n| 3 | 6 |\n\n' :
@@ -198,13 +271,51 @@ export async function measurePerformance({ app, page, expect, navigation, projec
       await expect(input).toHaveText('Testing the composer in a long conversation')
       await input.fill('')
     })
+    const sourcesPane = page.locator('[data-hcv-summary-pane="sources"] [data-hcv-sources-pane]:visible')
+    const sourcesTab = page.locator('[data-tree-tab="plugin-workspace:hermes-codex-visual-summary-sources"]')
+    if (hotspotMode) {
+      const compact = page.locator('[data-hcv-context-card]:visible [data-hcv-sources-compact]')
+      await expect(compact).toBeVisible()
+      const heading = compact.locator('[data-hcv-summary-heading]')
+      if (await heading.getAttribute('aria-expanded') === 'false') await heading.click()
+      await compact.locator('.hcv-sources-all').click()
+      await expect(sourcesPane).toBeVisible()
+      await expect(sourcesTab).toHaveAttribute('aria-selected', 'true')
+      await expect(page.locator('[data-hcv-summary-add-tab]')).toBeVisible()
+      results.hotspots = {
+        linksPerReply: hotspotLinks, target: 'fixture-note.md', tool: 'write_file',
+        writeLines: 2, streamChunks: 28, chunkDelayMs: 65,
+        initialLinkHandshake: 'Wait for live references and changes before the 28 stream chunks; 45-second deadline',
+        sourcesPaneOpened: true, streams: [],
+        limitation: 'Exercises file references, summary tabs and live changes; no image-analysis markers are seeded. Metrics include the real local tool and native rendering.',
+      }
+    }
     results.stream = await repeat('stream', async i => {
       const message = prefix + ' ' + i
       await input.fill(message)
       await input.press('Enter')
       const last = page.locator(chat + ' [data-slot="aui_response-group"]').last()
-      await expect(last.getByText(end, { exact: true })).toBeVisible({ timeout: 20000 })
+      if (hotspotMode) {
+        const chip = page.locator(chat + ' [data-hcv-composer-changes-chip]')
+        const references = last.locator('[data-hcv-file-reference-control]')
+        await expect(chip).toBeVisible({ timeout: 45000 })
+        await expect(chip).toHaveAttribute('aria-label', /^(Изменен 1 файл|1 file changed), \+2, −0$/)
+        await expect(references).toHaveCount(hotspotLinks, { timeout: 45000 })
+        await expect(chip).toBeVisible()
+        await expect(last.locator('[data-hcv-live-turn]')).toHaveCount(1)
+        await expect(sourcesPane).toBeVisible()
+        results.hotspots.streams.push({
+          reply: i, fileReferences: await references.count(),
+          liveChangesLabel: await chip.getAttribute('aria-label'),
+          liveResponse: true, sourcesPaneVisible: true, initialStateObservedBeforeChunks: true,
+        })
+        const release = hotspotWaiters.get(message)
+        assert(release, 'Expected the initial hotspot stream to remain held for UI verification')
+        release('observed')
+      }
+      await expect(last.getByText(end, { exact: true })).toBeVisible({ timeout: hotspotMode ? 45000 : 20000 })
       await expect(last.locator('[data-hcv-live-turn]')).toHaveCount(0)
+      if (hotspotMode) await expect(page.locator(chat + ' [data-hcv-composer-changes-chip]')).toHaveCount(0)
     })
     const { JSHeapUsedSize } = await getMetrics()
     results.heapMiB = Math.round(JSHeapUsedSize / 1048576)
@@ -212,6 +323,11 @@ export async function measurePerformance({ app, page, expect, navigation, projec
       type: metric.type, workingSetMiB: Math.round(metric.memory.workingSetSize / 1024),
       privateMiB: Math.round(metric.memory.privateBytes / 1024), cpuPercent: metric.cpu.percentCPUUsage,
     })))
+    if (hotspotMode) {
+      await sourcesTab.hover()
+      await sourcesTab.getByRole('button', { name: /^(Закрыть|Close)$/ }).click()
+      await expect(sourcesPane).toHaveCount(0)
+    }
     const root = page.locator('html')
     const row = nav('artifacts')
     const readStyle = () => page.evaluate(() => {

@@ -170,6 +170,7 @@ import {
   DropdownMenuTrigger,
   host as host5,
   TITLEBAR_AREAS,
+  useI18n,
   useTheme
 } from "@hermes/plugin-sdk";
 
@@ -288,6 +289,7 @@ var glyphs = {
   terminal: '<path d="M8 9l3 3l-3 3"/><path d="M13 15l3 0"/><path d="M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12"/>'
 };
 var glyphAliases = {
+  inlineFileDocument: "artifacts",
   resourceDocument: "artifacts",
   resourceMore: "more",
   videoPlay: "play",
@@ -389,11 +391,16 @@ function nativeDraftWorkspaceAction(sidebar2) {
   }
   return null;
 }
-function nativeWorktreePath(button5) {
+function nativeWorktreeTarget(button5) {
   for (let node3 = committedFiber(button5); node3; node3 = node3.return) {
-    if (typeof node3.memoizedProps?.repoPath === "string") return node3.memoizedProps.repoPath;
+    const props = node3.memoizedProps;
+    if (typeof props?.repoPath === "string") return { path: props.repoPath };
+    if (typeof props?.project?.path === "string") {
+      const { path, connectionId, profile: profile2 } = props.project;
+      return { path, connectionId, profile: profile2 };
+    }
   }
-  return "";
+  return null;
 }
 function groupingAction(element7) {
   if (Array.isArray(element7)) {
@@ -623,10 +630,10 @@ function attachSidebarOrder(content, storage) {
   function sync(nextBindings) {
     bindings = nextBindings;
     lists.clear();
-    const scope3 = scopeKey();
-    if (scope3) {
+    const scope4 = scopeKey();
+    if (scope4) {
       for (const { project: project2, list } of bindings.chats) {
-        if (list) register(list, sessionRows(list), "sidebar-chat-order:" + JSON.stringify([...scope3, project2]), "chat");
+        if (list) register(list, sessionRows(list), "sidebar-chat-order:" + JSON.stringify([...scope4, project2]), "chat");
       }
       const projectGroups = /* @__PURE__ */ new Map();
       for (const { item, row: row5, name, id: id2 } of bindings.projects) {
@@ -639,7 +646,7 @@ function attachSidebarOrder(content, storage) {
         const positions = new Map([...list.children].map((row5, index) => [row5, index]));
         items2.sort((a, b) => positions.get(a.rows[0]) - positions.get(b.rows[0]));
         const reorder = nativeProjectOrder(items2[0].rows[0]);
-        register(list, items2, "sidebar-project-order:" + JSON.stringify(scope3), "project", reorder);
+        register(list, items2, "sidebar-project-order:" + JSON.stringify(scope4), "project", reorder);
       }
     }
     for (const list of styled) if (!lists.has(list)) restore(list);
@@ -1061,6 +1068,140 @@ function fadingTitleStyles(selector, distance) {
   `;
 }
 
+// source/sidebar-more.js
+var firstPage = 4;
+var nextPage = 10;
+var hidden = "data-hcv-project-chat-hidden";
+var nativeHidden = "data-hcv-project-more-native";
+function attachProjectMore(t) {
+  const states = /* @__PURE__ */ new Map();
+  function restore(state) {
+    for (const node3 of state.marked) node3.removeAttribute(hidden);
+    state.marked.clear();
+    state.native?.removeAttribute(nativeHidden);
+    state.native = void 0;
+    state.wrapper?.remove();
+    state.wrapper = void 0;
+  }
+  function clear(entry) {
+    const state = states.get(entry);
+    if (!state) return;
+    restore(state);
+    states.delete(entry);
+  }
+  function nativeControl(list) {
+    return [...list.children].find((node3) => node3.querySelector(':scope > button[class~="group/more"]'));
+  }
+  function apply(entry, state) {
+    const list = entry.region();
+    if (!list) {
+      restore(state);
+      state.list = void 0;
+      state.limit = firstPage;
+      state.requested = false;
+      return;
+    }
+    if (entry.name.ariaExpanded === "false") return;
+    if (state.list !== list) {
+      restore(state);
+      state.list = list;
+      state.limit = firstPage;
+      state.requested = false;
+    }
+    const chats = sessionRows(list);
+    if (list.hasAttribute("data-hcv-sidebar-ordered")) {
+      chats.sort((a, b) => Number(a.anchor.style.getPropertyValue("--hcv-sidebar-order")) - Number(b.anchor.style.getPropertyValue("--hcv-sidebar-order")));
+    }
+    const native2 = nativeControl(list);
+    const allProfiles = localStorage.getItem("hermes.desktop.showAllProfiles") === "true";
+    if (native2 && chats.length < firstPage && !state.requested && !allProfiles) {
+      state.requested = true;
+      const button5 = native2.querySelector('button[class~="group/more"]');
+      queueMicrotask(() => {
+        if (states.get(entry) === state && entry.region() === list && button5?.isConnected && !button5.disabled) button5.click();
+      });
+    }
+    const ready = chats.length >= firstPage || !native2;
+    const capped = ready && (chats.length > state.limit || Boolean(native2));
+    const nextMarked = /* @__PURE__ */ new Set();
+    if (ready) {
+      for (const chat3 of chats.slice(state.limit)) for (const row5 of chat3.rows) nextMarked.add(row5);
+    }
+    for (const node3 of state.marked) if (!nextMarked.has(node3)) node3.removeAttribute(hidden);
+    for (const node3 of nextMarked) if (!state.marked.has(node3)) node3.setAttribute(hidden, "");
+    state.marked = nextMarked;
+    if (state.native !== native2) state.native?.removeAttribute(nativeHidden);
+    state.native = native2;
+    if (native2) native2.toggleAttribute(nativeHidden, ready);
+    if (capped) {
+      if (!state.wrapper) {
+        const wrapper = document.createElement("div");
+        const button6 = document.createElement("button");
+        wrapper.setAttribute("data-hcv-project-more", "");
+        button6.type = "button";
+        button6.addEventListener("click", (event) => {
+          const previous = state.limit;
+          state.limit += nextPage;
+          const current = sessionRows(list);
+          if (current.length < state.limit) {
+            const next = nativeControl(list)?.querySelector('button[class~="group/more"]');
+            if (next && !next.disabled) next.click();
+          }
+          apply(entry, state);
+          if (event.detail === 0) {
+            const revealed = sessionRows(list).filter((chat3) => !chat3.anchor.hasAttribute(hidden))[previous];
+            revealed?.button.focus({ preventScroll: true });
+          }
+        });
+        wrapper.append(button6);
+        state.wrapper = wrapper;
+      }
+      const button5 = state.wrapper.firstElementChild;
+      const label3 = t("showMore");
+      if (button5.textContent !== label3) button5.textContent = label3;
+      if (state.wrapper.parentElement !== list) list.append(state.wrapper);
+    } else {
+      state.wrapper?.remove();
+      state.wrapper = void 0;
+    }
+  }
+  return {
+    sync(entries) {
+      const live = new Set(entries);
+      for (const entry of states.keys()) if (!live.has(entry)) clear(entry);
+      for (const entry of entries) {
+        let state = states.get(entry);
+        if (!state) {
+          state = { limit: firstPage, marked: /* @__PURE__ */ new Set(), requested: false };
+          states.set(entry, state);
+        }
+        apply(entry, state);
+      }
+    },
+    clear,
+    dispose() {
+      for (const entry of states.keys()) clear(entry);
+    }
+  };
+}
+function projectMoreStyles(active2) {
+  return `
+    ${active2} [${hidden}], ${active2} [${nativeHidden}] { display: none !important; }
+    ${active2} [data-hcv-project-more] { padding: 4px 0 4px 28px; }
+    ${active2} [data-hcv-project-more] > button {
+      display: inline-flex; align-items: center; height: 24px;
+      margin-inline-start: -8px; padding: 0 8px; border: 0; border-radius: 6px;
+      background: transparent; color: light-dark(#8f8f8f, #8a8a8a); cursor: pointer;
+      font: 400 14px/20px var(--hcv-ui-font); white-space: nowrap;
+    }
+    ${active2} [data-hcv-project-more] > button:hover { color: var(--hcv-text); }
+    ${active2} [data-hcv-project-more] > button:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -1px; }
+    @media (prefers-reduced-motion: no-preference) {
+      ${active2} [data-hcv-project-more] > button { transition: color 150ms ease; }
+    }
+  `;
+}
+
 // source/sidebar-projects.js
 var media = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 var folderRows = "[data-sessions-project]:not([data-sessions-mode])";
@@ -1094,8 +1235,8 @@ function showStatus(indicator, kind, t) {
     const label3 = t(kind);
     if (indicator.getAttribute("aria-label") !== label3) indicator.setAttribute("aria-label", label3);
   }
-  const hidden2 = !kind;
-  if (indicator.hidden !== hidden2) indicator.hidden = hidden2;
+  const hidden3 = !kind;
+  if (indicator.hidden !== hidden3) indicator.hidden = hidden3;
 }
 function blockSize(node3) {
   const style = getComputedStyle(node3);
@@ -1115,7 +1256,7 @@ function disclosure(button5, native2, region, regionId, timing = sectionMotion) 
   let pending = false;
   let forwarding = false;
   let motion2;
-  let marked2;
+  let marked3;
   function toggleRegion() {
     forwarding = true;
     try {
@@ -1125,8 +1266,8 @@ function disclosure(button5, native2, region, regionId, timing = sectionMotion) 
     }
   }
   const restoreId = () => {
-    if (marked2?.id === regionId) marked2.removeAttribute("id");
-    marked2 = void 0;
+    if (marked3?.id === regionId) marked3.removeAttribute("id");
+    marked3 = void 0;
   };
   function cancel() {
     const previous = motion2;
@@ -1200,11 +1341,11 @@ function disclosure(button5, native2, region, regionId, timing = sectionMotion) 
         pending = false;
         play(node3, true, null, 0);
       }
-      if (marked2 !== node3) {
+      if (marked3 !== node3) {
         restoreId();
         if (node3 && !node3.id) {
           node3.id = regionId;
-          marked2 = node3;
+          marked3 = node3;
         }
       }
       const expanded = Boolean(node3 && !motion2?.closing);
@@ -1411,9 +1552,25 @@ function attachProjects(content, t, storage) {
   const rows = /* @__PURE__ */ new Map();
   const preview3 = projectPreview(content, t);
   const order = attachSidebarOrder(content, storage);
+  const more = attachProjectMore(t);
   const measureTitles = trackTitleOverflow({ marquee: true });
   let section2;
   let reveal;
+  let nativeProject2;
+  function clearNativeProject() {
+    nativeProject2 = void 0;
+    content.removeAttribute("data-hcv-native-project-view");
+  }
+  function allowNativeProject(event) {
+    if (localStorage.getItem("hermes.desktop.showAllProfiles") !== "true") return;
+    const button5 = event.target instanceof Element ? event.target.closest('button[class~="group/more"]') : null;
+    const project2 = button5?.closest("[data-sessions-project]:not([data-sessions-mode])");
+    const id2 = project2?.dataset.sessionsProject;
+    if (!id2 || button5.disabled || !content.contains(button5)) return;
+    nativeProject2 = { id: id2, connection: host2.state.connectionId.get(), profile: host2.state.profile.get(), entered: false, until: Date.now() + 5e3 };
+    content.setAttribute("data-hcv-native-project-view", "");
+  }
+  content.addEventListener("click", allowNativeProject, true);
   function clearSection() {
     if (!section2) return;
     section2.motion.dispose();
@@ -1426,6 +1583,7 @@ function attachProjects(content, t, storage) {
     section2 = void 0;
   }
   function clearRow(key, entry) {
+    more.clear(entry);
     entry.detach();
     entry.motion?.dispose();
     entry.row.removeAttribute("data-hcv-project-row");
@@ -1480,8 +1638,17 @@ function attachProjects(content, t, storage) {
       const view = content.querySelector("[data-sessions-mode]");
       const mode = view?.dataset.sessionsMode;
       if (reveal && (reveal.connection !== host2.state.connectionId.get() || reveal.profile !== host2.state.profile.get())) reveal = void 0;
+      if (nativeProject2 && (localStorage.getItem("hermes.desktop.showAllProfiles") !== "true" || nativeProject2.connection !== host2.state.connectionId.get() || nativeProject2.profile !== host2.state.profile.get() || !nativeProject2.entered && Date.now() > nativeProject2.until || nativeProject2.entered && mode && mode !== "project")) clearNativeProject();
       if (mode === "project") {
         order.sync({ chats: [], projects: [] });
+        if (nativeProject2?.id === view.dataset.sessionsProject) {
+          nativeProject2.entered = true;
+          for (const [key, entry] of rows) clearRow(key, entry);
+          rows.clear();
+          clearSection();
+          return;
+        }
+        clearNativeProject();
         const back = view.querySelector('button[class~="group/back"]');
         const id2 = view.dataset.sessionsProject;
         if (back && (reveal?.back !== back || reveal.id !== id2)) {
@@ -1497,7 +1664,7 @@ function attachProjects(content, t, storage) {
       const projectLists = [];
       for (const item of tree?.querySelectorAll(folderRows) || []) {
         const row5 = item.querySelector(':scope > [class~="group/workspace"]');
-        const link2 = row5?.querySelector(':scope > div > button[data-slot="row-button"]');
+        const link2 = row5?.querySelector(':scope > div > button:is([data-slot="row-button"], [data-slot="tooltip-trigger"]):not([data-row-actions])');
         const text = link2?.textContent.trim();
         if (!text) continue;
         const toggle2 = row5.querySelector(":scope > div > button[data-row-actions]:has(> .codicon-chevron-right)");
@@ -1554,6 +1721,7 @@ function attachProjects(content, t, storage) {
       for (const [key, entry] of rows) if (!seen.has(key)) clearRow(key, entry);
       syncActivity(tree);
       order.sync({ chats: projectLists, projects: [...rows.values()] });
+      more.sync([...rows.values()]);
       if (section2 && reveal) {
         if (section2.button.ariaExpanded === "false") {
           if (reveal.header !== section2.button) {
@@ -1571,8 +1739,11 @@ function attachProjects(content, t, storage) {
       }
     },
     dispose() {
+      content.removeEventListener("click", allowNativeProject, true);
+      clearNativeProject();
       measureTitles();
       order.dispose();
+      more.dispose();
       for (const [key, entry] of rows) clearRow(key, entry);
       clearSection();
       preview3.dispose();
@@ -1597,9 +1768,10 @@ function projectSidebarStyles(active2) {
   const readAction = "button:has(> .codicon-check-all)";
   return `
   ${sidebarOrderStyles(active2)}
+  ${projectMoreStyles(active2)}
   ${sidebarMarqueeStyles(`${active2} [data-tour="sessions-sidebar"] ${scrollingRow}`)}
   ${active2} [data-hcv-native-project-action] { display: none !important; }
-  ${active2} [data-tour="sessions-sidebar"] [data-sessions-mode="project"]:has(button[class~="group/back"]) { visibility: hidden; }
+  ${active2} [data-tour="sessions-sidebar"] [data-slot="sidebar-content"]:not([data-hcv-native-project-view]) [data-sessions-mode="project"]:has(button[class~="group/back"]) { visibility: hidden; }
   ${active2} [data-hcv-disclosure-motion] {
     flex: 0 0 auto;
     min-block-size: 0;
@@ -2024,15 +2196,14 @@ function attachNativeCron(content) {
 }
 function attachSidebarCron(content, storage) {
   const native2 = attachNativeCron(content);
-  const ru = document.documentElement.matches(":lang(ru)");
+  const ru = () => document.documentElement.matches(":lang(ru)");
   const area = element2("section", { "data-hcv-cron-sidebar": "" });
   const header2 = element2("header");
-  const toggle2 = element2("button", { type: "button", "aria-controls": "hcv-cron-sidebar-list" }, ru ? "Cron-\u0437\u0430\u0434\u0430\u0447\u0438" : "Cron jobs");
+  const toggle2 = element2("button", { type: "button", "aria-controls": "hcv-cron-sidebar-list" });
+  const toggleLabel = document.createTextNode("");
+  toggle2.append(toggleLabel);
   toggle2.append(glyph2("right"));
   const all = element2("button", { type: "button", "data-hcv-cron-manage": "" });
-  const allLabel = ru ? "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0437\u0430\u043F\u043B\u0430\u043D\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0435 \u0437\u0430\u0434\u0430\u0447\u0438" : "Open scheduled tasks";
-  all.setAttribute("aria-label", allLabel);
-  all.title = allLabel;
   all.append(glyph2("schedule"));
   all.addEventListener("click", () => host4.navigate("/cron"));
   header2.append(toggle2, all);
@@ -2042,13 +2213,27 @@ function attachSidebarCron(content, storage) {
   area.append(header2, details);
   let open = storage.get("cron-preview-open", false) === true;
   let generation = 0;
+  let status2 = null;
   function updateDisclosure() {
     toggle2.setAttribute("aria-expanded", String(open));
     details.inert = !open;
     area.toggleAttribute("data-hcv-cron-open", open);
   }
-  function note(text) {
-    list.replaceChildren(element2("p", { role: "status" }, text));
+  function note(kind) {
+    status2 = kind;
+    const words3 = ru() ? { profile: "\u041F\u0440\u043E\u0444\u0438\u043B\u044C \u043D\u0435 \u0432\u044B\u0431\u0440\u0430\u043D", loading: "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430\u2026", empty: "\u0412 \u044D\u0442\u043E\u043C \u043F\u0440\u043E\u0444\u0438\u043B\u0435 \u043D\u0435\u0442 \u0437\u0430\u0434\u0430\u0447", error: "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044C \u0437\u0430\u0434\u0430\u0447\u0438" } : { profile: "No profile selected", loading: "Loading\u2026", empty: "No tasks in this profile", error: "Could not load tasks" };
+    const text = words3[kind];
+    const current = list.childElementCount === 1 && list.firstElementChild?.matches('[role="status"]') ? list.firstElementChild : null;
+    if (!current) list.replaceChildren(element2("p", { role: "status" }, text));
+    else if (current.textContent !== text) current.textContent = text;
+  }
+  function localize() {
+    const label3 = ru() ? "Cron-\u0437\u0430\u0434\u0430\u0447\u0438" : "Cron jobs";
+    const allLabel = ru() ? "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0437\u0430\u043F\u043B\u0430\u043D\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0435 \u0437\u0430\u0434\u0430\u0447\u0438" : "Open scheduled tasks";
+    if (toggleLabel.data !== label3) toggleLabel.data = label3;
+    if (all.getAttribute("aria-label") !== allLabel) all.setAttribute("aria-label", allLabel);
+    if (all.title !== allLabel) all.title = allLabel;
+    if (status2) note(status2);
   }
   async function load() {
     if (!open || !area.isConnected) return;
@@ -2057,16 +2242,17 @@ function attachSidebarCron(content, storage) {
     const connectionId = host4.state.connectionId.get();
     const isCurrent = () => request === generation && area.isConnected && open && profile2 === host4.state.profile.get() && connectionId === host4.state.connectionId.get();
     if (!profile2) {
-      note(ru ? "\u041F\u0440\u043E\u0444\u0438\u043B\u044C \u043D\u0435 \u0432\u044B\u0431\u0440\u0430\u043D" : "No profile selected");
+      note("profile");
       return;
     }
-    note(ru ? "\u0417\u0430\u0433\u0440\u0443\u0437\u043A\u0430\u2026" : "Loading\u2026");
+    note("loading");
     try {
       const path = `/api/cron/jobs?profile=${encodeURIComponent(profile2)}`;
       const jobs = await window.hermesDesktop.api({ ...connectionId ? { connectionId } : {}, profile: profile2, path, timeoutMs: 8e3 });
       if (!isCurrent()) return;
       const named = jobs.filter((job) => typeof job?.id === "string" && job.id).map((job) => ({ ...job, label: typeof job.name === "string" && job.name.trim() || job.id }));
       named.sort((a, b) => nextRun(a) - nextRun(b) || a.label.localeCompare(b.label));
+      status2 = null;
       list.replaceChildren();
       for (const job of named.slice(0, 3)) {
         const row5 = element2("button", { type: "button", title: job.label, "data-hcv-cron-job": "" });
@@ -2076,9 +2262,9 @@ function attachSidebarCron(content, storage) {
         });
         list.append(row5);
       }
-      if (!named.length) note(ru ? "\u0412 \u044D\u0442\u043E\u043C \u043F\u0440\u043E\u0444\u0438\u043B\u0435 \u043D\u0435\u0442 \u0437\u0430\u0434\u0430\u0447" : "No tasks in this profile");
+      if (!named.length) note("empty");
     } catch {
-      if (isCurrent()) note(ru ? "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044C \u0437\u0430\u0434\u0430\u0447\u0438" : "Could not load tasks");
+      if (isCurrent()) note("error");
     }
   }
   toggle2.addEventListener("click", () => {
@@ -2088,12 +2274,14 @@ function attachSidebarCron(content, storage) {
     if (open) void load();
     else ++generation;
   });
+  localize();
   updateDisclosure();
   const stopProfile = host4.state.profile.subscribe(load);
   const stopConnection = host4.state.connectionId.subscribe(load);
   const stopCron = host4.onEvent?.("cron.changed", load);
   return {
     sync() {
+      localize();
       native2.sync();
       const tree = content.querySelector(`:scope > ${projects}`);
       if (!tree || !content.querySelector('[data-tour="sidebar-nav-cron"]')) {
@@ -2212,6 +2400,7 @@ var russianPlurals = new Intl.PluralRules("ru");
 var sidebarCopy = {
   en: {
     projects: "Projects",
+    showMore: "Show more",
     recent: "Recent",
     recentActions: "Recent chats actions",
     newChat: "New chat",
@@ -2235,6 +2424,7 @@ var sidebarCopy = {
   },
   ru: {
     projects: "\u041F\u0440\u043E\u0435\u043A\u0442\u044B",
+    showMore: "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0431\u043E\u043B\u044C\u0448\u0435",
     recent: "\u041D\u0435\u0434\u0430\u0432\u043D\u0438\u0435",
     recentActions: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F \u0441 \u043D\u0435\u0434\u0430\u0432\u043D\u0438\u043C\u0438",
     newChat: "\u041D\u043E\u0432\u044B\u0439 \u0447\u0430\u0442",
@@ -2259,7 +2449,7 @@ var sidebarCopy = {
 };
 function visibleControl(selector) {
   return [...document.querySelectorAll(selector)].find(
-    (control3) => !control3.disabled && !control3.closest("[inert], [hidden]") && control3.getClientRects().length && getComputedStyle(control3).visibility === "visible"
+    (control4) => !control4.disabled && !control4.closest("[inert], [hidden]") && control4.getClientRects().length && getComputedStyle(control4).visibility === "visible"
   );
 }
 function newChat() {
@@ -2287,7 +2477,7 @@ function edit(command2) {
     cancelable: true
   }));
 }
-function WindowMenus({ menus: menus2 }) {
+function WindowMenus({ menus: menus2, label: label3 }) {
   const [current, setCurrent] = useState(null);
   const openMenu = useRef(null);
   const triggers = useRef(/* @__PURE__ */ new Map());
@@ -2320,7 +2510,7 @@ function WindowMenus({ menus: menus2 }) {
     if (openMenu.current) show(id2);
     else triggers.current.get(id2)?.focus();
   }
-  return h3("nav", { "aria-label": "\u041C\u0435\u043D\u044E \u043E\u043A\u043D\u0430", "data-hcv-window-menu": "" }, menus2.map(([id2, label3, items2], index) => {
+  return h3("nav", { "aria-label": label3, "data-hcv-window-menu": "" }, menus2.map(([id2, label4, items2], index) => {
     const open = current === id2;
     const change = (next) => {
       if (next || openMenu.current === id2) show(next ? id2 : null);
@@ -2342,7 +2532,7 @@ function WindowMenus({ menus: menus2 }) {
         onClick: (event) => {
           if (event.detail === 0) change(!open);
         }
-      }, label3)),
+      }, label4)),
       open && h3(DropdownMenuContent, {
         align: "start",
         sideOffset: 0,
@@ -2374,6 +2564,7 @@ function windowMenuShortcut(action, fallback) {
 }
 function WindowChrome({ themeName: themeName2, recentRows }) {
   const selected = useTheme().themeName === themeName2;
+  const { locale } = useI18n();
   const [historyState, setHistoryState] = useState({ back: false, forward: false });
   useLayoutEffect(() => {
     if (!selected) return;
@@ -2392,27 +2583,67 @@ function WindowChrome({ themeName: themeName2, recentRows }) {
     return () => window.navigation.removeEventListener("currententrychange", update);
   }, [selected]);
   if (!selected) return null;
+  const ru = locale?.toLowerCase().startsWith("ru");
+  const text = ru ? {
+    menu: "\u041C\u0435\u043D\u044E \u043E\u043A\u043D\u0430",
+    file: "\u0424\u0430\u0439\u043B",
+    newChat: "\u041D\u043E\u0432\u044B\u0439 \u0447\u0430\u0442",
+    projectFiles: "\u0424\u0430\u0439\u043B\u044B \u043F\u0440\u043E\u0435\u043A\u0442\u0430",
+    settings: "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438",
+    edit: "\u041F\u0440\u0430\u0432\u043A\u0430",
+    undo: "\u041E\u0442\u043C\u0435\u043D\u0438\u0442\u044C \u0432\u0432\u043E\u0434",
+    redo: "\u041F\u043E\u0432\u0442\u043E\u0440\u0438\u0442\u044C \u0432\u0432\u043E\u0434",
+    selectAll: "\u0412\u044B\u0434\u0435\u043B\u0438\u0442\u044C \u0442\u0435\u043A\u0441\u0442 \u0432\u0432\u043E\u0434\u0430",
+    view: "\u0412\u0438\u0434",
+    sessions: "\u0421\u0435\u0430\u043D\u0441\u044B",
+    bots: "\u0411\u043E\u0442\u044B",
+    grouping: "\u0413\u0440\u0443\u043F\u043F\u0438\u0440\u043E\u0432\u043A\u0430 \u043F\u0440\u043E\u0435\u043A\u0442\u043E\u0432 \u0438 \u0447\u0430\u0442\u043E\u0432",
+    right: "\u041F\u0440\u0430\u0432\u0430\u044F \u043F\u0430\u043D\u0435\u043B\u044C",
+    help: "\u0421\u043F\u0440\u0430\u0432\u043A\u0430",
+    about: "\u041E \u043F\u0440\u043E\u0433\u0440\u0430\u043C\u043C\u0435",
+    back: "\u041D\u0430\u0437\u0430\u0434",
+    forward: "\u0412\u043F\u0435\u0440\u0451\u0434"
+  } : {
+    menu: "Window menu",
+    file: "File",
+    newChat: "New chat",
+    projectFiles: "Project files",
+    settings: "Settings",
+    edit: "Edit",
+    undo: "Undo typing",
+    redo: "Redo typing",
+    selectAll: "Select input text",
+    view: "View",
+    sessions: "Sessions",
+    bots: "Bots",
+    grouping: "Group projects and chats",
+    right: "Right sidebar",
+    help: "Help",
+    about: "About",
+    back: "Back",
+    forward: "Forward"
+  };
   const menus2 = [
-    ["file", "\u0424\u0430\u0439\u043B", [
-      ["\u041D\u043E\u0432\u044B\u0439 \u0447\u0430\u0442", newChat, false, windowMenuShortcut("session.new", "mod+n")],
-      ["\u0424\u0430\u0439\u043B\u044B \u043F\u0440\u043E\u0435\u043A\u0442\u0430", () => host5.revealPane("files")],
+    ["file", text.file, [
+      [text.newChat, newChat, false, windowMenuShortcut("session.new", "mod+n")],
+      [text.projectFiles, () => host5.revealPane("files")],
       [null],
-      ["\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438", () => host5.navigate("/settings"), false, windowMenuShortcut("nav.settings", "mod+,")]
+      [text.settings, () => host5.navigate("/settings"), false, windowMenuShortcut("nav.settings", "mod+,")]
     ]],
-    ["edit", "\u041F\u0440\u0430\u0432\u043A\u0430", [
-      ["\u041E\u0442\u043C\u0435\u043D\u0438\u0442\u044C \u0432\u0432\u043E\u0434", () => edit("undo")],
-      ["\u041F\u043E\u0432\u0442\u043E\u0440\u0438\u0442\u044C \u0432\u0432\u043E\u0434", () => edit("redo")],
+    ["edit", text.edit, [
+      [text.undo, () => edit("undo")],
+      [text.redo, () => edit("redo")],
       [null],
-      ["\u0412\u044B\u0434\u0435\u043B\u0438\u0442\u044C \u0442\u0435\u043A\u0441\u0442 \u0432\u0432\u043E\u0434\u0430", () => edit("selectAll")]
+      [text.selectAll, () => edit("selectAll")]
     ]],
-    ["view", "\u0412\u0438\u0434", [
-      ["\u0421\u0435\u0430\u043D\u0441\u044B", () => host5.revealPane("sessions")],
-      ["\u0411\u043E\u0442\u044B", () => host5.revealPane("hermes-bots:pane")],
+    ["view", text.view, [
+      [text.sessions, () => host5.revealPane("sessions")],
+      [text.bots, () => host5.revealPane("hermes-bots:pane")],
       [null],
-      ["\u0413\u0440\u0443\u043F\u043F\u0438\u0440\u043E\u0432\u043A\u0430 \u043F\u0440\u043E\u0435\u043A\u0442\u043E\u0432 \u0438 \u0447\u0430\u0442\u043E\u0432", openGrouping, () => !visibleControl(filterSelector)],
-      ["\u041F\u0440\u0430\u0432\u0430\u044F \u043F\u0430\u043D\u0435\u043B\u044C", () => visibleControl('[data-tour="right-pane-toggle"]')?.click(), false, windowMenuShortcut("view.toggleRightSidebar", "mod+j")]
+      [text.grouping, openGrouping, () => !visibleControl(filterSelector)],
+      [text.right, () => visibleControl('[data-tour="right-pane-toggle"]')?.click(), false, windowMenuShortcut("view.toggleRightSidebar", "mod+j")]
     ]],
-    ["help", "\u0421\u043F\u0440\u0430\u0432\u043A\u0430", [["\u041E \u043F\u0440\u043E\u0433\u0440\u0430\u043C\u043C\u0435", () => host5.navigate("/settings?tab=about")]]]
+    ["help", text.help, [[text.about, () => host5.navigate("/settings?tab=about")]]]
   ];
   return h3(
     Fragment,
@@ -2420,10 +2651,10 @@ function WindowChrome({ themeName: themeName2, recentRows }) {
     h3(
       "div",
       { "data-hcv-history": "" },
-      h3("button", { type: "button", "aria-label": "\u041D\u0430\u0437\u0430\u0434", title: "\u041D\u0430\u0437\u0430\u0434", disabled: !historyState.back, onClick: () => history.back() }, icon("back")),
-      h3("button", { type: "button", "aria-label": "\u0412\u043F\u0435\u0440\u0451\u0434", title: "\u0412\u043F\u0435\u0440\u0451\u0434", disabled: !historyState.forward, onClick: () => history.forward() }, icon("forward"))
+      h3("button", { type: "button", "aria-label": text.back, title: text.back, disabled: !historyState.back, onClick: () => history.back() }, icon("back")),
+      h3("button", { type: "button", "aria-label": text.forward, title: text.forward, disabled: !historyState.forward, onClick: () => history.forward() }, icon("forward"))
     ),
-    h3(WindowMenus, { menus: menus2 }),
+    h3(WindowMenus, { menus: menus2, label: text.menu }),
     h3(NativeRecentRows, { rows: recentRows })
   );
 }
@@ -3424,7 +3655,7 @@ function registerWorkspaceChrome(ctx, themeName2) {
     background: currentColor;
     mask: ${codexMask("folder")} center / contain no-repeat;
   }
-  ${side} [data-hcv-project-row]:has([data-hcv-project-name][aria-expanded="true"]) .codicon-folder-library::before { mask-image: ${codexMask("folderOpen")}; }
+  ${side} [data-hcv-project-row]:has([data-hcv-project-name][aria-expanded="true"]) :is(.codicon-folder-library, .codicon-repo)::before { mask-image: ${codexMask("folderOpen")}; }
   ${codexIconRules(`${side} [data-sessions-project]:not([data-sessions-mode]) .codicon-home`, "home")}
   ${side} [data-hcv-recents] { margin-block: 12px 5px; }
   ${side} [data-hcv-recents-header] { display: flex; align-items: center; justify-content: space-between; padding-inline: 0 4px; min-block-size: 32px; }
@@ -3521,7 +3752,7 @@ import {
   host as host10,
   TITLEBAR_AREAS as TITLEBAR_AREAS3,
   Tip,
-  useI18n as useI18n4,
+  useI18n as useI18n5,
   useTheme as useTheme2,
   useValue as useValue4
 } from "@hermes/plugin-sdk";
@@ -3587,7 +3818,7 @@ function attachPlayer(card2, audio) {
   card2.insertBefore(player, audio);
   card2.setAttribute(mark, "");
   function sync() {
-    const ru = document.documentElement.lang.startsWith("ru");
+    const ru = /^ru\b/i.test(document.documentElement.lang);
     const name = nativeTitle.textContent.trim();
     const unavailable = !!audio.error;
     const playing = !audio.paused && !audio.ended;
@@ -3639,11 +3870,14 @@ function attachPlayer(card2, audio) {
   }, { signal });
   for (const event of mediaEvents) audio.addEventListener(event, sync, { signal });
   sync();
-  return () => {
-    listeners.abort();
-    player.remove();
-    card2.removeAttribute(mark);
-    card2.removeAttribute("data-hcv-audio-expanded");
+  return {
+    sync,
+    remove() {
+      listeners.abort();
+      player.remove();
+      card2.removeAttribute(mark);
+      card2.removeAttribute("data-hcv-audio-expanded");
+    }
   };
 }
 function registerChatAudio(ctx, active2, selector) {
@@ -3660,6 +3894,7 @@ function registerChatAudio(ctx, active2, selector) {
     box-sizing: border-box;
     inline-size: 100%;
     max-inline-size: 32rem;
+    container: hcv-audio-card / inline-size;
     padding: 0;
     border: 0;
     border-radius: 10px;
@@ -3764,16 +3999,25 @@ function registerChatAudio(ctx, active2, selector) {
     outline: 2px solid var(--hcv-focus);
     outline-offset: 1px;
   }
+  @container hcv-audio-card (max-width: 175px) {
+    ${card2} .hcv-audio-header { flex-wrap: wrap; }
+    ${card2} .hcv-audio-info { flex: 1 1 calc(100% - 64px); }
+    ${card2} .hcv-audio-play { margin-inline-start: auto; }
+  }
+  @container hcv-audio-card (max-width: 110px) {
+    ${card2} .hcv-audio-timeline { flex-wrap: wrap; }
+    ${card2} .hcv-audio-timeline input { flex: 1 1 30px; }
+  }
 }
 `, { surface: `[${mark}]` });
   function clear() {
-    for (const remove of players.values()) remove();
+    for (const player of players.values()) player.remove();
     players.clear();
   }
   function collect() {
-    for (const [audio, remove] of players) {
+    for (const [audio, player] of players) {
       if (audio.isConnected && audio.matches(selector)) continue;
-      remove();
+      player.remove();
       players.delete(audio);
     }
     for (const audio of document.querySelectorAll(selector)) {
@@ -3793,8 +4037,13 @@ function registerChatAudio(ctx, active2, selector) {
     collect();
     changes2.observe(document.body, { childList: true, subtree: true });
   }
-  const theme2 = new MutationObserver(reconcile);
-  theme2.observe(root, { attributes: true, attributeFilter: ["data-hermes-theme"] });
+  const theme2 = new MutationObserver((records) => {
+    if (records.some((record) => record.attributeName === "data-hermes-theme")) reconcile();
+    if (records.some((record) => record.attributeName === "lang")) {
+      for (const player of players.values()) player.sync();
+    }
+  });
+  theme2.observe(root, { attributes: true, attributeFilter: ["data-hermes-theme", "lang"] });
   forcedColors.addEventListener("change", reconcile);
   reconcile();
   ctx.onDispose(() => {
@@ -3913,11 +4162,12 @@ function saveVideo(video, filename) {
 function attachPlayer2(card2, video) {
   const controller = new AbortController();
   const { signal } = controller;
-  const locale = /^ru\b/i.test(document.documentElement.lang) ? "ru" : "en";
-  const copy7 = labels[locale];
-  const formatPercent = new Intl.NumberFormat(locale, { style: "percent" });
-  const formatRate = new Intl.NumberFormat(locale);
-  const filename = card2.firstElementChild?.textContent.trim() || copy7.video;
+  let locale = /^ru\b/i.test(document.documentElement.lang) ? "ru" : "en";
+  let copy7 = labels[locale];
+  let formatPercent = new Intl.NumberFormat(locale, { style: "percent" });
+  let formatRate = new Intl.NumberFormat(locale);
+  const nativeTitle = card2.firstElementChild;
+  const filename = () => nativeTitle?.textContent.trim() || copy7.video;
   const nativeAttrs = ["controls", "tabindex", "preload", "aria-label"].map((name) => [name, video.getAttribute(name)]);
   const controls2 = element4("span", "hcv-video-controls");
   const row5 = element4("span", "hcv-video-row");
@@ -3959,7 +4209,7 @@ function attachPlayer2(card2, video) {
   video.controls = false;
   video.tabIndex = 0;
   video.preload = "metadata";
-  video.setAttribute("aria-label", filename);
+  video.setAttribute("aria-label", filename());
   const listen = (el2, type, fn, extra) => el2.addEventListener(type, fn, { signal, ...extra });
   const duration4 = () => Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
   let drag = null;
@@ -3994,6 +4244,30 @@ function attachPlayer2(card2, video) {
   }
   function updateSpeed() {
     for (const [i, item] of speedItems.entries()) item.setAttribute("aria-checked", video.playbackRate === rates[i]);
+  }
+  function localize() {
+    locale = /^ru\b/i.test(document.documentElement.lang) ? "ru" : "en";
+    copy7 = labels[locale];
+    formatPercent = new Intl.NumberFormat(locale, { style: "percent" });
+    formatRate = new Intl.NumberFormat(locale);
+    status2.textContent = copy7.error;
+    seek.setAttribute("aria-label", copy7.seek);
+    volume.setAttribute("aria-label", copy7.volume);
+    mute.setAttribute("aria-label", copy7.mute);
+    volumeRange.setAttribute("aria-label", copy7.volume);
+    sound.setAttribute("aria-label", copy7.volume);
+    options.setAttribute("aria-label", copy7.options);
+    menu.setAttribute("aria-label", copy7.options);
+    save.textContent = copy7.save;
+    heading.textContent = copy7.speed;
+    for (const [i, item] of speedItems.entries()) item.textContent = `${formatRate.format(rates[i])}\xD7`;
+    if (pip) pip.textContent = copy7.pictureInPicture;
+    const full = document.fullscreenElement === card2;
+    fullscreen.setAttribute("aria-label", full ? copy7.exitFullscreen : copy7.fullscreen);
+    video.setAttribute("aria-label", filename());
+    if (full) card2.setAttribute("aria-label", filename());
+    updatePlayback();
+    updateVolume();
   }
   const togglePlayback = () => void run(() => video.paused ? video.play() : video.pause());
   listen(video, "click", (event) => {
@@ -4072,7 +4346,7 @@ function attachPlayer2(card2, video) {
       void run(action);
     });
   }
-  choose(save, () => saveVideo(video, filename));
+  choose(save, () => saveVideo(video, filename()));
   for (const [i, item] of speedItems.entries()) choose(item, () => {
     video.playbackRate = rates[i];
   });
@@ -4085,7 +4359,7 @@ function attachPlayer2(card2, video) {
     fullscreen.setAttribute("aria-label", enabled ? copy7.exitFullscreen : copy7.fullscreen);
     if (enabled) {
       card2.setAttribute("role", "dialog");
-      card2.setAttribute("aria-label", filename);
+      card2.setAttribute("aria-label", filename());
       video.focus({ preventScroll: true });
     } else if (wasFullscreen) {
       fullscreen.focus({ preventScroll: true });
@@ -4114,21 +4388,24 @@ function attachPlayer2(card2, video) {
   updatePlayback();
   updateVolume();
   updateSpeed();
-  return () => {
-    controller.abort();
-    if (document.fullscreenElement === card2) void document.exitFullscreen().catch(() => {
-    });
-    if (wasFullscreen) {
-      card2.removeAttribute("role");
-      card2.removeAttribute("aria-label");
-    }
-    if (drag?.resume && video.isConnected) void video.play().catch(() => {
-    });
-    controls2.remove();
-    card2.removeAttribute("data-hcv-video");
-    for (const [name, value] of nativeAttrs) {
-      if (value === null) video.removeAttribute(name);
-      else video.setAttribute(name, value);
+  return {
+    localize,
+    remove() {
+      controller.abort();
+      if (document.fullscreenElement === card2) void document.exitFullscreen().catch(() => {
+      });
+      if (wasFullscreen) {
+        card2.removeAttribute("role");
+        card2.removeAttribute("aria-label");
+      }
+      if (drag?.resume && video.isConnected) void video.play().catch(() => {
+      });
+      controls2.remove();
+      card2.removeAttribute("data-hcv-video");
+      for (const [name, value] of nativeAttrs) {
+        if (value === null) video.removeAttribute(name);
+        else video.setAttribute(name, value);
+      }
     }
   };
 }
@@ -4390,7 +4667,7 @@ function registerChatVideo(ctx, active2, selector) {
     for (const video of document.querySelectorAll(selector)) {
       if (players.has(video) || !video.controls) continue;
       const card3 = video.parentElement;
-      players.set(video, { card: card3, remove: attachPlayer2(card3, video) });
+      players.set(video, { card: card3, ...attachPlayer2(card3, video) });
     }
   }
   function clear() {
@@ -4409,8 +4686,13 @@ function registerChatVideo(ctx, active2, selector) {
     collect();
     changes2.observe(document.body, { childList: true, subtree: true });
   }
-  const theme2 = new MutationObserver(reconcile);
-  theme2.observe(root, { attributes: true, attributeFilter: ["data-hermes-theme"] });
+  const theme2 = new MutationObserver((records) => {
+    if (records.some((record) => record.attributeName === "data-hermes-theme")) reconcile();
+    if (records.some((record) => record.attributeName === "lang")) {
+      for (const player of players.values()) player.localize();
+    }
+  });
+  theme2.observe(root, { attributes: true, attributeFilter: ["data-hermes-theme", "lang"] });
   forcedColors.addEventListener("change", reconcile);
   reconcile();
   ctx.onDispose(() => {
@@ -4438,7 +4720,7 @@ function registerChatResources(ctx, active2) {
   const withPreview = `${preview3}:not(${directoryCard})`;
   const open = `${withPreview} > button:last-child`;
   const trailing = `${preview3} > ${secondaryAction}`;
-  const secondary = `${preview3} > ${secondaryAction}:not(:last-child)`;
+  const secondary2 = `${preview3} > ${secondaryAction}:not(:last-child)`;
   const reveal = `${preview3} > button:has(> ${revealIcon})`;
   const media2 = `${answer2} .aui-md span[class~="bg-muted/35"]`;
   const image = `${thread} :is([data-slot="aui_embedded-images"], [data-slot="aui_markdown-image"])`;
@@ -4576,7 +4858,7 @@ function registerChatResources(ctx, active2) {
   ${artifact}:focus-visible > span:nth-child(3) { opacity: 1; }
   /* GnI8 in 904817.6fbcca27bc.js reveals the trailing action on hover or focus. */
   @media (hover: hover) {
-    ${secondary}:not(:disabled) { opacity: 0; pointer-events: none; }
+    ${secondary2}:not(:disabled) { opacity: 0; pointer-events: none; }
     ${preview3}:is(:hover, :focus-within) > ${secondaryAction}:not(:last-child):not(:disabled) {
       opacity: 1;
       pointer-events: auto;
@@ -4591,10 +4873,10 @@ function registerChatResources(ctx, active2) {
     ${artifact} > span:nth-child(3) { opacity: 1; }
   }
   @media (prefers-reduced-motion: reduce) {
-    :is(${preview3}, ${artifact}, ${secondary}, ${artifact} > span:nth-child(3)) { transition: none; }
+    :is(${preview3}, ${artifact}, ${secondary2}, ${artifact} > span:nth-child(3)) { transition: none; }
   }
   ${withPreview}:has(> button:last-child:focus-visible),
-  :is(${artifact}, ${secondary}, ${reveal}, ${imageDownload}):focus-visible,
+  :is(${artifact}, ${secondary2}, ${reveal}, ${imageDownload}):focus-visible,
   ${generated2} > button:first-of-type:focus-visible {
     outline: 2px solid var(--hcv-focus);
     outline-offset: -2px;
@@ -4615,7 +4897,7 @@ function registerChatResources(ctx, active2) {
     background: var(--hcv-panel);
     color: var(--hcv-muted);
   }
-  :is(${secondary}, ${reveal}, ${imageDownload}):not(:disabled):hover {
+  :is(${secondary2}, ${reveal}, ${imageDownload}):not(:disabled):hover {
     background: var(--hcv-selected);
     color: var(--hcv-text);
   }
@@ -4635,7 +4917,7 @@ function registerChatResources(ctx, active2) {
 }
 
 // source/summary-sources-view.js
-import { DropdownMenu as DropdownMenu2, DropdownMenuContent as DropdownMenuContent2, DropdownMenuItem as DropdownMenuItem2, DropdownMenuTrigger as DropdownMenuTrigger2, useI18n } from "@hermes/plugin-sdk";
+import { DropdownMenu as DropdownMenu2, DropdownMenuContent as DropdownMenuContent2, DropdownMenuItem as DropdownMenuItem2, DropdownMenuTrigger as DropdownMenuTrigger2, useI18n as useI18n2 } from "@hermes/plugin-sdk";
 import { createElement as h5, useRef as useRef2, useState as useState2 } from "react";
 
 // source/summary-section.js
@@ -4807,7 +5089,7 @@ function openComposerMenu(getChat) {
   });
 }
 function CompactSources({ rows = [], connectors, loading, onExpand, onConnectors, onOpenSource, getChat, disclosure: disclosure2 }) {
-  const { locale } = useI18n();
+  const { locale } = useI18n2();
   const copy7 = labels2[locale] || labels2.en;
   const [menuOpen, setMenuOpen] = useState2(false);
   const movingFocus = useRef2(false);
@@ -4856,7 +5138,7 @@ function CompactSources({ rows = [], connectors, loading, onExpand, onConnectors
   );
 }
 function CompactSummaryItems({ kind, rows, onOpenSource, disclosure: disclosure2 }) {
-  const { locale } = useI18n();
+  const { locale } = useI18n2();
   const copy7 = labels2[locale] || labels2.en;
   if (!rows.length) return null;
   return h5(
@@ -4866,7 +5148,7 @@ function CompactSummaryItems({ kind, rows, onOpenSource, disclosure: disclosure2
   );
 }
 function SourcesPane({ rows = [], connectors, loading, onConnectors, onOpenSource }) {
-  const { locale } = useI18n();
+  const { locale } = useI18n2();
   const copy7 = labels2[locale] || labels2.en;
   const items2 = [...rows, ...connectorRows(connectors)];
   return h5(
@@ -4982,7 +5264,7 @@ function sourceFrom(node3) {
     return { kind: "image", key: src, name: name2, meta: path, thumbnail, attached, action: action2, section: section3 };
   }
   if (node3.matches(filePreview)) {
-    const label4 = node3.previousElementSibling?.previousElementSibling;
+    const label4 = node3.parentElement?.querySelector(":scope > span[title]");
     const name2 = label4?.textContent.trim();
     return name2 ? {
       kind: "artifacts",
@@ -5011,6 +5293,7 @@ function useChatSources(getChat, scopeKey3, enabled) {
     let frame = 0;
     let chat3 = null;
     let body2 = null;
+    const labels12 = new MutationObserver(queue);
     const content = new MutationObserver((records) => {
       if (records.some(({ type, target, addedNodes, removedNodes }) => type === "attributes" && target.matches("a, img") || target.closest(sourceContainer) || [addedNodes, removedNodes].some((nodes) => Array.prototype.some.call(
         nodes,
@@ -5036,7 +5319,15 @@ function useChatSources(getChat, scopeKey3, enabled) {
         }
       }
       const unique = /* @__PURE__ */ new Map();
-      for (const node3 of [...body2?.querySelectorAll(candidates) || []].reverse()) {
+      const nodes = [...body2?.querySelectorAll(candidates) || []];
+      labels12.disconnect();
+      for (const node3 of nodes) {
+        const label3 = node3.matches(filePreview) ? node3.parentElement : node3;
+        if (!(node3 instanceof HTMLImageElement) && label3) {
+          labels12.observe(label3, { characterData: true, subtree: true });
+        }
+      }
+      for (const node3 of nodes.reverse()) {
         const row5 = sourceFrom(node3);
         const key = row5 && `${row5.kind}:${row5.key}`;
         if (key && !unique.has(key)) unique.set(key, row5);
@@ -5053,6 +5344,7 @@ function useChatSources(getChat, scopeKey3, enabled) {
       if (frame) cancelAnimationFrame(frame);
       mounts.disconnect();
       content.disconnect();
+      labels12.disconnect();
       body2?.removeEventListener("load", queue, true);
     };
   }, [getChat, scopeKey3, enabled]);
@@ -5218,12 +5510,17 @@ function savedResponse(rows) {
     timestamp: message.timestamp
   })).filter((message) => message.text);
 }
-function useChildResponse({ subagentId, childSession, status: status2, model }, scope3) {
+function liveActivity(history2, live) {
+  let overlap = Math.min(history2.length, live.length);
+  while (overlap && !history2.slice(-overlap).every((step2, index) => live[index] === step2 || live[index].startsWith(step2 + " \xB7 "))) overlap--;
+  return [...history2.slice(0, history2.length - overlap), ...live];
+}
+function useChildResponse({ subagentId, childSession, status: status2, model }, scope4) {
   const [snapshot, setSnapshot] = useState4(null);
-  const key = JSON.stringify([scope3, subagentId, childSession]);
+  const key = JSON.stringify([scope4, subagentId, childSession]);
   useEffect3(() => {
-    if (!subagentId && !childSession || !scope3) return;
-    const [connectionId, profile2, parent] = JSON.parse(scope3);
+    if (!subagentId && !childSession || !scope4) return;
+    const [connectionId, profile2, parent] = JSON.parse(scope4);
     if (childSession === parent) return;
     let current = true;
     const sameOwner = () => current && host6.state.activeSessionId.get() === parent && (host6.state.connectionId.get() || null) === connectionId && normalizeProfile(host6.state.profile.get()) === profile2;
@@ -5287,7 +5584,7 @@ function useChildResponse({ subagentId, childSession, status: status2, model }, 
     return () => {
       current = false;
     };
-  }, [subagentId, childSession, scope3, status2, key, model]);
+  }, [subagentId, childSession, scope4, status2, key, model]);
   return snapshot?.key === key ? snapshot : null;
 }
 var markdownComponents = {
@@ -5304,24 +5601,26 @@ function responseMarkdown(text) {
     return text;
   }
 }
-function AgentDetail({ agent, scope: scope3, now, copy: copy7, lang, dark: dark2, avatarUrl: avatarUrl2, onBack, nativeActions: nativeActions2, openNativeAgent: openNativeAgent2 }) {
+function AgentDetail({ agent, scope: scope4, now, copy: copy7, lang, dark: dark2, avatarUrl: avatarUrl2, onBack, nativeActions: nativeActions2, openNativeAgent: openNativeAgent2 }) {
   const back = useRef3(null);
   useLayoutEffect2(() => {
     back.current?.focus({ preventScroll: true });
   }, []);
-  const snapshot = useChildResponse(agent, scope3);
+  const snapshot = useChildResponse(agent, scope4);
   const completed = finished(agent);
   const model = [agent.model || snapshot?.model, agent.effort && reasoningEffortLabel(agent.effort)].filter(Boolean).join(" \xB7 ");
   const elapsed = agent.durationSeconds ?? snapshot?.elapsed ?? (agent.startedAt && ((agent.finishedAt || now) - agent.startedAt) / 1e3);
   const durationLabel = elapsed == null ? null : (completed || snapshot?.elapsed != null ? copy7.worked : copy7.elapsed)(formatDuration(elapsed));
   const statusLabel = copy7.status[agent.status];
-  const activity = snapshot?.steps?.length ? snapshot.steps : agent.activity || [];
+  const history2 = snapshot?.steps || [];
+  const live = agent.activity || [];
+  const activity = !completed || snapshot?.status !== agent.status ? liveActivity(history2, live) : history2.length ? history2 : live;
   const source = snapshot?.messages.length ? "transcript" : agent.summary ? "summary" : void 0;
   const result = source === "transcript" ? snapshot.messages : source === "summary" ? [{ text: agent.summary }] : [];
   const timestamp2 = result.at(-1)?.timestamp;
   const writtenAt = Number.isFinite(timestamp2) && timestamp2 > 0 ? new Date(timestamp2 * 1e3) : null;
   const openable = snapshot?.child ? { ...agent, childSession: snapshot.child, lifecycleChild: true } : agent;
-  const destinations = nativeActions2(openable, scope3);
+  const destinations = nativeActions2(openable, scope4);
   const readsHistory = agent.subagentId || agent.childSession && window.hermesDesktop?.api;
   const loading = Boolean(readsHistory && (!snapshot || snapshot.status !== agent.status));
   const label3 = goalLabel(agent, copy7);
@@ -5342,7 +5641,7 @@ function AgentDetail({ agent, scope: scope3, now, copy: copy7, lang, dark: dark2
         "data-hcv-subagent-native": action,
         "aria-label": copy7[action],
         title: copy7[action],
-        onClick: () => openNativeAgent2(openable, scope3, action)
+        onClick: () => openNativeAgent2(openable, scope4, action)
       },
       h6(Glyph, { name: action === "native" ? "open" : "chatTab" })
     )),
@@ -5402,7 +5701,7 @@ function AgentDetail({ agent, scope: scope3, now, copy: copy7, lang, dark: dark2
     )
   );
 }
-function AgentPane({ agents, scope: scope3, lang, dark: dark2, avatarUrl: avatarUrl2, nativeActions: nativeActions2, openNativeAgent: openNativeAgent2 }) {
+function AgentPane({ agents, scope: scope4, lang, dark: dark2, avatarUrl: avatarUrl2, nativeActions: nativeActions2, openNativeAgent: openNativeAgent2 }) {
   const copy7 = labels3[lang];
   const [selected, setSelected] = useState4(null);
   const pane = useRef3(null);
@@ -5457,7 +5756,7 @@ function AgentPane({ agents, scope: scope3, lang, dark: dark2, avatarUrl: avatar
     agent && h6(AgentDetail, {
       key: agent.id,
       agent,
-      scope: scope3,
+      scope: scope4,
       now,
       copy: copy7,
       lang,
@@ -5896,25 +6195,25 @@ function styleDelegateRows(state, agents, dark2) {
   }
   state.glyphs = next;
 }
-function localWatchProfile(agent, scope3) {
-  if (!agent.lifecycleChild || !agent.childSession || !scope3 || typeof window.hermesDesktop?.openSessionWindow !== "function") return null;
-  const [connection, owner, parent] = JSON.parse(scope3);
+function localWatchProfile(agent, scope4) {
+  if (!agent.lifecycleChild || !agent.childSession || !scope4 || typeof window.hermesDesktop?.openSessionWindow !== "function") return null;
+  const [connection, owner, parent] = JSON.parse(scope4);
   return connection === "local" && agent.childSession !== parent ? owner : null;
 }
-function nativeActions(agent, scope3) {
+function nativeActions(agent, scope4) {
   return [
-    (agent.canOpen || localWatchProfile(agent, scope3)) && "native",
+    (agent.canOpen || localWatchProfile(agent, scope4)) && "native",
     agent.receiptButton && "receipt"
   ].filter(Boolean);
 }
-function openNativeAgent(agent, scope3, action = "native") {
-  if (!scope3 || scope3 !== scopeKey2(host7.state.activeSessionId.get(), host7.state.connectionId.get(), host7.state.profile.get())) return;
+function openNativeAgent(agent, scope4, action = "native") {
+  if (!scope4 || scope4 !== scopeKey2(host7.state.activeSessionId.get(), host7.state.connectionId.get(), host7.state.profile.get())) return;
   if (action === "native") {
     if (agent.canOpen && agent.button?.isConnected && !agent.button.disabled) {
       agent.button.click();
       return;
     }
-    const owner = localWatchProfile(agent, scope3);
+    const owner = localWatchProfile(agent, scope4);
     if (owner) {
       const errorTitle = language() === "ru" ? "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u043F\u043E\u0434\u0440\u043E\u0431\u043D\u043E\u0441\u0442\u0438 \u0441\u0443\u0431\u0430\u0433\u0435\u043D\u0442\u0430" : "Could not open subagent details";
       void window.hermesDesktop.openSessionWindow(agent.childSession, { profile: owner, watch: true }).then((result) => {
@@ -5934,8 +6233,8 @@ function useScopedRoster(roster) {
   const session = useValue(host7.state.activeSessionId);
   const connection = useValue(host7.state.connectionId);
   const name = useValue(host7.state.profile);
-  const scope3 = scopeKey2(session, connection, name);
-  return value.scope === scope3 ? value : { ...value, scope: scope3, agents: [] };
+  const scope4 = scopeKey2(session, connection, name);
+  return value.scope === scope4 ? value : { ...value, scope: scope4, agents: [] };
 }
 function SubagentsPane({ roster }) {
   const value = useScopedRoster(roster);
@@ -6046,13 +6345,13 @@ function registerSubagents(ctx, active2) {
   const queue = () => {
     if (!frame) frame = requestAnimationFrame(reconcile);
   };
-  async function refresh(scope3) {
-    if (disposed || scope3 !== getScope() || !enabled() || reading?.scope === scope3) return;
-    const request = { scope: scope3 };
+  async function refresh(scope4) {
+    if (disposed || scope4 !== getScope() || !enabled() || reading?.scope === scope4) return;
+    const request = { scope: scope4 };
     reading = request;
     try {
       const result = await host7.request("subagent.list", { session_id: host7.state.activeSessionId.get() }, 5e3);
-      if (disposed || reading !== request || scope3 !== getScope() || !Array.isArray(result?.subagents)) return;
+      if (disposed || reading !== request || scope4 !== getScope() || !Array.isArray(result?.subagents)) return;
       const agents = /* @__PURE__ */ new Map();
       for (const item of result.subagents) {
         const id2 = tidy(item?.subagent_id);
@@ -6073,7 +6372,7 @@ function registerSubagents(ctx, active2) {
           activity: tool ? [tool] : noActivity
         });
       }
-      snapshot = { scope: scope3, agents };
+      snapshot = { scope: scope4, agents };
       queue();
     } catch {
     } finally {
@@ -6083,23 +6382,23 @@ function registerSubagents(ctx, active2) {
   for (const type of ["subagent.spawn_requested", "subagent.start", "subagent.tool", "subagent.progress", "subagent.complete"]) {
     ctx.onEvent(type, (event) => {
       if (!event.session_id || !event.payload || !enabled()) return;
-      const scope3 = scopeKey2(
+      const scope4 = scopeKey2(
         event.session_id,
         event.connectionId || host7.state.connectionId.get(),
         event.profile || host7.state.profile.get()
       );
-      if (scope3 !== getScope() && !(event.connectionId && event.profile)) return;
+      if (scope4 !== getScope() && !(event.connectionId && event.profile)) return;
       const payload = event.payload;
       const goal = tidy(payload.goal);
       const subagentId = tidy(payload.subagent_id);
       if (!subagentId && !goal) return;
       const id2 = subagentId || JSON.stringify([payload.delegation_id, payload.parent_id, payload.task_index, goal]);
-      const list = runtimeAgents.get(scope3) || /* @__PURE__ */ new Map();
+      const list = runtimeAgents.get(scope4) || /* @__PURE__ */ new Map();
       const previous = list.get(id2);
       if (previous && (final(previous.status) || event.seq != null && previous.seq >= event.seq)) return;
       const status2 = eventStatus(event, previous);
       if (previous?.started && status2 === "queued") return;
-      const turn = previous?.turn || (scope3 === getScope() ? getPrompt([...document.querySelectorAll(primary + " " + transcript2 + " " + pair)].at(-1)) : null);
+      const turn = previous?.turn || (scope4 === getScope() ? getPrompt([...document.querySelectorAll(primary + " " + transcript2 + " " + pair)].at(-1)) : null);
       const time = timestamp(event.timestamp) ?? (event.replayed ? void 0 : Date.now());
       const childSession = tidy(payload.child_session_id) || previous?.childSession;
       list.set(id2, {
@@ -6124,8 +6423,8 @@ function registerSubagents(ctx, active2) {
         activity: eventActivity(event, previous)
       });
       if (list.size > 200) list.delete(list.keys().next().value);
-      runtimeAgents.delete(scope3);
-      runtimeAgents.set(scope3, list);
+      runtimeAgents.delete(scope4);
+      runtimeAgents.set(scope4, list);
       if (runtimeAgents.size > 32) runtimeAgents.delete(runtimeAgents.keys().next().value);
       queue();
     });
@@ -6135,9 +6434,9 @@ function registerSubagents(ctx, active2) {
     const on = enabled();
     const dark2 = root.dataset.hermesMode === "dark";
     const lang = language();
-    const scope3 = on ? getScope() : null;
-    if (snapshot?.scope !== scope3) snapshot = null;
-    const observed = runtimeAgents.get(scope3);
+    const scope4 = on ? getScope() : null;
+    if (snapshot?.scope !== scope4) snapshot = null;
+    const observed = runtimeAgents.get(scope4);
     const live = snapshot ? new Map([...snapshot.agents, ...observed || []]) : observed;
     const claimed = /* @__PURE__ */ new Set();
     const activeCards = new Set(on ? document.querySelectorAll(surface + " " + transcript2 + " " + delegate) : []);
@@ -6193,7 +6492,7 @@ function registerSubagents(ctx, active2) {
         continue;
       }
       if (!cards.has(card2)) {
-        const owner = inPrimary ? scope3 : card2.closest(surface)?.dataset.composerSurfaceId;
+        const owner = inPrimary ? scope4 : card2.closest(surface)?.dataset.composerSurfaceId;
         const key = JSON.stringify([owner, entries.map(({ seed }) => seed)]);
         cards.set(card2, enhanceCard(card2, ++nextId, expanded, key));
       }
@@ -6227,14 +6526,14 @@ function registerSubagents(ctx, active2) {
       }
       renderActivity(extra.get(group2), entries, lang, dark2);
     }
-    const signature = scope3 + activitySignature(agents, lang, dark2);
+    const signature = scope4 + activitySignature(agents, lang, dark2);
     const prior = roster.get().agents;
     if (signature !== rosterSignature || agents.some((agent, i) => {
       const old = prior[i];
       return !old || agent.button !== old.button || agent.canOpen !== old.canOpen || agent.model !== old.model || agent.childSession !== old.childSession || agent.subagentId !== old.subagentId || agent.lifecycleChild !== old.lifecycleChild || agent.effort !== old.effort || agent.summary !== old.summary || agent.startedAt !== old.startedAt || agent.finishedAt !== old.finishedAt || agent.updatedAt !== old.updatedAt || agent.durationSeconds !== old.durationSeconds || agent.activity !== old.activity || agent.receiptButton !== old.receiptButton;
     })) {
       rosterSignature = signature;
-      roster.set({ scope: scope3, agents, lang, dark: dark2 });
+      roster.set({ scope: scope4, agents, lang, dark: dark2 });
     }
   }
   const observer = new MutationObserver((records) => {
@@ -6282,7 +6581,7 @@ import {
   DropdownMenuSeparator as DropdownMenuSeparator2,
   DropdownMenuTrigger as DropdownMenuTrigger3,
   host as host8,
-  useI18n as useI18n2,
+  useI18n as useI18n3,
   useValue as useValue2
 } from "@hermes/plugin-sdk";
 import { createElement as h8 } from "react";
@@ -6302,7 +6601,7 @@ function icon3(kind) {
 }
 function Picker({ state, open }) {
   const menu = useValue2(state);
-  const { locale } = useI18n2();
+  const { locale } = useI18n3();
   if (!menu) return null;
   const select = (kind) => () => open(kind);
   return h8(
@@ -6345,13 +6644,14 @@ function Picker({ state, open }) {
 function registerSummaryPanes(ctx, active2, views) {
   const menu = atom2(null);
   const registrations = /* @__PURE__ */ new Map();
+  let disposed = false;
   const open = (kind) => {
     if (kind === "files") {
       host8.revealPane("files");
       return;
     }
     const render = views[kind];
-    if (!render || !document.documentElement.matches(active2) || typeof host8.openWorkspace !== "function") return;
+    if (disposed || !render || !document.documentElement.matches(active2) || typeof host8.openWorkspace !== "function") return;
     const id2 = paneId(kind);
     if (registrations.has(kind)) {
       host8.revealPane(id2);
@@ -6364,7 +6664,10 @@ function registerSummaryPanes(ctx, active2, views) {
       minWidth: "280px",
       title: copy(document.documentElement.lang)[kind],
       render: () => h8("div", { "data-hcv-summary-pane": kind }, render()),
-      onClose: () => registrations.delete(kind)
+      onClose: () => {
+        registrations.delete(kind);
+        queue();
+      }
     });
     registrations.set(kind, dispose);
     queue();
@@ -6380,17 +6683,30 @@ function registerSummaryPanes(ctx, active2, views) {
   });
   let frame = 0;
   function queue() {
-    if (!frame) frame = requestAnimationFrame(syncStrip);
+    if (!disposed && !frame) frame = requestAnimationFrame(syncStrip);
   }
   function syncStrip() {
     frame = 0;
+    if (disposed || !registrations.size) {
+      plus.remove();
+      return;
+    }
+    const language2 = copy(document.documentElement.lang);
+    for (const kind of registrations.keys()) {
+      for (const tab2 of document.querySelectorAll(paneTab(kind))) {
+        const caption2 = tab2.querySelector(".pane-tab-content .truncate");
+        if (caption2?.childNodes.length === 1 && caption2.firstChild.nodeType === Node.TEXT_NODE && caption2.firstChild.nodeValue !== language2[kind]) caption2.firstChild.nodeValue = language2[kind];
+        if (tab2.getAttribute("aria-label") !== language2[kind]) tab2.setAttribute("aria-label", language2[kind]);
+      }
+    }
     const selected2 = document.querySelector('[data-tree-tab^="' + panePrefix + '"][aria-selected="true"]');
     const list = selected2?.closest("[data-zone-tabstrip]")?.querySelector('[role="tablist"]');
     if (!list || !document.documentElement.matches(active2)) {
       plus.remove();
       return;
     }
-    plus.setAttribute("aria-label", copy(document.documentElement.lang).add);
+    const label3 = copy(document.documentElement.lang).add;
+    if (plus.getAttribute("aria-label") !== label3) plus.setAttribute("aria-label", label3);
     if (plus.parentNode !== list || plus !== list.lastElementChild) list.append(plus);
   }
   const close2 = () => {
@@ -6404,10 +6720,18 @@ function registerSummaryPanes(ctx, active2, views) {
     else queue();
   });
   observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-hermes-theme", "lang"] });
-  const stripObserver = new MutationObserver(() => {
-    if (registrations.size) queue();
+  const stripObserver = new MutationObserver((records) => {
+    if (!registrations.size) return;
+    if (records.some((record) => {
+      const target = record.target instanceof Element ? record.target : record.target.parentElement;
+      if (!(target instanceof Element)) return false;
+      if (record.type === "attributes") return target.matches('[role="tab"][data-tree-tab]');
+      if (target.closest("[data-zone-tabstrip]")) return true;
+      if (target.closest('[data-slot="aui_thread-content"], [data-hcv-summary-pane]')) return false;
+      return movedElementMatches(record, "[data-zone-tabstrip]");
+    })) queue();
   });
-  stripObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-selected"] });
+  stripObserver.observe(document.body, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ["aria-selected", "aria-label"] });
   const summaryTab = '[role="tab"][data-tree-tab^="' + panePrefix + '"]:not([data-vertical])';
   const selectedTab = summaryTab + '[aria-selected="true"]';
   const sideStrip = '[data-zone-tabstrip]:not([data-zone-tabstrip="grp-main"], [data-zone-tabstrip="grp-sessions"])';
@@ -6455,6 +6779,7 @@ function registerSummaryPanes(ctx, active2, views) {
   ].join("\n");
   mountStyle(ctx, style, { surface: '[data-tree-tab^="' + panePrefix + '"]' });
   ctx.onDispose(() => {
+    disposed = true;
     observer.disconnect();
     stripObserver.disconnect();
     if (frame) cancelAnimationFrame(frame);
@@ -6473,7 +6798,7 @@ function registerSummaryPanes(ctx, active2, views) {
 }
 
 // source/summary-changes.js
-import { useI18n as useI18n3 } from "@hermes/plugin-sdk";
+import { useI18n as useI18n4 } from "@hermes/plugin-sdk";
 import { createElement as h9, useEffect as useEffect5, useId as useId2, useState as useState5 } from "react";
 var labels5 = {
   ru: {
@@ -6507,6 +6832,23 @@ async function readReview(route, cwd, connectionId, profile2, params) {
     timeoutMs: 15e3
   });
 }
+async function readFileDiff(cwd, connectionId, profile2, file, staged) {
+  const query = new URLSearchParams({ path: cwd, file });
+  const result = await window.hermesDesktop.api({
+    connectionId,
+    profile: profile2,
+    method: "GET",
+    path: "/api/git/file-diff?" + query,
+    timeoutMs: 15e3
+  });
+  if (typeof result?.diff !== "string") throw new Error("Diff unavailable");
+  if (result.diff || !staged) return result.diff;
+  const [index, working] = await Promise.all([true, false].map((value) => readReview("diff", cwd, connectionId, profile2, { file, staged: String(value) })));
+  if (typeof index?.diff !== "string" || typeof working?.diff !== "string") throw new Error("Diff unavailable");
+  const header2 = working.diff.split(/^@@ /m, 1)[0];
+  const synthetic = /^(?:--- \/dev\/null\r?$|Binary files \/dev\/null and )/m.test(header2);
+  return [index.diff, synthetic ? "" : working.diff].filter(Boolean).join("\n");
+}
 function icon4(glyph3) {
   return h9("span", { "aria-hidden": true, className: "hcv-changes-icon", style: codexIconStyle(glyph3) });
 }
@@ -6521,9 +6863,9 @@ function FileDiff({ id: id2, cwd, connectionId, profile: profile2, path, staged,
   const [result, setResult] = useState5(null);
   useEffect5(() => {
     let live = true;
-    void readReview("diff", cwd, connectionId, profile2, { file: path, staged: String(staged) }).then(
-      (value) => {
-        if (live) setResult(typeof value?.diff === "string" ? { text: value.diff } : {});
+    void readFileDiff(cwd, connectionId, profile2, path, staged).then(
+      (text) => {
+        if (live) setResult({ text });
       },
       () => {
         if (live) setResult({});
@@ -6606,11 +6948,11 @@ function RepositoryChanges({ cwd, connectionId, profile: profile2, copy: copy7 }
     )
   );
 }
-function ChangesPane({ cwd, scope: scope3 }) {
-  const { locale } = useI18n3();
+function ChangesPane({ cwd, scope: scope4 }) {
+  const { locale } = useI18n4();
   const copy7 = labels5[locale] || labels5.en;
-  const connectionId = scope3?.connectionId;
-  const profile2 = scope3?.profile;
+  const connectionId = scope4?.connectionId;
+  const profile2 = scope4?.profile;
   return h9("div", { "data-hcv-changes-pane": "" }, cwd && connectionId && profile2 ? h9(RepositoryChanges, { key: JSON.stringify([cwd, connectionId, profile2]), cwd, connectionId, profile: profile2, copy: copy7 }) : h9("p", { className: "hcv-changes-status", role: "status" }, copy7.noProject));
 }
 function registerSummaryChanges(ctx, active2) {
@@ -6726,21 +7068,21 @@ var workspacePathKey = (value) => {
   return /^[a-z]:|^\/\//i.test(path) ? path.toLowerCase() : path;
 };
 var localOwner = (owner) => owner?.connectionId === "local" && Boolean(owner.profile);
-function gitApi(scope3, cwd, route, body2) {
-  const base = { connectionId: scope3.connectionId, profile: scope3.profile, timeoutMs: body2 ? 3e4 : 8e3 };
+function gitApi(scope4, cwd, route, body2) {
+  const base = { connectionId: scope4.connectionId, profile: scope4.profile, timeoutMs: body2 ? 3e4 : 8e3 };
   const path = "/api/git/" + route;
   return window.hermesDesktop.api(body2 ? { ...base, path, method: "POST", body: { path: cwd, ...body2 } } : { ...base, path: path + "?" + new URLSearchParams({ path: cwd }) });
 }
-async function readWorkspaceRepository(cwd, scope3) {
+async function readWorkspaceRepository(cwd, scope4) {
   if (!cwd) return null;
-  const native2 = localOwner(scope3) ? window.hermesDesktop?.git : null;
+  const native2 = localOwner(scope4) ? window.hermesDesktop?.git : null;
   const repo = await native2?.repoStatus?.(cwd).catch(() => null);
   if (repo) return { repo, native: true };
-  const fallback = await gitApi(scope3, cwd, "status").catch(() => null);
+  const fallback = await gitApi(scope4, cwd, "status").catch(() => null);
   return fallback && { repo: fallback, native: false };
 }
-async function readWorkspaceTrees(cwd, scope3, native2) {
-  const result = native2 ? await window.hermesDesktop.git.worktreeList(cwd) : (await gitApi(scope3, cwd, "worktrees"))?.worktrees;
+async function readWorkspaceTrees(cwd, scope4, native2) {
+  const result = native2 ? await window.hermesDesktop.git.worktreeList(cwd) : (await gitApi(scope4, cwd, "worktrees"))?.worktrees;
   return Array.isArray(result) ? result : [];
 }
 function workspaceTreeFor(trees, cwd) {
@@ -7137,16 +7479,16 @@ function useWorkspaceData(draftCwd, enabled) {
         root = typeof row5?.git_repo_root === "string" ? row5.git_repo_root : "";
       }
       if (!current) return;
-      const scope3 = { connectionId, profile: profile2 };
+      const scope4 = { connectionId, profile: profile2 };
       const [project2, sources, repository] = await Promise.allSettled([
         cwd ? request("projects.for_cwd", { cwd }) : Promise.resolve(null),
         request("mcp.servers.status", {}),
-        readWorkspaceRepository(cwd, scope3)
+        readWorkspaceRepository(cwd, scope4)
       ]);
       if (!current) return;
       const status2 = repository.status === "fulfilled" ? repository.value : null;
       const repo = status2?.repo;
-      const worktrees = repo && connectionId === "local" ? await readWorkspaceTrees(cwd, scope3, status2.native).catch(() => []) : [];
+      const worktrees = repo && connectionId === "local" ? await readWorkspaceTrees(cwd, scope4, status2.native).catch(() => []) : [];
       if (!current) return;
       const sourceRows = sources.status === "fulfilled" && Array.isArray(sources.value?.servers) ? sources.value.servers.filter((row5) => typeof row5?.name === "string" && row5.name && !row5.disabled) : null;
       const tree = workspaceTreeFor(worktrees, cwd);
@@ -7176,11 +7518,11 @@ function useWorkspaceData(draftCwd, enabled) {
     refresh: () => setRevision((value) => value + 1)
   };
 }
-function useRelatedRepositories(scope3, primaryRoot, key, rows, shown) {
+function useRelatedRepositories(scope4, primaryRoot, key, rows, shown) {
   const dirs = JSON.stringify([...new Set(rows.filter((row5) => row5.attached && row5.kind === "folder" && /^(?:[a-z]:[/\\]|\/[^/])/i.test(row5.meta || "")).map((row5) => row5.meta))]);
   const [snapshot, setSnapshot] = useState7(null);
-  const connection = scope3?.connectionId;
-  const profile2 = scope3?.profile;
+  const connection = scope4?.connectionId;
+  const profile2 = scope4?.profile;
   useEffect7(() => {
     if (!shown || !primaryRoot || !connection || !profile2 || dirs === "[]") return;
     let current = true;
@@ -7271,15 +7613,15 @@ function WorkspaceCard({
   disclosure: disclosure2,
   selection
 }) {
-  const { scope: scope3, snapshot, refresh } = data;
+  const { scope: scope4, snapshot, refresh } = data;
   const sources = useSourcesView(data, shown);
   const runtime = useValue4(host10.state.activeSessionId);
   const session = useValue4(host10.state.focusedStoredSessionId);
   const busy = useValue4(host10.state.busy);
-  const related = useRelatedRepositories(scope3, snapshot?.root, data.key, sources.rows, shown && !busy);
+  const related = useRelatedRepositories(scope4, snapshot?.root, data.key, sources.rows, shown && !busy);
   const cwd = snapshot?.cwd || "";
-  const local = scope3?.connectionId === "local" && Boolean(cwd);
-  const target = { cwd, owner: scope3, runtime, session, nativeGit: snapshot?.nativeGit, branch: snapshot?.branch };
+  const local = scope4?.connectionId === "local" && Boolean(cwd);
+  const target = { cwd, owner: scope4, runtime, session, nativeGit: snapshot?.nativeGit, branch: snapshot?.branch };
   const title = snapshot?.project || cwd.split(/[/\\]/).filter(Boolean).at(-1) || copy7.project;
   const card2 = useRef5(null);
   const trigger = useRef5(null);
@@ -7299,7 +7641,7 @@ function WorkspaceCard({
       {
         type: "button",
         className: "hcv-context-row hcv-context-changes",
-        disabled: !folder || !scope3,
+        disabled: !folder || !scope4,
         "aria-label": copy7.changes,
         "data-hcv-branch": repo?.branch || void 0,
         onClick: () => {
@@ -7419,7 +7761,7 @@ function ProjectActions({ entries, cwd, localEnvironment, copy: copy7 }) {
   );
 }
 function CardSlot({ storage, roster, panes, actions, localEnvironment, selection }) {
-  const { locale } = useI18n4();
+  const { locale } = useI18n5();
   const copy7 = labels7[locale] || labels7.en;
   const workspace = useValue4(host10.paneVisibility("workspace"));
   const files = useValue4(host10.paneVisibility("files"));
@@ -7534,18 +7876,18 @@ function ThemeCardSlot({ themeName: themeName2, panes, ...props }) {
 }
 function registerWorkspaceCard(ctx, themeName2, roster, localEnvironment) {
   if (typeof host10.paneVisibility !== "function" || !host10.state.focusedSessionOwner) return;
-  const scope3 = `:root[data-hermes-codex-visual][data-hermes-theme="${CSS.escape(themeName2)}"]`;
-  const actions = registerWorkspaceActions(ctx, scope3, localEnvironment);
+  const scope4 = `:root[data-hermes-codex-visual][data-hermes-theme="${CSS.escape(themeName2)}"]`;
+  const actions = registerWorkspaceActions(ctx, scope4, localEnvironment);
   const selection = atom4(null);
-  const panes = registerSummaryPanes(ctx, scope3, {
+  const panes = registerSummaryPanes(ctx, scope4, {
     agents: () => h11(SubagentsPane, { roster }),
     sources: () => h11(ExpandedSources),
     changes: () => h11(ExpandedChanges, { selection })
   });
-  registerSummarySources(ctx, scope3);
-  registerSummaryChanges(ctx, scope3);
-  const surfaces = `${scope3} [data-hcv-context-card]`;
-  const chat3 = `${scope3} ${primaryChat}`;
+  registerSummarySources(ctx, scope4);
+  registerSummaryChanges(ctx, scope4);
+  const surfaces = `${scope4} [data-hcv-context-card]`;
+  const chat3 = `${scope4} ${primaryChat}`;
   const bounds = `${chat3} > [data-slot="composer-bounds"]`;
   const dock2 = `${chat3} [data-slot="composer-dock"]:not([data-popped-out])`;
   const fallback = `${chat3} [data-slot="composer-root"]:has(> .composer-fallback-surface)`;
@@ -7557,12 +7899,12 @@ function registerWorkspaceCard(ctx, themeName2, roster, localEnvironment) {
   inherits: true;
   initial-value: 0;
 }
-${scope3} {
+${scope4} {
   /* A 300px card in Codex at 90% covers the same screen width at the owner's Hermes zoom. */
   --hcv-summary-width: 280px;
   --hcv-summary-layout-inset: calc((var(--hcv-summary-width) + 12px) * var(--hcv-summary-progress));
 }
-${scope3}:has([data-hcv-context-card][aria-hidden="false"]) { --hcv-summary-progress: 1; }
+${scope4}:has([data-hcv-context-card][aria-hidden="false"]) { --hcv-summary-progress: 1; }
 @media (forced-colors: none) {
   ${chat3} {
     --hcv-summary-composer-width: min(var(--composer-width), 100% - var(--hcv-summary-layout-inset) - 2rem);
@@ -7575,7 +7917,7 @@ ${scope3}:has([data-hcv-context-card][aria-hidden="false"]) { --hcv-summary-prog
   ${dock2} { width: calc(var(--hcv-summary-composer-width) + 10px); }
   ${fallback} { width: var(--hcv-summary-composer-width); }
 }
-${scope3} [data-hcv-context-card] {
+${scope4} [data-hcv-context-card] {
   position: fixed;
   inset-block-start: var(--hcv-context-card-top, 93px);
   right: calc(8px + var(--hcv-sidebar-right-offset, 0px));
@@ -7597,23 +7939,23 @@ ${scope3} [data-hcv-context-card] {
   pointer-events: auto;
   -webkit-app-region: no-drag;
 }
-${scope3} [data-hcv-context-card][aria-hidden="true"] {
+${scope4} [data-hcv-context-card][aria-hidden="true"] {
   visibility: hidden;
   pointer-events: none;
 }
 /* The card sits in the titlebar layer. Its portaled menu must clear that
    layer and still sit below a modal backdrop. Radix copies the menu z-index. */
-${scope3} [data-hcv-summary-menu] {
+${scope4} [data-hcv-summary-menu] {
   z-index: calc(var(--z-modal-backdrop, 120) - 1);
   min-inline-size: min(260px, calc(100vw - 16px));
   padding: 4px;
   border-radius: 16px;
   background: var(--hcv-menu);
 }
-${scope3} [data-hcv-summary-menu] [role="menuitem"] { min-block-size: 28px; border-radius: 8px; }
+${scope4} [data-hcv-summary-menu] [role="menuitem"] { min-block-size: 28px; border-radius: 8px; }
 ${surfaces} button.hcv-context-row,
-${scope3} [data-hcv-context-card] .hcv-context-icon,
-${scope3} [data-hcv-context-toggle] {
+${scope4} [data-hcv-context-card] .hcv-context-icon,
+${scope4} [data-hcv-context-toggle] {
   appearance: none;
   margin: 0;
   border: 0;
@@ -7623,9 +7965,9 @@ ${scope3} [data-hcv-context-toggle] {
   font: inherit;
   cursor: pointer;
 }
-${scope3} [data-hcv-context-card] button:disabled { opacity: .5; cursor: default; }
+${scope4} [data-hcv-context-card] button:disabled { opacity: .5; cursor: default; }
 ${surfaces} button:focus-visible,
-${scope3} [data-hcv-context-toggle]:focus-visible { outline: 1px solid var(--hcv-focus); outline-offset: 1px; }
+${scope4} [data-hcv-context-toggle]:focus-visible { outline: 1px solid var(--hcv-focus); outline-offset: 1px; }
 ${surfaces} .hcv-context-label {
   min-inline-size: 0;
   overflow: hidden;
@@ -7641,7 +7983,7 @@ ${surfaces} .hcv-context-row {
   gap: 12px;
   text-align: start;
 }
-${scope3} :is([data-hcv-context-card], [data-hcv-context-toggle], [data-hcv-summary-menu], [data-hcv-project-actions], [data-hcv-project-actions-menu]) [data-hcv-icon] {
+${scope4} :is([data-hcv-context-card], [data-hcv-context-toggle], [data-hcv-summary-menu], [data-hcv-project-actions], [data-hcv-project-actions-menu]) [data-hcv-icon] {
   display: inline-block;
   inline-size: 16px;
   block-size: 16px;
@@ -7662,8 +8004,8 @@ ${surfaces} .hcv-context-branch-icon { display: flex; }
 ${surfaces} .hcv-context-diff + .hcv-context-branch-icon { opacity: 0; }
 ${surfaces} .hcv-context-changes:is(:hover, :focus-visible) .hcv-context-diff:has(+ .hcv-context-branch-icon) { opacity: 0; }
 ${surfaces} .hcv-context-changes:is(:hover, :focus-visible) .hcv-context-branch-icon { opacity: 1; }
-${scope3} [data-hcv-context-card] .hcv-context-icon,
-${scope3} [data-hcv-context-toggle] {
+${scope4} [data-hcv-context-card] .hcv-context-icon,
+${scope4} [data-hcv-context-toggle] {
   display: inline-grid;
   place-items: center;
   inline-size: 24px;
@@ -7672,11 +8014,11 @@ ${scope3} [data-hcv-context-toggle] {
   color: var(--hcv-muted);
   flex: 0 0 auto;
 }
-${scope3} [data-hcv-context-toggle][aria-expanded="true"] {
+${scope4} [data-hcv-context-toggle][aria-expanded="true"] {
   color: var(--hcv-text);
   background: var(--hcv-selected);
 }
-${scope3} [data-hcv-project-actions] {
+${scope4} [data-hcv-project-actions] {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -7685,22 +8027,22 @@ ${scope3} [data-hcv-project-actions] {
   border-radius: 8px;
   color: var(--hcv-muted);
 }
-${scope3} [data-hcv-project-actions] [data-hcv-icon="down"] { inline-size: 10px; block-size: 10px; }
-${scope3} [data-hcv-project-actions]:is(:hover, [data-state="open"]) {
+${scope4} [data-hcv-project-actions] [data-hcv-icon="down"] { inline-size: 10px; block-size: 10px; }
+${scope4} [data-hcv-project-actions]:is(:hover, [data-state="open"]) {
   color: var(--hcv-text);
   background: var(--hcv-hover);
 }
-${scope3} [data-hcv-project-actions-menu] { z-index: calc(var(--z-modal-backdrop, 120) - 1); }
+${scope4} [data-hcv-project-actions-menu] { z-index: calc(var(--z-modal-backdrop, 120) - 1); }
 @media (hover: hover) and (pointer: fine) {
   ${surfaces} button.hcv-context-row:hover:not(:disabled) { color: var(--hcv-text); }
   ${surfaces} button.hcv-context-icon:hover:not(:disabled),
-  ${scope3} [data-hcv-context-toggle]:hover { background: var(--hcv-hover); color: var(--hcv-text); }
+  ${scope4} [data-hcv-context-toggle]:hover { background: var(--hcv-hover); color: var(--hcv-text); }
 }
 @media (prefers-reduced-motion: no-preference) {
   /* The Codex panel travel and the chat inset share one interpolated value. */
-  ${scope3} { transition: --hcv-summary-progress ${codexReference.summaryTime} var(--hcv-enter); }
-  ${scope3} [data-hcv-context-card] { transition: visibility 0s; }
-  ${scope3} [data-hcv-context-card][aria-hidden="true"] { transition-delay: ${codexReference.summaryTime}; }
+  ${scope4} { transition: --hcv-summary-progress ${codexReference.summaryTime} var(--hcv-enter); }
+  ${scope4} [data-hcv-context-card] { transition: visibility 0s; }
+  ${scope4} [data-hcv-context-card][aria-hidden="true"] { transition-delay: ${codexReference.summaryTime}; }
 }
 `;
   mountStyle(ctx, style, { surface: "[data-hcv-context-card], [data-hcv-context-toggle], [data-hcv-project-actions]", retainAcrossChatTabs: true });
@@ -8303,8 +8645,8 @@ function registerLocalEnvironment(ctx, active2) {
   const platform = desktopPlatform();
   const close2 = () => model.set(null);
   const closeResult = () => result.set(null);
-  const storageKey2 = (scope3) => `local-environment-v1:${localPathKey(scope3.source, platform)}`;
-  const read = (scope3) => ctx.storage.get(storageKey2(scope3), null);
+  const storageKey2 = (scope4) => `local-environment-v1:${localPathKey(scope4.source, platform)}`;
+  const read = (scope4) => ctx.storage.get(storageKey2(scope4), null);
   const sheet = document.createElement("style");
   sheet.dataset.hcvLocalEnvironmentStyles = "";
   sheet.textContent = styles(active2);
@@ -8347,15 +8689,15 @@ function registerLocalEnvironment(ctx, active2) {
     });
   };
   async function save(target, config, setup) {
-    const scope3 = await scopeFor(target.cwd);
-    if (!scope3 || target !== model.get() || storageKey2(scope3) !== storageKey2(target)) throw new Error("path");
-    if ((read(scope3)?.revision || "") !== target.revision) throw new Error("conflict");
+    const scope4 = await scopeFor(target.cwd);
+    if (!scope4 || target !== model.get() || storageKey2(scope4) !== storageKey2(target)) throw new Error("path");
+    if ((read(scope4)?.revision || "") !== target.revision) throw new Error("conflict");
     const revision = crypto.randomUUID();
-    ctx.storage.set(storageKey2(scope3), { revision, config });
-    if (read(scope3)?.revision !== revision) throw new Error("save");
+    ctx.storage.set(storageKey2(scope4), { revision, config });
+    if (read(scope4)?.revision !== revision) throw new Error("save");
     revisionSignal.set(revisionSignal.get() + 1);
     close2();
-    if (setup) startRun({ ...scope3, script: setup, title: target.t.setup, t: target.t });
+    if (setup) startRun({ ...scope4, script: setup, title: target.t.setup, t: target.t });
     else notify(target.t.saved, "success");
   }
   function commands(config, t) {
@@ -8384,21 +8726,21 @@ function registerLocalEnvironment(ctx, active2) {
       if (!idle()) return false;
       const key = ++request;
       const t = words();
-      const scope3 = await scopeFor(cwd);
+      const scope4 = await scopeFor(cwd);
       if (key !== request || !idle() || disposed) return false;
-      if (!scope3) {
+      if (!scope4) {
         notify(t.path);
         return false;
       }
-      const saved = read(scope3);
+      const saved = read(scope4);
       model.set({
-        ...scope3,
+        ...scope4,
         key,
         t,
         trigger,
         platform,
         revision: saved?.revision || "",
-        original: saved?.config || emptyEnvironment(projectName?.trim() || folderName(scope3.source)),
+        original: saved?.config || emptyEnvironment(projectName?.trim() || folderName(scope4.source)),
         copyVariable: async (name) => {
           if (await ctx.os.writeClipboard(name)) notify(t.copied, "success");
         }
@@ -8406,31 +8748,31 @@ function registerLocalEnvironment(ctx, active2) {
       return true;
     },
     async name(cwd) {
-      const scope3 = await scopeFor(cwd);
-      return scope3 ? read(scope3)?.config.name || "" : "";
+      const scope4 = await scopeFor(cwd);
+      return scope4 ? read(scope4)?.config.name || "" : "";
     },
     async actions(cwd) {
-      const scope3 = await scopeFor(cwd);
-      return scope3 ? commands(read(scope3)?.config, words()).map(({ id: id2, label: label3, icon: icon8 }) => ({ id: id2, label: label3, icon: icon8 })) : [];
+      const scope4 = await scopeFor(cwd);
+      return scope4 ? commands(read(scope4)?.config, words()).map(({ id: id2, label: label3, icon: icon8 }) => ({ id: id2, label: label3, icon: icon8 })) : [];
     },
     async run({ cwd, id: id2 }) {
       if (!idle()) return false;
       const key = ++request;
       const t = words();
-      const scope3 = await scopeFor(cwd);
+      const scope4 = await scopeFor(cwd);
       if (key !== request || !idle() || disposed) return false;
-      const command2 = scope3 && commands(read(scope3)?.config, t).find((command3) => command3.id === id2);
+      const command2 = scope4 && commands(read(scope4)?.config, t).find((command3) => command3.id === id2);
       if (!command2) {
         notify(t.actionError);
         return false;
       }
-      startRun({ ...scope3, script: command2.script, title: command2.label, t });
+      startRun({ ...scope4, script: command2.script, title: command2.label, t });
       return true;
     }
   };
 }
 function styles(active2) {
-  const form = `${active2} [data-hcv-local-environment]`;
+  const form = `${active2} [data-slot="dialog-content"][data-hcv-local-environment]`;
   const vars = `${active2} [data-hcv-env-vars]`;
   const terminal2 = `${active2} [data-hcv-env-terminal]`;
   return `
@@ -9628,8 +9970,33 @@ function displayStyles(active2, chat3) {
   const errorActions = `${replyError} > div:last-child`;
   const errorButton = `${errorActions} > .aui-error-action`;
   const errorControls = `:is(${errorClose}, ${errorSummary}, ${errorButton})`;
+  const modernError = `${active2} ${chat3} [data-slot="aui_error-card"][role="alert"]`;
   return `
 @media (forced-colors: none) {
+  /* Current Hermes error surface. Adapt the same Codex panel and quiet
+     controls used below without replacing native actions or diagnostics. */
+  ${modernError} {
+    gap: 10px; margin-block-start: 8px; padding: 12px;
+    border: 1px solid var(--hcv-hairline); border-radius: 16px;
+    background: var(--hcv-panel); color: var(--hcv-text);
+    font: 13px/18px var(--hcv-ui-font);
+  }
+  ${modernError} .aui-error-card-head { gap: 8px; }
+  ${modernError} .aui-error-card-icon { color: var(--dt-destructive); }
+  ${codexIconRules(`${modernError} .aui-error-card-icon`, "warning")}
+  ${modernError} .aui-error-card-title { font-weight: 600; }
+  ${modernError} .aui-error-card-body { color: var(--hcv-muted); }
+  ${modernError} :is(.aui-error-action, .aui-error-card-toggle, .aui-error-card-close, .aui-error-details-link) {
+    border-radius: 8px; font-size: 12px; line-height: 16px;
+    color: var(--hcv-muted);
+  }
+  ${modernError} .aui-error-action { background: var(--hcv-selected); color: var(--hcv-text); }
+  ${modernError} .aui-error-details-slab { background: var(--hcv-chat); color: var(--hcv-muted); border-radius: 8px; }
+  ${modernError} button:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }
+  ${codexIconRules(`${modernError} .aui-error-card-close > svg`, "close")}
+  @media (hover: hover) {
+    ${modernError} button:hover:not(:disabled) { background: var(--hcv-hover-menu); color: var(--hcv-text); }
+  }
   ${replyError} {
     gap: 10px;
     margin-block-start: 8px;
@@ -10175,6 +10542,179 @@ function registerChatDisplay(ctx, active2) {
   schedule();
 }
 
+// source/chat-file-links.js
+var scope2 = '[data-chat-surface]:not([data-hud-shell] *) [data-slot="aui_assistant-message-content"] .aui-md';
+var marked = "[data-hcv-file-reference]";
+var control2 = "[data-hcv-file-reference-control]";
+var secondary = "[data-hcv-file-reference-secondary]";
+function textOf(value, depth = 0) {
+  if (typeof value === "string" || typeof value === "number") return String(value);
+  if (depth > 5) return "";
+  if (Array.isArray(value)) return value.map((child) => textOf(child, depth + 1)).join("");
+  return textOf(value?.props?.children, depth + 1);
+}
+function nativeControls(card2) {
+  const buttons = [...card2.querySelectorAll(":scope > button:not([data-hcv-file-reference-control])")];
+  return buttons.length === 2 ? { secondary: buttons[0], preview: buttons[1] } : null;
+}
+function referenceInfo(card2) {
+  const actions = nativeControls(card2);
+  if (!actions) return null;
+  let target = "";
+  for (let node3 = committedFiber(card2)?.return; node3 && !(node3.stateNode instanceof Element); node3 = node3.return) {
+    const props = node3.memoizedProps;
+    if (typeof props?.target === "string") target ||= props.target;
+    if (!target || typeof props?.href !== "string") continue;
+    const href = props.href;
+    const label3 = textOf(props.children).trim();
+    if (!/^(?:#preview[:/]|file:|\/(?!\/)|~\/|[a-z]:[\\/]|\\\\)/i.test(href) || !/^(?:file:|\/(?!\/)|~\/|[a-z]:[\\/]|\\\\)/i.test(target) || /^preview\s*:/i.test(label3) || /(?:^|[\\/])SKILL\.md$/i.test(target)) return null;
+    return { target, label: label3 || card2.querySelector(":scope > span[title]")?.textContent.trim() || "", ...actions };
+  }
+  return null;
+}
+function registerChatFileLinks(ctx, active2, candidate2) {
+  const cardCSS = `${active2} ${scope2} ${marked}`;
+  const linkCSS = `${cardCSS} > ${control2}`;
+  const secondaryCSS = `${cardCSS} > ${secondary}`;
+  mountCSS(ctx, "data-hcv-chat-file-reference-style", `
+    ${cardCSS} { display: contents !important; }
+    ${cardCSS} > :not(${control2}):not(${secondary}) { display: none !important; }
+    ${linkCSS} {
+      display: inline; padding: 0; border: 0; background: transparent;
+      color: light-dark(#0169cc, #99ceff); font: inherit; font-weight: 500;
+      text-align: start; white-space: normal; cursor: pointer;
+    }
+    ${linkCSS} > [data-hcv-file-reference-label] { overflow-wrap: break-word; }
+    ${linkCSS} > [aria-hidden="true"] {
+      box-sizing: content-box; vertical-align: middle; align-items: center; display: inline-flex;
+      block-size: 1em; padding-inline-end: 3px; transform: translateY(calc(.5ex - .5cap));
+    }
+    ${linkCSS} > [aria-hidden="true"]::before {
+      content: ""; inline-size: 16px; block-size: 16px; background: currentColor;
+      mask: ${codexMask("inlineFileDocument")} center / contain no-repeat;
+    }
+    ${linkCSS}:is(:hover, :focus-visible) > [data-hcv-file-reference-label] {
+      text-decoration: underline dashed .5px; text-underline-offset: 2px;
+    }
+    ${linkCSS}:focus-visible, ${secondaryCSS}:focus-visible {
+      outline: 2px solid var(--hcv-focus); outline-offset: 2px; border-radius: 2px;
+    }
+    ${linkCSS}:disabled { cursor: default; opacity: .6; }
+    ${secondaryCSS} {
+      display: inline-flex !important; visibility: hidden; opacity: 0 !important;
+      pointer-events: none !important; inline-size: 0; block-size: 0; min-inline-size: 0;
+      min-block-size: 0; margin: 0; padding: 0 !important;
+      border: 0; background: transparent; color: var(--hcv-muted); font-size: 0; line-height: 0;
+      vertical-align: middle; align-items: center; justify-content: center; overflow: hidden;
+    }
+    ${cardCSS}:is(:hover, :focus-within) > ${secondary} {
+      visibility: visible; opacity: 1 !important; pointer-events: auto !important;
+      inline-size: 20px; block-size: 20px; margin-inline-start: 3px;
+    }
+    ${secondaryCSS} > svg { inline-size: 14px; block-size: 14px; flex: none; }
+  `, chatStyles);
+  const pending = /* @__PURE__ */ new Set();
+  const forcedColors = window.matchMedia("(forced-colors: active)");
+  let frame = 0;
+  let connected = false;
+  function clear(card2) {
+    card2.querySelector(`:scope > ${control2}`)?.remove();
+    for (const node3 of card2.querySelectorAll(`:scope > ${secondary}`)) node3.removeAttribute("data-hcv-file-reference-secondary");
+    card2.removeAttribute("data-hcv-file-reference");
+  }
+  function update(card2) {
+    const info = referenceInfo(card2);
+    if (!info?.label) return clear(card2);
+    let button5 = card2.querySelector(`:scope > ${control2}`);
+    if (!button5) {
+      button5 = document.createElement("button");
+      button5.type = "button";
+      button5.setAttribute("data-hcv-file-reference-control", "");
+      const icon8 = document.createElement("span");
+      icon8.setAttribute("aria-hidden", "true");
+      const label3 = document.createElement("span");
+      label3.setAttribute("data-hcv-file-reference-label", "");
+      button5.append(icon8, label3);
+      button5.addEventListener("click", (event) => {
+        if (event.detail > 0 && document.getSelection()?.isCollapsed === false) return;
+        nativeControls(card2)?.preview.click();
+      });
+      card2.insertBefore(button5, info.secondary);
+    }
+    for (const node3 of card2.querySelectorAll(`:scope > ${secondary}`)) {
+      if (node3 !== info.secondary) node3.removeAttribute("data-hcv-file-reference-secondary");
+    }
+    info.secondary.setAttribute("data-hcv-file-reference-secondary", "");
+    button5.disabled = info.preview.disabled;
+    button5.title = info.target;
+    if (button5.lastChild.textContent !== info.label) button5.lastChild.textContent = info.label;
+    card2.setAttribute("data-hcv-file-reference", "");
+  }
+  function queueCard(node3) {
+    const element7 = node3 instanceof Element ? node3 : node3?.parentElement;
+    if (!element7 || element7.closest(control2)) return;
+    const card2 = element7.closest(`:is(${candidate2}, ${marked})`);
+    if (card2?.closest(scope2)) pending.add(card2);
+  }
+  function collect(node3) {
+    if (!(node3 instanceof Element) || node3.closest(control2)) return;
+    queueCard(node3);
+    if (node3.closest(scope2) || node3.querySelector(scope2)) {
+      for (const item of node3.querySelectorAll(candidate2)) if (item.closest(scope2)) pending.add(item);
+    }
+  }
+  function flush() {
+    frame = 0;
+    for (const card2 of pending) if (card2.isConnected && card2.closest(scope2)) update(card2);
+    pending.clear();
+  }
+  function schedule() {
+    if (pending.size && !frame) frame = requestAnimationFrame(flush);
+  }
+  const observer = new MutationObserver((records) => {
+    for (const record of records) {
+      const node3 = record.target instanceof Element ? record.target : record.target.parentElement;
+      if (node3?.closest(control2)) continue;
+      queueCard(node3);
+      if (record.type === "childList") for (const added of record.addedNodes) collect(added);
+    }
+    schedule();
+  });
+  function sync() {
+    const enabled = document.documentElement.matches(active2) && !forcedColors.matches;
+    if (connected === enabled) return;
+    connected = enabled;
+    observer.disconnect();
+    cancelAnimationFrame(frame);
+    frame = 0;
+    pending.clear();
+    if (enabled) {
+      collect(document.body);
+      schedule();
+      observer.observe(document.body, {
+        childList: true,
+        characterData: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["title", "disabled"]
+      });
+    } else {
+      for (const card2 of document.querySelectorAll(marked)) clear(card2);
+    }
+  }
+  const theme2 = new MutationObserver(sync);
+  theme2.observe(document.documentElement, { attributes: true, attributeFilter: ["data-hermes-theme"] });
+  ctx.addEventListener(forcedColors, "change", sync);
+  sync();
+  ctx.onDispose(() => {
+    observer.disconnect();
+    theme2.disconnect();
+    cancelAnimationFrame(frame);
+    pending.clear();
+    for (const card2 of document.querySelectorAll(marked)) clear(card2);
+  });
+}
+
 // source/chat-images.js
 var chat = "[data-chat-surface]:not([data-hud-shell] *)";
 var attachments = '[data-slot="composer-attachments"]';
@@ -10438,18 +10978,20 @@ function registerChatImages(ctx, active2) {
       }
     }
   `, chatStyles);
-  const marked2 = /* @__PURE__ */ new Set();
+  const marked3 = /* @__PURE__ */ new Set();
   const pending = /* @__PURE__ */ new Set();
   const selectors = `${row2}, ${group}, ${nativeDialog}, ${attachments} > ${pill}`;
+  const markedSelector = `${analysis}, ${analysisGroup}, ${strip}, ${label}, ${enhanced}, ${close}, ${pager}, [data-hcv-image-path-tip]`;
   const colors = matchMedia("(forced-colors: active)");
   let frame = 0;
+  let prune = false;
   let opener = null;
   let nextImage = null;
   const dialogKeys = /* @__PURE__ */ new WeakMap();
   const dialogFocus = /* @__PURE__ */ new WeakMap();
   function mark2(node3, attribute, value = "") {
     if (node3.getAttribute(attribute) !== value) node3.setAttribute(attribute, value);
-    marked2.add(node3);
+    marked3.add(node3);
   }
   function decorate(button5, count) {
     const original = button5?.querySelector(stepTitle);
@@ -10459,7 +11001,7 @@ function registerChatImages(ctx, active2) {
       text = document.createElement("span");
       text.setAttribute("data-hcv-viewed-image-label", "");
       original.before(text);
-      marked2.add(text);
+      marked3.add(text);
     }
     const content = viewedLabel(count, root.matches(":lang(ru)"));
     if (text.textContent !== content) text.textContent = content;
@@ -10483,7 +11025,7 @@ function registerChatImages(ctx, active2) {
         action();
       });
       node3.append(button5);
-      marked2.add(button5);
+      marked3.add(button5);
       return button5;
     };
     add("data-hcv-image-close", "", ru ? "\u0417\u0430\u043A\u0440\u044B\u0442\u044C" : "Close", closeViewer);
@@ -10541,6 +11083,7 @@ function registerChatImages(ctx, active2) {
         if (successfulVision(node3) && decorate(disclosureButton(node3), 1)) mark2(node3, "data-hcv-viewed-image");
         else {
           node3.removeAttribute("data-hcv-viewed-image");
+          marked3.delete(node3);
           node3.querySelector(label)?.remove();
         }
       } else if (node3.matches(group) && node3.closest(chat)) {
@@ -10551,8 +11094,10 @@ function registerChatImages(ctx, active2) {
         if (count > 1 && decorate(button5, count)) mark2(node3, "data-hcv-viewed-image-group");
         else {
           node3.removeAttribute("data-hcv-viewed-image-group");
+          marked3.delete(node3);
           heading?.querySelector(label)?.remove();
           details?.removeAttribute("data-hcv-image-strip");
+          marked3.delete(details);
           continue;
         }
         const rows = details && !details.hasAttribute("data-tool-ticker") ? Array.from(details.children) : [];
@@ -10561,6 +11106,7 @@ function registerChatImages(ctx, active2) {
           mark2(details, "data-hcv-image-strip");
         } else {
           details?.removeAttribute("data-hcv-image-strip");
+          marked3.delete(details);
           if (eligible) {
             for (const item of rows) {
               const inner = disclosureButton(item);
@@ -10578,7 +11124,12 @@ function registerChatImages(ctx, active2) {
       }
     }
     pending.clear();
-    for (const node3 of marked2) if (!node3.isConnected) marked2.delete(node3);
+    if (prune) {
+      prune = false;
+      for (const node3 of marked3) if (!node3.isConnected) marked3.delete(node3);
+      if (opener && !opener.isConnected) opener = null;
+      if (nextImage && !nextImage.target.isConnected) nextImage = null;
+    }
   }
   function collect(node3) {
     if (!(node3 instanceof Element)) return;
@@ -10586,16 +11137,24 @@ function registerChatImages(ctx, active2) {
     for (const child of node3.querySelectorAll(selectors)) pending.add(child);
   }
   function queue() {
-    if (!frame && pending.size) frame = requestAnimationFrame(flush);
+    if (!frame && (pending.size || prune)) frame = requestAnimationFrame(flush);
   }
   const changes2 = new MutationObserver((records) => {
-    for (const { target, addedNodes, type } of records) {
+    for (const { target, addedNodes, removedNodes, type } of records) {
       const element7 = target instanceof Element ? target : target.parentElement;
       const parent = element7?.closest(selectors);
       if (parent) pending.add(parent);
       const toolRun = parent?.matches(row2) && parent.closest(group);
       if (toolRun) pending.add(toolRun);
-      if (type === "childList") for (const child of addedNodes) collect(child);
+      if (type === "childList") {
+        for (const child of addedNodes) collect(child);
+        if (!prune && marked3.size) for (const child of removedNodes) {
+          if (child instanceof Element && (marked3.has(child) || child.querySelector(markedSelector))) {
+            prune = true;
+            break;
+          }
+        }
+      }
     }
     queue();
   });
@@ -10603,9 +11162,10 @@ function registerChatImages(ctx, active2) {
     changes2.disconnect();
     cancelAnimationFrame(frame);
     frame = 0;
+    prune = false;
     opener = nextImage = null;
     pending.clear();
-    for (const node3 of marked2) {
+    for (const node3 of marked3) {
       if (node3.matches(`${label}, ${close}, ${pager}`)) node3.remove();
       else {
         if (dialogKeys.has(node3)) node3.removeEventListener("keydown", dialogKeys.get(node3));
@@ -10621,7 +11181,7 @@ function registerChatImages(ctx, active2) {
         ]) node3.removeAttribute(attribute);
       }
     }
-    marked2.clear();
+    marked3.clear();
   }
   function sync() {
     clear();
@@ -10719,9 +11279,9 @@ function registerChatReasoning(ctx, active2) {
 }
 
 // source/chat-skills.js
-var scope2 = '[data-chat-surface]:not([data-hud-shell] *) [data-slot="aui_assistant-message-content"]';
+var scope3 = '[data-chat-surface]:not([data-hud-shell] *) [data-slot="aui_assistant-message-content"]';
 var candidate = 'div:has(> span[title$="SKILL.md" i]):has(> button:last-child)';
-var marked = "[data-hcv-skill-card]";
+var marked2 = "[data-hcv-skill-card]";
 var link = "[data-hcv-skill-link]";
 var label2 = "[data-hcv-skill-label]";
 var preview2 = (card2) => card2.querySelector(":scope > button:last-child");
@@ -10755,7 +11315,7 @@ function skillLinkInfo(card2) {
   return null;
 }
 function registerChatSkills(ctx, active2) {
-  const cardCSS = `${active2} ${scope2} ${marked}`;
+  const cardCSS = `${active2} ${scope3} ${marked2}`;
   const linkCSS = `${cardCSS} > ${link}`;
   mountCSS(ctx, "data-hcv-chat-skill-style", `
     ${cardCSS} { display: contents; }
@@ -10815,15 +11375,15 @@ function registerChatSkills(ctx, active2) {
   }
   function collect(node3) {
     if (!(node3 instanceof Element) || node3.closest(link)) return;
-    const card2 = node3.closest(`:is(${candidate}, ${marked})`);
-    if (card2?.closest(scope2)) pending.add(card2);
-    if (node3.closest(scope2) || node3.querySelector(scope2)) {
-      for (const entry of node3.querySelectorAll(candidate)) if (entry.closest(scope2)) pending.add(entry);
+    const card2 = node3.closest(`:is(${candidate}, ${marked2})`);
+    if (card2?.closest(scope3)) pending.add(card2);
+    if (node3.closest(scope3) || node3.querySelector(scope3)) {
+      for (const entry of node3.querySelectorAll(candidate)) if (entry.closest(scope3)) pending.add(entry);
     }
   }
   function flush() {
     frame = 0;
-    for (const card2 of pending) if (card2.isConnected && card2.closest(scope2)) update(card2);
+    for (const card2 of pending) if (card2.isConnected && card2.closest(scope3)) update(card2);
     pending.clear();
   }
   const schedule = () => {
@@ -10847,7 +11407,7 @@ function registerChatSkills(ctx, active2) {
       schedule();
       observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["title"] });
     } else {
-      for (const card2 of document.querySelectorAll(marked)) clear(card2);
+      for (const card2 of document.querySelectorAll(marked2)) clear(card2);
     }
   }
   const theme2 = new MutationObserver(sync);
@@ -10858,7 +11418,7 @@ function registerChatSkills(ctx, active2) {
     theme2.disconnect();
     cancelAnimationFrame(frame);
     pending.clear();
-    for (const card2 of document.querySelectorAll(marked)) clear(card2);
+    for (const card2 of document.querySelectorAll(marked2)) clear(card2);
   });
 }
 
@@ -11463,7 +12023,7 @@ function partsForBlock(block2) {
 }
 var findTitle = (entry, summary2) => (summary2 ? entry : entry.firstElementChild)?.querySelector(":scope > div > button > span:first-child > span:first-child");
 function thoughtLabel(text) {
-  if (text === "Thinking") return "\u0414\u0443\u043C\u0430\u044E";
+  if (text === "Thinking" || text === "\u0414\u0443\u043C\u0430\u0435\u0442") return "\u0414\u0443\u043C\u0430\u044E";
   if (["\u041F\u043E\u043C\u044B\u0441\u043B\u0438\u043B", "\u041A\u0440\u0430\u0442\u043A\u043E \u043F\u043E\u0434\u0443\u043C\u0430\u043B", "Thought", "Thought briefly"].includes(text)) return "\u0414\u0443\u043C\u0430\u043B";
   if (text.startsWith("\u0414\u0443\u043C\u0430\u043B ") && !text.startsWith("\u0414\u0443\u043C\u0430\u043B \u043D\u0430 \u043F\u0440\u043E\u0442\u044F\u0436\u0435\u043D\u0438\u0438 ")) {
     return "\u0414\u0443\u043C\u0430\u043B \u043D\u0430 \u043F\u0440\u043E\u0442\u044F\u0436\u0435\u043D\u0438\u0438 " + text.slice("\u0414\u0443\u043C\u0430\u043B ".length);
@@ -11576,6 +12136,11 @@ function registerChatActivity(ctx, active2) {
   }
   ${thinking} { opacity: 1; }
   ${thoughtToggle} { --conversation-scaffold-text: color-mix(in oklab, var(--hcv-chat-prose, var(--hcv-text)) 30%, transparent); }
+  ${thinking} > div:first-child > span:last-child span[class~="tabular-nums"] {
+    font: 430 var(--hcv-activity-font)/var(--hcv-activity-line) ${codexReference.font};
+    color: color-mix(in oklab, var(--hcv-chat-prose, var(--hcv-text)) 30%, transparent);
+    letter-spacing: normal;
+  }
   ${thoughtToggle}:is(:hover, :focus-visible) {
     --conversation-scaffold-text: var(--hcv-chat-prose, var(--hcv-text)) !important;
   }
@@ -11590,6 +12155,15 @@ function registerChatActivity(ctx, active2) {
   }
   ${title}:has(> img[${favicon}]) > span:first-of-type:has(> :is(svg[aria-hidden="true"], .codicon)) { display: none; }
   ${glyph3} > :is(svg, .codicon):not([aria-label]) { color: inherit; }
+  /* Keep the live status accessible, but use the same browser glyph before
+     and after completion instead of Hermes' animated decorative frames. */
+  ${glyph3}:is(${row5}[${iconAttribute}="activityBrowser"] *):has(> [role="status"]) {
+    background: var(--hcv-activity-glyph);
+    mask: var(--hcv-activity-icon) center / contain no-repeat;
+  }
+  ${glyph3}:is(${row5}[${iconAttribute}="activityBrowser"] *) > [role="status"] > .glyph-spinner {
+    opacity: 0;
+  }
   ${caretBox} { opacity: 0; flex: none; }
   ${controls2}[aria-expanded="true"]:not([${disclosureMotion}="closing"]) > span:nth-child(2),
   ${controls2}[aria-expanded]:is(:hover, :focus-visible) > span:nth-child(2) { opacity: 1; }
@@ -11915,7 +12489,7 @@ var wrapMark = "data-hcv-table-scroll";
 var toolbarMark = "data-hcv-table-toolbar";
 var dialogMark = "data-hcv-table-dialog";
 var columnMark = "data-hcv-table-column";
-var control2 = "[data-md-col-handle], [data-hcv-table-toolbar]";
+var control3 = "[data-md-col-handle], [data-hcv-table-toolbar]";
 var interactive = 'a[href], button, [role="button"]';
 var labels10 = {
   ru: {
@@ -11949,7 +12523,7 @@ function button(action, label3) {
 }
 function copyOf(table) {
   const clone = table.cloneNode(true);
-  for (const node3 of clone.querySelectorAll(control2)) node3.remove();
+  for (const node3 of clone.querySelectorAll(control3)) node3.remove();
   for (const node3 of clone.querySelectorAll("[id]")) node3.removeAttribute("id");
   clone.removeAttribute("id");
   return clone;
@@ -12355,7 +12929,7 @@ function registerChatTables(ctx, active2) {
     stage.append(panel2);
     modal.append(stage, close2);
     document.body.append(modal);
-    preview3 = { modal, state, content };
+    preview3 = { modal, state, content, region, close: close2 };
     refreshPreview();
     state.expand.setAttribute("aria-expanded", "true");
     close2.addEventListener("click", () => closePreview());
@@ -12403,6 +12977,9 @@ function registerChatTables(ctx, active2) {
         if (value === null) wrapper.removeAttribute(name);
         else wrapper.setAttribute(name, value);
       }
+    }
+    if (wide && wrapper.getAttribute("aria-label") !== strings().scroll) {
+      wrapper.setAttribute("aria-label", strings().scroll);
     }
     if (!wide) return;
     const right = left + width;
@@ -12466,13 +13043,13 @@ function registerChatTables(ctx, active2) {
     wrapper.addEventListener("blur", () => queueMicrotask(() => {
       if (document.activeElement !== wrapper && !toolbar2.contains(document.activeElement)) state.restoreOverlay();
     }), { ...options, capture: true });
-    for (const control3 of [copy7, expand]) {
-      control3.addEventListener("pointerenter", () => showTip(control3), options);
-      control3.addEventListener("focus", () => {
-        if (control3.matches(":focus-visible")) showTip(control3);
+    for (const control4 of [copy7, expand]) {
+      control4.addEventListener("pointerenter", () => showTip(control4), options);
+      control4.addEventListener("focus", () => {
+        if (control4.matches(":focus-visible")) showTip(control4);
       }, options);
-      control3.addEventListener("pointerleave", hideTip, options);
-      control3.addEventListener("blur", hideTip, options);
+      control4.addEventListener("pointerleave", hideTip, options);
+      control4.addEventListener("blur", hideTip, options);
     }
     copy7.addEventListener("click", async () => {
       if (state.copying || copy7.hasAttribute("data-copied")) return;
@@ -12592,7 +13169,24 @@ function registerChatTables(ctx, active2) {
     if (root.matches(active2)) for (const table of document.querySelectorAll(nativeTable)) pending.add(table);
     queue();
   }
-  const theme2 = new MutationObserver(collect);
+  function localize() {
+    const copy7 = strings();
+    for (const state of states.values()) {
+      state.copy.setAttribute("aria-label", state.copy.hasAttribute("data-copied") ? copy7.copied : copy7.copy);
+      state.expand.setAttribute("aria-label", copy7.expand);
+      if (state.wrapper.hasAttribute("data-hcv-table-overflow")) state.wrapper.setAttribute("aria-label", copy7.scroll);
+    }
+    if (preview3) {
+      for (const [node3, label3] of [[preview3.modal, copy7.preview], [preview3.region, copy7.scroll], [preview3.close, copy7.close]]) {
+        node3.setAttribute("aria-label", label3);
+      }
+    }
+    if (tipButton && !tip2.hidden) tip2.textContent = tipButton.getAttribute("aria-label");
+  }
+  const theme2 = new MutationObserver((records) => {
+    if (records.some((record) => record.attributeName === "data-hermes-theme")) collect();
+    if (records.some((record) => record.attributeName === "lang")) localize();
+  });
   theme2.observe(root, { attributes: true, attributeFilter: ["lang", "data-hermes-theme"] });
   collect();
   window.addEventListener("scroll", hideTip, true);
@@ -12690,7 +13284,7 @@ var surface4 = '[data-chat-surface][data-composer-target="main"]:not([data-hud-s
 var nativeRow = '[data-slot="aui_system-message-root"][data-role="system"]';
 var stack = "[data-hcv-proposals]";
 var enhanced2 = "[data-hcv-review-notice]";
-var hidden = "[hidden], [data-pane-hidden]";
+var hidden2 = "[hidden], [data-pane-hidden]";
 var copy4 = {
   ru: {
     skills: "\u041F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u044F \u043F\u043E \u0441\u043A\u0438\u043B\u043B\u0430\u043C",
@@ -12770,7 +13364,7 @@ function element5(tag, part, text) {
   return node3;
 }
 function currentScope(row5) {
-  if (!row5.isConnected || !row5.closest(surface4) || row5.closest(hidden)) return null;
+  if (!row5.isConnected || !row5.closest(surface4) || row5.closest(hidden2)) return null;
   const session = host15.state.activeSessionId.get();
   const profile2 = host15.state.profile.get() || "default";
   const connection = host15.state.connectionId.get();
@@ -12787,19 +13381,19 @@ function sameScope(a, b) {
 function normalize(text) {
   return text.replaceAll("\r\n", "\n").trim();
 }
-async function slash(scope3, kind, operation, id2) {
+async function slash(scope4, kind, operation, id2) {
   const command2 = [kind, operation, id2].filter(Boolean).join(" ");
-  const response3 = await scope3.socket.request("slash.exec", { session_id: scope3.session, command: command2 }, 12e3);
+  const response3 = await scope4.socket.request("slash.exec", { session_id: scope4.session, command: command2 }, 12e3);
   if (response3?.warning || typeof response3?.output !== "string") throw new Error("No confirmed command output");
   return response3.output.replaceAll("\r\n", "\n");
 }
-async function loadMemory(scope3, id2) {
-  if (scope3.connection !== "local" || !/^[\w-]+$/.test(scope3.profile)) return null;
+async function loadMemory(scope4, id2) {
+  if (scope4.connection !== "local" || !/^[\w-]+$/.test(scope4.profile)) return null;
   const desktop = window.hermesDesktop;
   const info = await desktop?.getVersion?.();
   const home = info?.hermesHome;
   if (!home || !desktop?.readFileText) return null;
-  const path = home.replace(/[\\/]+$/, "") + (scope3.profile === "default" ? "" : "/profiles/" + scope3.profile) + "/pending/memory/" + id2 + ".json";
+  const path = home.replace(/[\\/]+$/, "") + (scope4.profile === "default" ? "" : "/profiles/" + scope4.profile) + "/pending/memory/" + id2 + ".json";
   const file = await desktop.readFileText(path);
   const pathKey2 = (value) => {
     const normalized2 = String(value).replaceAll("\\", "/");
@@ -12809,9 +13403,9 @@ async function loadMemory(scope3, id2) {
   const data = memoryProposal(JSON.parse(file.text), id2);
   return data && { data, signature: file.text };
 }
-async function loadPreview(scope3, item) {
-  if (item.kind === "memory") return loadMemory(scope3, item.id);
-  const signature = await slash(scope3, "skills", "diff", item.id);
+async function loadPreview(scope4, item) {
+  if (item.kind === "memory") return loadMemory(scope4, item.id);
+  const signature = await slash(scope4, "skills", "diff", item.id);
   const data = skillProposal(signature);
   if (data?.id !== item.id || /^\s*\((?:patch (?:would fail|['"])|[^)]* on ')/.test(data.content)) return null;
   return { signature, data };
@@ -12845,12 +13439,12 @@ function showPreview(body2, item, data, t) {
   body2.replaceChildren(content);
 }
 function button2(text, part, handler) {
-  const control3 = element5("button", part, text);
-  control3.type = "button";
-  control3.addEventListener("click", (event) => {
+  const control4 = element5("button", part, text);
+  control4.type = "button";
+  control4.addEventListener("click", (event) => {
     if (event.isTrusted) void handler();
   });
-  return control3;
+  return control4;
 }
 function card(item, t, bound, isCurrent, completed, onComplete) {
   const skill = item.kind === "skills";
@@ -13106,21 +13700,21 @@ function registerReviewProposals(ctx, active2) {
     const notice2 = readRow(row5);
     if (!notice2) return clear(row5);
     const lang = locale();
-    const scope3 = currentScope(row5);
+    const scope4 = currentScope(row5);
     const last = rows.get(row5);
-    if (last?.output === notice2.output && lang === last.lang && last.panel.isConnected && (!last.scope && !scope3 || sameScope(last.scope, scope3))) return;
+    if (last?.output === notice2.output && lang === last.lang && last.panel.isConnected && (!last.scope && !scope4 || sameScope(last.scope, scope4))) return;
     clear(row5);
     const panel2 = element5("div");
     panel2.dataset.hcvProposals = notice2.kind;
     panel2.setAttribute("role", "group");
     panel2.setAttribute("aria-label", copy4[lang][notice2.kind]);
     for (const item of notice2.items) {
-      const key = scope3 && JSON.stringify([scope3.connection, scope3.profile, item.kind, item.id]);
+      const key = scope4 && JSON.stringify([scope4.connection, scope4.profile, item.kind, item.id]);
       panel2.append(card(
         item,
         copy4[lang],
-        scope3,
-        () => enabled() && panel2.isConnected && sameScope(scope3, currentScope(row5)),
+        scope4,
+        () => enabled() && panel2.isConnected && sameScope(scope4, currentScope(row5)),
         key && decisions.get(key),
         (action) => {
           if (!key) return;
@@ -13131,7 +13725,7 @@ function registerReviewProposals(ctx, active2) {
     }
     row5.append(panel2);
     row5.dataset.hcvReviewNotice = "";
-    rows.set(row5, { panel: panel2, output: notice2.output, lang, scope: scope3 });
+    rows.set(row5, { panel: panel2, output: notice2.output, lang, scope: scope4 });
   }
   function flush() {
     frame = 0;
@@ -13361,8 +13955,8 @@ function newDraftBar(form, current, localEnvironment) {
   let worktree = { label: "", branch: "" };
   let bridge;
   let disposed = false;
-  const scope3 = () => JSON.stringify([host16.state.connectionId.get(), host16.state.profile.get()]);
-  const activeHere = (key) => !disposed && current() && key === scope3();
+  const scope4 = () => JSON.stringify([host16.state.connectionId.get(), host16.state.profile.get()]);
+  const activeHere = (key) => !disposed && current() && key === scope4();
   const canRequest = () => host16.state.gateway.get() === "open";
   const request = (method, params) => host16.request(method, { ...params, profile: host16.state.profile.get() }, 5e3);
   const error = () => host16.notify({ kind: "error", message: labels11().actionsError });
@@ -13430,11 +14024,14 @@ function newDraftBar(form, current, localEnvironment) {
   const worktreeTrigger = () => {
     const label3 = CSS.escape(labels11().nativeWorktree);
     const cwd = normalized(host16.state.cwd.get());
-    return [...document.querySelectorAll(sidebarSelector + ' button[aria-label="' + label3 + '"]:has(> .codicon-git-branch)')].find((button5) => normalized(nativeWorktreePath(button5)) === cwd);
+    return [...document.querySelectorAll(sidebarSelector + ' button[aria-label="' + label3 + '"]:has(> .codicon-git-branch)')].find((button5) => {
+      const target = nativeWorktreeTarget(button5);
+      return cwd && target && normalized(target.path) === cwd && (!target.connectionId || target.connectionId === host16.state.connectionId.get() && (target.profile || "default") === host16.state.profile.get());
+    });
   };
   const newWorktree = button3("worktree", labels11().worktree, async () => {
     if (!localGit()) return;
-    const key = scope3();
+    const key = scope4();
     const cwd = host16.state.cwd.get();
     const ready = () => activeHere(key) && cwd === host16.state.cwd.get();
     gearMenu.hidePopover();
@@ -13494,7 +14091,7 @@ function newDraftBar(form, current, localEnvironment) {
     newWorktree.element.disabled = !localGit() || !(worktreeTrigger() || worktree.projectId);
     branch.element.disabled = !localGit();
     const cwd = host16.state.cwd.get();
-    const key = scope3();
+    const key = scope4();
     environment.element.disabled = !localEnvironment || host16.state.connectionId.get() !== "local" || !cwd;
     envValue.textContent = labels11().noEnvironment;
     if (!environment.element.disabled) void localEnvironment.name(cwd).then((name) => {
@@ -13510,7 +14107,7 @@ function newDraftBar(form, current, localEnvironment) {
   async function chooseBranch() {
     const git = localGit();
     const cwd = host16.state.cwd.get();
-    const key = scope3();
+    const key = scope4();
     if (!git || !cwd || branchRequest) return;
     const pending = git.branchList(cwd).catch(() => null);
     branchRequest = pending;
@@ -13600,7 +14197,7 @@ function newDraftBar(form, current, localEnvironment) {
     results.style.blockSize = catalog === void 0 && canRequest() ? "84px" : "";
     search.value = "";
     renderProjects();
-    loadCatalog(scope3());
+    loadCatalog(scope4());
   });
   projectMenu2.addEventListener("toggle", (event) => {
     if (event.newState !== "open") return;
@@ -13630,7 +14227,7 @@ function newDraftBar(form, current, localEnvironment) {
     return null;
   }
   async function selectProject(path) {
-    const key = scope3();
+    const key = scope4();
     projectMenu2.hidePopover();
     if (normalized(path) === normalized(host16.state.cwd.get())) return;
     const draft = await host16.composer.getDraft(null).catch(() => null);
@@ -13643,14 +14240,14 @@ function newDraftBar(form, current, localEnvironment) {
       await new Promise(requestAnimationFrame);
       await new Promise(requestAnimationFrame);
       const next = await host16.composer.getDraft(null).catch(() => null);
-      if (!next && !host16.state.focusedStoredSessionId.get() && !host16.state.busy.get() && key === scope3()) {
+      if (!next && !host16.state.focusedStoredSessionId.get() && !host16.state.busy.get() && key === scope4()) {
         await host16.composer.setDraft(null, draft).catch(() => {
         });
       }
     }
   }
   async function createProject() {
-    const key = scope3();
+    const key = scope4();
     projectMenu2.hidePopover();
     const sidebar2 = await sidebarFor(sidebarSelector, key);
     if (!sidebar2 || !activeHere(key)) return;
@@ -13690,7 +14287,7 @@ function newDraftBar(form, current, localEnvironment) {
   }
   let refreshId = 0;
   async function refresh() {
-    const key = scope3();
+    const key = scope4();
     const id2 = ++refreshId;
     const cwd = host16.state.cwd.get();
     const folderLabel = cwd.split(/[/\\]/).filter(Boolean).at(-1) || "";
@@ -13725,11 +14322,13 @@ function newDraftBar(form, current, localEnvironment) {
     localize();
   }
   strip2.append(projects2.element, projectMenu2, device.element, localMenu, gear.element, gearMenu);
-  form.before(strip2);
+  const statusDrawer = form.parentElement?.querySelector(":scope > .status-drawer");
+  if (statusDrawer) statusDrawer.before(strip2);
+  else form.before(strip2);
   const unbind = [host16.state.connectionId, host16.state.profile, host16.state.gateway, host16.state.cwd].map((store) => store.listen(refresh));
   const resize = () => {
-    for (const [popup, control3, end] of [[projectMenu2, projects2, false], [localMenu, device, false], [gearMenu, gear, true]]) {
-      if (popup.matches(":popover-open")) position(popup, control3.element, end);
+    for (const [popup, control4, end] of [[projectMenu2, projects2, false], [localMenu, device, false], [gearMenu, gear, true]]) {
+      if (popup.matches(":popover-open")) position(popup, control4.element, end);
     }
   };
   window.addEventListener("resize", resize);
@@ -13754,27 +14353,27 @@ function styles4(active2) {
   const projectSearch = projectMenu2 + " [data-hcv-draft-search]";
   const native2 = active2 + " [data-hcv-draft-native-menu]";
   const popper = active2 + " [data-radix-popper-content-wrapper]:has(> [data-hcv-draft-native-menu])";
-  const control3 = "[data-hcv-draft-button]";
+  const control4 = "[data-hcv-draft-button]";
   const label3 = "[data-hcv-draft-label]";
   const glyph3 = "[data-hcv-draft-icon]";
   return [
     "@media (forced-colors: none) {",
     draft + " { position: relative; z-index: 1; display: flex; align-items: center; min-inline-size: 0; min-block-size: 40px; margin: 0 " + toolbarInset + "px -4px; padding: 6px 8px; border-radius: 20px 20px 0 0; background: var(--hcv-hover); color: var(--hcv-text); font: 12px/18px var(--hcv-ui-font); }",
-    draft + " + " + formSelector + " { z-index: 2; }",
-    draft + " " + control3 + " { display: flex; min-inline-size: 0; min-block-size: 28px; align-items: center; gap: 6px; padding: 0 8px; border-radius: 999px; text-align: start; cursor: pointer; -webkit-app-region: no-drag; }",
-    draft + " > " + control3 + ":last-of-type { flex: none; justify-content: center; margin-inline-start: auto; inline-size: 28px; padding: 0; color: var(--hcv-muted); }",
+    draft + " + " + formSelector + ", " + draft + " + .status-drawer + " + formSelector + " { z-index: 2; }",
+    draft + " " + control4 + " { display: flex; min-inline-size: 0; min-block-size: 28px; align-items: center; gap: 6px; padding: 0 8px; border-radius: 999px; text-align: start; cursor: pointer; -webkit-app-region: no-drag; }",
+    draft + " > " + control4 + ":last-of-type { flex: none; justify-content: center; margin-inline-start: auto; inline-size: 28px; padding: 0; color: var(--hcv-muted); }",
     draft + " " + label3 + " { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }",
     draft + " " + label3 + ":empty { display: none; }",
     draft + " " + glyph3 + " { display: inline-block; flex: none; inline-size: 16px; block-size: 16px; }",
-    draft + " > " + control3 + ':is(:hover, [aria-expanded="true"]) { background: var(--hcv-composer); }',
-    draft + " > " + control3 + ":focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }",
+    draft + " > " + control4 + ':is(:hover, [aria-expanded="true"]) { background: var(--hcv-composer); }',
+    draft + " > " + control4 + ":focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }",
     menu + ", " + native2 + " { box-sizing: border-box; min-inline-size: 0; max-block-size: var(--hcv-draft-max-height, 60vh); overflow: auto; overscroll-behavior: contain; padding: 4px; border: 1px solid transparent; border-radius: 16px; background: var(--hcv-menu); box-shadow: 0 0 0 .5px var(--hcv-hairline), 0 8px 16px -4px #0000001f; color: var(--hcv-text); font: 13px/20px var(--hcv-ui-font); }",
     ...Object.entries(menuWidths).map(([kind, width]) => menu + '[data-hcv-draft-menu="' + kind + '"]' + (kind === "device" ? ", " + native2 : "") + " { inline-size: min(" + width + "px, calc(100vw - 16px)); }"),
     menu + '[data-hcv-draft-menu="git"] { padding: 8px; }',
     menu + ", " + popper + " { position: fixed !important; inset: auto auto var(--hcv-draft-bottom, 40px) var(--hcv-draft-left, 8px) !important; transform: none !important; margin: 0; }",
-    menu + " " + control3 + ", " + native2 + ' [role^="menuitem"] { inline-size: 100%; justify-content: flex-start; border-radius: 11px; min-block-size: 28px; }',
-    menu + " " + control3 + ":disabled { color: var(--hcv-muted); opacity: .55; cursor: default; background: transparent; }",
-    menu + " " + control3 + " > " + glyph3 + '[data-hcv-draft-icon="check"] { margin-inline-start: auto; }',
+    menu + " " + control4 + ", " + native2 + ' [role^="menuitem"] { inline-size: 100%; justify-content: flex-start; border-radius: 11px; min-block-size: 28px; }',
+    menu + " " + control4 + ":disabled { color: var(--hcv-muted); opacity: .55; cursor: default; background: transparent; }",
+    menu + " " + control4 + " > " + glyph3 + '[data-hcv-draft-icon="check"] { margin-inline-start: auto; }',
     active2 + " [data-hcv-draft-menu-heading] { min-block-size: 28px; display: flex; align-items: center; padding-inline: 8px; color: var(--hcv-muted); }",
     draft + " [data-hcv-draft-detail] { margin-inline-start: auto; color: var(--hcv-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }",
     // Codex Desktop: ZZgR menu input and bqtn separator used by Rvqv.
@@ -13784,10 +14383,10 @@ function styles4(active2) {
     projectSearch + "::placeholder { color: var(--hcv-dropdown-muted); opacity: 1; }",
     projectSearch + "::-webkit-search-cancel-button { appearance: none; }",
     projectMenu2 + " [data-hcv-draft-menu-separator] { block-size: 1px; margin: 4px 8px; background: var(--hcv-dropdown-outline); }",
-    projectMenu2 + " " + control3 + " { min-block-size: 0; padding: 5px 8px; border-radius: var(--hcv-dropdown-row-radius); font: inherit; }",
-    projectMenu2 + " " + control3 + ':is(:hover, :focus, [aria-current="true"]):not(:disabled) { background-color: var(--hcv-dropdown-hover); color: var(--hcv-dropdown-text); }',
+    projectMenu2 + " " + control4 + " { min-block-size: 0; padding: 5px 8px; border-radius: var(--hcv-dropdown-row-radius); font: inherit; }",
+    projectMenu2 + " " + control4 + ':is(:hover, :focus, [aria-current="true"]):not(:disabled) { background-color: var(--hcv-dropdown-hover); color: var(--hcv-dropdown-text); }',
     "@supports (corner-shape: superellipse(1.5)) {",
-    projectMenu2 + ", " + projectMenu2 + " " + control3 + " { corner-shape: superellipse(1.5); }",
+    projectMenu2 + ", " + projectMenu2 + " " + control4 + " { corner-shape: superellipse(1.5); }",
     "}",
     projectMenu2 + " [data-hcv-draft-projects] { max-block-size: min(40vh, 230px); overflow-y: auto; overscroll-behavior: contain; }",
     projectMenu2 + " [data-hcv-draft-projects] p { margin: 0; padding: 8px; color: var(--hcv-dropdown-muted); }",
@@ -14180,8 +14779,8 @@ function registerInterface(ctx, active2) {
   const rescan = "[data-catalog-actions] button[aria-label]:has(> svg.tabler-icon-refresh)";
   ctx.addEventListener(document, "click", (event) => {
     if (!root.matches(active2) || screenFromRoute() !== "capabilities" || event.defaultPrevented) return;
-    const control3 = event.target.closest?.(rescan);
-    if (!control3 || control3.matches(':disabled, [aria-disabled="true"]')) return;
+    const control4 = event.target.closest?.(rescan);
+    if (!control4 || control4.matches(':disabled, [aria-disabled="true"]')) return;
     const russian = root.lang.toLowerCase().startsWith("ru");
     host17.notify({
       id: "hermes-codex-visual:plugins-rescan",
@@ -15208,6 +15807,12 @@ function settingsLayoutRules(screen, main) {
     background-color: var(--hcv-settings-group);
   }
   ${group2}, ${looseRun}, ${delegationRows}, ${moaRows} { gap: 0; }
+  /* Separate independent cards while preserving intentionally joined rows. */
+  :is(${group2}) + :is(${group2}),
+  :is(${group2}) + :is(${loose}),
+  :is(${loose}):not(:is(${attachmentHead})) + :is(${group2}) {
+    margin-block-start: var(--hcv-settings-block-gap);
+  }
   ${group2} > ${member} { min-inline-size: 0; border-radius: 0; }
   ${group2} > ${member} + ${member},
   ${delegationRows} > ${settingsRowHost} + ${settingsRowHost},
@@ -15382,6 +15987,7 @@ var nativeIcons = {
   download: "download",
   "file-image": "artifacts",
   "file-text": "artifacts",
+  "git-fork": "bots",
   "folder-open": "folderOpen",
   globe: "globe",
   keyboard: "keyboard",
@@ -15431,7 +16037,7 @@ function registerSettingsStyle(ctx, active2) {
   const directCrumbs = `${main} > nav:has(> [aria-current="page"])`;
   const crumbs = `:is(${directCrumbs}, ${crumbWrap} > nav)`;
   const triggers = ':is([data-slot="select-trigger"], [data-slot="searchable-select-trigger"], [data-slot="compact-select-trigger"])';
-  const control3 = `:is(${triggers}, [data-slot="input"]:not([type="file"], [type="checkbox"], [type="range"], [type="color"]), [data-slot="textarea"], [data-slot="combobox-input"])`;
+  const control4 = `:is(${triggers}, [data-slot="input"]:not([type="file"], [type="checkbox"], [type="range"], [type="color"]), [data-slot="textarea"], [data-slot="combobox-input"])`;
   const surfaces = `:is(${main}, ${panels})`;
   const sectionTitle = `${main} .flex.items-center.gap-2.pt-2:has(> svg.size-4)`;
   const segmented = `${main} .inline-grid.grid-flow-col:has(> button[aria-pressed])`;
@@ -15545,6 +16151,7 @@ function registerSettingsStyle(ctx, active2) {
     --hcv-settings-inset: 16px;
     --hcv-settings-row-gap: 24px;
     --hcv-settings-row-pad: 12px;
+    --hcv-settings-block-gap: 12px;
     --hcv-settings-fade: 150ms cubic-bezier(0, 0, .2, 1);
     font-family: var(--hcv-ui-font);
   }
@@ -15639,6 +16246,7 @@ function registerSettingsStyle(ctx, active2) {
     pointer-events: none;
   }
   ${mode}.ring-2 { background-color: var(--hcv-hover-menu); }
+  ${mode}.ring-2::before, ${mode}.ring-2 + button::before { visibility: hidden; }
   ${mode}:active:not(:disabled) { background-color: color-mix(in srgb, var(--hcv-text) 16%, transparent); }
   ${mode}:focus-visible { z-index: 1; }
   ${mode} > p { margin-block-start: 4px; }
@@ -15705,7 +16313,7 @@ function registerSettingsStyle(ctx, active2) {
   ${toggle2}[data-state="checked"] > [data-slot="switch-thumb"] { translate: 12px 0; }
   ${toggle2}[data-state="checked"]:dir(rtl) > [data-slot="switch-thumb"] { translate: -12px 0; }
 
-  ${surfaces} ${control3} {
+  ${surfaces} ${control4} {
     min-block-size: 28px;
     max-inline-size: 100%;
     border: 1px solid var(--hcv-hairline);
@@ -15716,12 +16324,12 @@ function registerSettingsStyle(ctx, active2) {
     line-height: 18px;
     box-shadow: none;
   }
-  ${surfaces} ${control3}:not(textarea) { block-size: 28px; }
+  ${surfaces} ${control4}:not(textarea) { block-size: 28px; }
   ${surfaces} input[role="combobox"][aria-autocomplete="list"] { padding-inline-end: 28px; }
-  ${surfaces} ${control3}:is(:focus, :focus-within, [data-state="open"]):not(:disabled, [aria-invalid="true"]) {
+  ${surfaces} ${control4}:is(:focus, :focus-within, [data-state="open"]):not(:disabled, [aria-invalid="true"]) {
     border-color: color-mix(in srgb, var(--hcv-text) 50%, transparent);
   }
-  ${surfaces} ${control3}[aria-invalid="true"] { border-color: var(--hcv-error); }
+  ${surfaces} ${control4}[aria-invalid="true"] { border-color: var(--hcv-error); }
   ${surfaces} textarea[data-slot="textarea"] { padding-block: 8px; }
   ${main} input[data-slot="input"][type="number"] { inline-size: min(100%, 96px); }
   ${surfaces} ${triggers} {
@@ -15787,12 +16395,14 @@ function registerSettingsStyle(ctx, active2) {
   }
   ${settings} button[data-glass-opaque] { font-family: var(--hcv-ui-font); }
   @media (hover: hover) and (pointer: fine) {
+    ${mode}:hover:not(:disabled)::before,
+    ${mode}:hover:not(:disabled) + button::before { visibility: hidden; }
     ${search}:hover { color: var(--hcv-text); }
     ${segmented} > button:hover:not(:disabled, [aria-pressed="true"]) {
       background: var(--hcv-hover-menu);
       color: var(--hcv-text);
     }
-    ${surfaces} ${control3}:hover:not(:disabled, :focus, :focus-within, [data-state="open"], [aria-invalid="true"]) { border-color: var(--hcv-stroke); }
+    ${surfaces} ${control4}:hover:not(:disabled, :focus, :focus-within, [data-state="open"], [aria-invalid="true"]) { border-color: var(--hcv-stroke); }
     ${mode}:hover:not(:disabled, .ring-2, :active),
     ${action}:hover:not(:disabled, :active),
     ${main} button[data-variant="text"][data-slot="button"]:not([data-size="inline"], :disabled):hover {
@@ -15803,7 +16413,7 @@ function registerSettingsStyle(ctx, active2) {
   }
   @media (prefers-reduced-motion: no-preference) {
     ${rail} button.row-hover,
-    ${surfaces} :is(button, ${control3}) {
+    ${surfaces} :is(button, ${control4}) {
       transition: color var(--hcv-settings-fade, 150ms ease),
         background-color var(--hcv-settings-fade, 150ms ease), border-color var(--hcv-settings-fade, 150ms ease);
     }
@@ -15819,7 +16429,7 @@ function registerSettingsStyle(ctx, active2) {
   }
   @media (prefers-reduced-motion: reduce) {
     ${rail} button.row-hover { transition: none; }
-    ${surfaces} :is(button, ${control3}, [data-slot="switch-thumb"]) { transition: none; }
+    ${surfaces} :is(button, ${control4}, [data-slot="switch-thumb"]) { transition: none; }
     ${system} button:not([role="switch"]) { transition: none; }
     ${selectPanel}[data-state] { animation: none; }
   }
@@ -15858,7 +16468,8 @@ function registerSettingsProviders(ctx, active2) {
   const endpointName = `${endpointList} > .grid > button:first-child`;
   const localFiles = `${localMain} #local-model-browse .flex.flex-col.rounded-md.border`;
   const localQuickstart = `${localMain} [class~="min-h-[60dvh]"] > .max-w-md`;
-  const search = `${providerMain} .inline-flex:has(> svg.tabler-icon-search + input[type="text"])`;
+  const searchField = '.inline-flex:has(> svg.tabler-icon-search + input[type="text"])';
+  const search = `${providerMain} ${searchField}`;
   const badges = `:is(${accounts} > div.group.grid > button > div > span.inline-flex,
     ${accounts} > button > div > :is(div > span.inline-flex, span.inline-flex),
     ${providerMain} [data-slot="badge"])`;
@@ -15916,6 +16527,9 @@ function registerSettingsProviders(ctx, active2) {
     border-radius: var(--hcv-settings-control-radius, 8px);
     background-color: var(--hcv-form-surface);
     opacity: 1;
+  }
+  ${endpointShortcut} + .grid:has(> .inline-flex > svg.tabler-icon-search + input[type="text"]) {
+    margin-block-start: var(--hcv-settings-block-gap);
   }
   ${search}:focus-within { border-color: var(--hcv-focus); }
   ${search} > input {
@@ -16352,6 +16966,9 @@ function registerRemainingSurfaces(ctx, active2) {
   const filterRow = "button.row-hover[aria-pressed]";
   const filters = `${cap} [data-catalog] [data-tour="overlay-nav"] > ${filterRow}`;
   const dialog2 = `${active2} [data-slot="dialog-content"]`;
+  const createProject = `${dialog2}.max-w-md:has(> div > input[data-slot="input"]):has(> div > div > div > textarea[data-slot="textarea"])`;
+  const projectFolders = `${createProject} > div > div:has(> button[data-slot="button"][data-size="sm"][data-variant="ghost"] > .codicon-add)`;
+  const addProjectFolder = `${projectFolders} > button[data-slot="button"][data-size="sm"][data-variant="ghost"]:has(> .codicon-add)`;
   const profiles = `${active2}[data-hcv-screen="profiles"] [data-overlay-surface]`;
   const profileRows = `${profiles} [data-panel-row]`;
   const selectedProfile = `${profileRows}[class~="bg-(--ui-row-active-background)"]`;
@@ -16628,6 +17245,13 @@ function registerRemainingSurfaces(ctx, active2) {
   }
   ${dialog2} :is([data-slot="input"], [data-slot="select-trigger"]):not([type="file"]) { min-block-size: 32px; }
   ${dialog2} button:is([data-variant="outline"], [data-variant="secondary"]) { border-color: var(--hcv-hairline); }
+  /* Codex's rounded-lg token is 10px at the standard 16px root size. */
+  ${projectFolders} > ul > li:has(> .codicon-folder), ${addProjectFolder} {
+    border-radius: var(--hcv-popup-button-radius);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    ${addProjectFolder}:hover:not(:disabled) { background-color: var(--hcv-hover-menu); color: var(--hcv-text); }
+  }
 
   ${codexIconRules(`${dialog2} :is(.codicon-close, button[data-slot="dialog-close-button"] > svg.tabler-icon-x)`, "close")}
 }
@@ -17022,6 +17646,8 @@ function sessionTabStyles(active2) {
 @media (forced-colors: none) {
   /* PaneTab's usual 12rem maximum, reduced by a quarter for chat tabs. */
   ${tab} { max-inline-size: 9rem; }
+  /* Keep the native draft label and its spacing, but do not paint its dot. */
+  ${tab} .pane-tab-content span.rounded-full[class~="border-(--ui-text-quaternary)"]:not([role="status"]) { opacity: 0; }
   ${tab} .pane-tab-content span[aria-hidden="true"][class~="size-1"][class~="rounded-full"] { display: none; }
   ${tab} .pane-tab-content [role="status"]:is([class~="bg-(--ui-accent)"], [class~="border-(--ui-accent)"]) {
     position: absolute;
@@ -17216,8 +17842,8 @@ function registerSessionTabs(ctx, active2) {
     const origin = event.target instanceof Element ? event.target : event.target?.parentElement;
     const tab = origin?.closest(chatTab2);
     if (!tab || model.get() || !tab.closest("[data-zone-tabstrip]")) return;
-    const control3 = origin.closest('button, a, input, [role="button"]');
-    if (control3 && control3 !== tab) return;
+    const control4 = origin.closest('button, a, input, [role="button"]');
+    if (control4 && control4 !== tab) return;
     event.preventDefault();
     event.stopPropagation();
     const id2 = tabId(tab);
@@ -17252,7 +17878,7 @@ function registerSessionTabs(ctx, active2) {
 }
 
 // source/context-meter.js
-import { Tip as Tip2, host as host19, useValue as useValue7 } from "@hermes/plugin-sdk";
+import { Tip as Tip2, host as host19, useI18n as useI18n6, useValue as useValue7 } from "@hermes/plugin-sdk";
 import { createElement as h14, useCallback, useEffect as useEffect8, useState as useState10 } from "react";
 function readContext(usage) {
   const used = usage?.context_used;
@@ -17303,20 +17929,22 @@ function useContext(inMainComposer) {
   const live = usage !== snapshot.seenUsage && liveModelMatches ? readContext(usage) : null;
   return live?.max === context.max ? live : context;
 }
-var number = new Intl.NumberFormat("ru-RU");
-var thousands = (tokens) => number.format(Math.round(tokens / 1e3));
+var numbers2 = { ru: new Intl.NumberFormat("ru-RU"), en: new Intl.NumberFormat("en-US") };
 function ContextReadout({ context }) {
+  const { locale } = useI18n6();
+  const ru = locale?.toLowerCase().startsWith("ru");
+  const thousands = (tokens) => numbers2[ru ? "ru" : "en"].format(Math.round(tokens / 1e3));
   const percent = context.used / context.max * 100;
   const whole = Math.round(percent);
   const full = whole >= 50;
-  const detail = full ? `${whole}% \u0437\u0430\u043F\u043E\u043B\u043D\u0435\u043D\u043E` : `${whole}% \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u043D\u043E (\u043E\u0441\u0442\u0430\u043B\u043E\u0441\u044C ${100 - whole}%)`;
+  const detail = ru ? full ? `${whole}% \u0437\u0430\u043F\u043E\u043B\u043D\u0435\u043D\u043E` : `${whole}% \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u043D\u043E (\u043E\u0441\u0442\u0430\u043B\u043E\u0441\u044C ${100 - whole}%)` : full ? `${whole}% full` : `${whole}% used (${100 - whole}% left)`;
   const used = `${context.estimated ? "\u2248" : ""}${thousands(context.used)}`;
   const label3 = h14(
     "div",
     { "data-hcv-context-detail": "" },
-    h14("span", { "data-muted": "" }, "\u041A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u043D\u043E\u0435 \u043E\u043A\u043D\u043E:"),
+    h14("span", { "data-muted": "" }, ru ? "\u041A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u043D\u043E\u0435 \u043E\u043A\u043D\u043E:" : "Context window:"),
     h14("span", full ? { "data-muted": "" } : null, detail),
-    h14("span", null, `\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u043D\u043E ${used} \u043A / ${thousands(context.max)} \u043A \u0442\u043E\u043A\u0435\u043D\u043E\u0432`)
+    h14("span", null, ru ? `\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u043D\u043E ${used} \u043A / ${thousands(context.max)} \u043A \u0442\u043E\u043A\u0435\u043D\u043E\u0432` : `Used ${used}k / ${thousands(context.max)}k tokens`)
   );
   const circle = { cx: 6, cy: 6, r: 5, stroke: "currentColor", strokeWidth: 2, fill: "none" };
   const ring = h14(
@@ -17341,7 +17969,7 @@ function ContextReadout({ context }) {
       "data-hcv-context-meter": "",
       role: "img",
       tabIndex: 0,
-      "aria-label": `\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u043D\u0438\u0435 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u0430: ${whole}%`
+      "aria-label": ru ? `\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u043D\u0438\u0435 \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u0430: ${whole}%` : `Context usage: ${whole}%`
     }, ring)
   );
 }
@@ -17422,7 +18050,7 @@ function registerContextMeter(ctx, active2) {
 import { host as host23 } from "@hermes/plugin-sdk";
 
 // source/queue.js
-import { useI18n as useI18n5 } from "@hermes/plugin-sdk";
+import { useI18n as useI18n7 } from "@hermes/plugin-sdk";
 import { createElement as h15, useLayoutEffect as useLayoutEffect3, useRef as useRef8 } from "react";
 
 // source/queue-order.js
@@ -17460,6 +18088,7 @@ function readQueue(dock2, panel2, copy7) {
       const entries2 = queues[key2];
       return Array.isArray(entries2) && entries2.length === rows.length && entries2.every((entry, index) => {
         if (typeof entry?.id !== "string" || typeof entry.text !== "string" || !Array.isArray(entry.attachments)) return false;
+        if (entry.serverStatus != null) return false;
         const caption2 = entry.displayKind === "hidden" ? copy7.hiddenQueued : (entry.displayText ?? entry.text).trim() || (entry.attachments.length ? copy7.attachmentOnly : copy7.emptyTurn);
         return rows[index].querySelector(".status-row-content p")?.textContent === caption2;
       });
@@ -17721,7 +18350,7 @@ function rowMenu(actions, ctx, queueing) {
 }
 function QueueSurface({ ctx, queueing }) {
   const anchor = useRef8(null);
-  const { locale, t: { composer: copy7 } } = useI18n5();
+  const { locale, t: { composer: copy7 } } = useI18n7();
   useLayoutEffect3(() => {
     const dock2 = anchor.current?.closest('[data-slot="composer-dock"]');
     if (!dock2) return;
@@ -18080,10 +18709,10 @@ function ApprovalControl({ subscribe, snapshot }) {
     setMain(Boolean(node3?.closest('form[data-slot="composer-root"][data-tour="composer"]:not([data-popped-out])') && !node3.closest("[data-hud-shell]")));
   }, []);
   const { item, route } = useSyncExternalStore2(subscribe, snapshot);
-  let control3;
+  let control4;
   if (main && item) {
     const off = Boolean(item.className);
-    control3 = h16(
+    control4 = h16(
       DropdownMenu5,
       { key: route },
       h16(
@@ -18111,7 +18740,7 @@ function ApprovalControl({ subscribe, snapshot }) {
       }, item.menuContent)
     );
   }
-  return h16("span", { ref: locate, "data-hcv-approval-anchor": "" }, control3);
+  return h16("span", { ref: locate, "data-hcv-approval-anchor": "" }, control4);
 }
 function registerComposerApproval(ctx, active2) {
   const root = document.documentElement;
@@ -18188,6 +18817,7 @@ function registerComposerApproval(ctx, active2) {
 // source/composer-changes.js
 import { host as host22 } from "@hermes/plugin-sdk";
 var dockSelector = '[data-chat-surface][data-composer-target="main"]:not([data-hud-shell] *, [data-pane-hidden] *, [inert] *) [data-slot="composer-dock"]:not([data-popped-out])';
+var dockMounts = '[data-chat-surface], [data-slot="composer-dock"]';
 var editTools2 = /* @__PURE__ */ new Set(["edit_file", "patch", "write_file"]);
 var ansi = /\x1b\[[0-?]*[ -/]*[@-~]/g;
 var hunkHeader = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/;
@@ -18317,8 +18947,8 @@ function registerComposerChanges(ctx, active2) {
   const contrast = matchMedia("(forced-colors: none)");
   const turns = /* @__PURE__ */ new Map();
   const key = (connection, profile2, session) => JSON.stringify([connection, profile2, session]);
-  const scope3 = () => [host22.state.connectionId.get(), host22.state.profile.get()];
-  const eventKey = (event) => event.session_id && !event.replayed ? key(event.connectionId || scope3()[0], event.profile || scope3()[1], event.session_id) : null;
+  const scope4 = () => [host22.state.connectionId.get(), host22.state.profile.get()];
+  const eventKey = (event) => event.session_id && !event.replayed ? key(event.connectionId || scope4()[0], event.profile || scope4()[1], event.session_id) : null;
   const rail = element6("div", "composer-changes");
   const chip2 = element6("div", "composer-changes-chip");
   const label3 = element6("span", "composer-changes-label");
@@ -18334,6 +18964,9 @@ function registerComposerChanges(ctx, active2) {
   const motion2 = matchMedia("(prefers-reduced-motion: no-preference)");
   let currentKey;
   let lastText;
+  let lastCounts;
+  let numberLocale;
+  let numberFormatter;
   let sizeAnimation;
   let frame;
   function hide() {
@@ -18341,22 +18974,30 @@ function registerComposerChanges(ctx, active2) {
     rail.remove();
     currentKey = void 0;
     lastText = void 0;
+    lastCounts = void 0;
   }
   function sync() {
     frame = 0;
     if (!root.matches(active2) || !contrast.matches) return hide();
     const session = host22.state.activeSessionId.get();
-    const address = key(...scope3(), session);
+    const address = key(...scope4(), session);
     const turn = turns.get(address);
     const dock2 = turn?.paths.size && document.querySelector(dockSelector);
     if (!dock2 || !host22.state.busyBySession.get()[session]) return hide();
     if (currentKey !== address || rail.parentElement !== dock2) hide();
     const locale = root.lang.toLowerCase() || "en";
-    const formatter = new Intl.NumberFormat(locale);
+    const count = turn.paths.size;
+    if (lastCounts?.count === count && lastCounts.added === turn.added && lastCounts.removed === turn.removed && lastCounts.locale === locale) return;
+    if (numberLocale !== locale) {
+      numberFormatter = new Intl.NumberFormat(locale);
+      numberLocale = locale;
+    }
+    const formatter = numberFormatter;
     const text = changesLabel(turn.paths.size, locale, formatter.format(turn.paths.size));
     const plus = formatter.format(turn.added);
     const minus = formatter.format(turn.removed);
     const accessible = text + ", +" + plus + ", \u2212" + minus;
+    lastCounts = { count, added: turn.added, removed: turn.removed, locale };
     if (accessible === lastText && currentKey === address) return;
     const oldWidth = rail.isConnected ? chip2.getBoundingClientRect().width : 0;
     sizeAnimation?.cancel();
@@ -18400,22 +19041,47 @@ function registerComposerChanges(ctx, active2) {
   ctx.onEvent("message.complete", (event) => {
     if (turns.delete(eventKey(event))) schedule();
   });
-  const observer = new MutationObserver(() => {
+  const observer = new MutationObserver((records) => {
     const session = host22.state.activeSessionId.get();
-    if (rail.isConnected || session && turns.get(key(...scope3(), session))?.paths.size) schedule();
+    if (!rail.isConnected && !(session && turns.get(key(...scope4(), session))?.paths.size)) return;
+    if (records.some((record) => {
+      const target = record.target;
+      if (!(target instanceof Element)) return false;
+      if (record.type === "attributes") {
+        return target === root || target.contains(rail) || target.matches(dockMounts) || Boolean(target.firstElementChild && target.querySelector(dockMounts));
+      }
+      if (target.closest('[data-slot="aui_thread-content"]')) return false;
+      if ([...record.removedNodes].some((node3) => node3 === rail || node3.contains?.(rail))) return true;
+      return movedElementMatches(record, dockMounts);
+    })) schedule();
   });
   observer.observe(root, {
     childList: true,
     subtree: true,
     attributes: true,
-    attributeFilter: ["data-hermes-theme", "lang", "data-pane-hidden", "data-popped-out"]
+    attributeFilter: ["data-hermes-theme", "lang", "data-pane-hidden", "data-popped-out", "inert", "hidden"]
   });
-  const unsubscribe = [host22.state.busyBySession, host22.state.activeSessionId, host22.state.connectionId, host22.state.profile].map((atom7) => atom7.listen(schedule));
+  const busyNow = () => Boolean(host22.state.busyBySession.get()[host22.state.activeSessionId.get()]);
+  let previousBusy = busyNow();
+  const stopBusy = host22.state.busyBySession.listen(() => {
+    const busy = busyNow();
+    if (busy === previousBusy) return;
+    previousBusy = busy;
+    schedule();
+  });
+  const scopeChanged = () => {
+    previousBusy = busyNow();
+    schedule();
+  };
+  const stopSession = host22.state.activeSessionId.listen(scopeChanged);
+  const unsubscribe = [host22.state.connectionId, host22.state.profile].map((atom7) => atom7.listen(scopeChanged));
   contrast.addEventListener("change", schedule);
   ctx.onDispose(() => {
     cancelAnimationFrame(frame);
     observer.disconnect();
     contrast.removeEventListener("change", schedule);
+    stopBusy();
+    stopSession();
     for (const off of unsubscribe) off();
     hide();
   });
@@ -18875,13 +19541,13 @@ import { host as host24 } from "@hermes/plugin-sdk";
 
 // source/dictation-caret.js
 var chip = '[contenteditable="false"]';
-function textOf(fragment) {
+function textOf2(fragment) {
   for (const node3 of fragment.querySelectorAll(chip)) node3.replaceWith("\uFFFC");
   for (const node3 of fragment.querySelectorAll("br")) node3.replaceWith("\n");
   return fragment.textContent;
 }
 function draftText(editor2) {
-  return editor2.hasAttribute("data-empty") ? "" : textOf(editor2.cloneNode(true));
+  return editor2.hasAttribute("data-empty") ? "" : textOf2(editor2.cloneNode(true));
 }
 function draftSelection(editor2, range2) {
   if (!range2) {
@@ -18894,7 +19560,7 @@ function draftSelection(editor2, range2) {
     const prefix = document.createRange();
     prefix.selectNodeContents(editor2);
     prefix.setEnd(node3, index);
-    return textOf(prefix.cloneContents()).length;
+    return textOf2(prefix.cloneContents()).length;
   };
   return { start: offset(range2.startContainer, range2.startOffset), end: offset(range2.endContainer, range2.endOffset) };
 }
@@ -19377,6 +20043,196 @@ function registerDictation(ctx, active2) {
   });
 }
 
+// source/zoom-banner.js
+var ZOOM_BASE = 1.2;
+var ZOOM_STEP = 0.1;
+var MIN_FACTOR = 0.5;
+var MAX_FACTOR = 3;
+var DISMISS_DELAY = 2e3;
+var EXIT_TIME = 150;
+var minusFallback = svgMask('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M5 12h14" fill="none" stroke="white" stroke-width="1.8" stroke-linecap="round"/></svg>');
+var minusMask = localAssets?.icons?.imagePreviewMinus ? svgMask(localAssets.icons.imagePreviewMinus) : minusFallback;
+var plusMask = localAssets?.icons?.imagePreviewPlus ? svgMask(localAssets.icons.imagePreviewPlus) : codexMask("plus");
+function registerZoomBanner(ctx, active2, themeName2) {
+  const zoom2 = window.hermesDesktop?.zoom;
+  if (!zoom2?.get || !zoom2?.setPercent || !zoom2?.onChanged) return;
+  const root = document.documentElement;
+  const layerSelector = `${active2} [data-hcv-zoom-layer]`;
+  const bannerSelector = `${layerSelector} [data-hcv-zoom-banner]`;
+  mountCSS(ctx, "data-hcv-zoom-styles", `
+    ${layerSelector} {
+      position: fixed; top: 8px; z-index: 90; display: flex; justify-content: flex-end;
+      pointer-events: none; opacity: 1; transform: translateY(0);
+      transition: opacity 150ms ease-out, transform 150ms ease-out;
+      -webkit-app-region: no-drag;
+    }
+    ${layerSelector}[data-state="exiting"] { opacity: 0; transform: translateY(-4px); }
+    ${bannerSelector} {
+      box-sizing: border-box; display: inline-flex; align-items: center; height: 44px;
+      overflow: hidden; padding: 0 8px; border: .5px solid; border-radius: 20px;
+      pointer-events: auto; white-space: nowrap; font: 400 13px / 1 ${codexReference.font};
+      box-shadow: 0 8px 16px -4px rgba(0, 0, 0, .12);
+      animation: hcv-zoom-enter 150ms ${codexReference.enter} both;
+    }
+    ${bannerSelector} [data-hcv-zoom-value] {
+      display: inline-block; flex: none; width: 48px; text-align: center;
+      font: 600 13px / 1.428571 ${codexReference.font}; font-variant-numeric: tabular-nums;
+    }
+    ${bannerSelector} [data-hcv-zoom-controls] { display: flex; align-items: center; margin-inline-start: 4px; }
+    ${bannerSelector} button {
+      box-sizing: border-box; display: inline-flex; flex: none; align-items: center;
+      justify-content: center; height: 28px; padding: 0 8px; border: 0; border-radius: 6px;
+      background: transparent; font: 400 13px / 1 ${codexReference.font}; cursor: pointer;
+    }
+    ${bannerSelector} button[data-hcv-zoom-step] { width: 28px; padding: 0; }
+    ${bannerSelector} button[data-hcv-zoom-step]::before {
+      content: ''; display: block; width: 16px; height: 16px; background: currentColor;
+      mask: ${minusMask} center / contain no-repeat;
+    }
+    ${bannerSelector} button[data-hcv-zoom-step="in"]::before { mask-image: ${plusMask}; }
+    ${bannerSelector} [data-hcv-zoom-separator] { flex: none; width: 1px; height: 16px; margin: 0 4px; background: currentColor; opacity: .12; }
+    ${bannerSelector} button:disabled { opacity: .5; cursor: default; }
+    ${bannerSelector} button:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: 2px; }
+    @media (forced-colors: none) {
+      ${bannerSelector} { color: light-dark(#0d0d0d, #ededed); background: light-dark(#f9f9f9, #181818); border-color: light-dark(#0d0d0d1a, #ffffff1f); }
+      ${bannerSelector} button { color: light-dark(#8f8f8f, #8f8f8f); }
+      ${bannerSelector} button:not(:disabled):hover { background: light-dark(#0d0d0d0f, #ffffff0f); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      ${layerSelector} { transition: none; }
+      ${layerSelector}[data-state="exiting"] { transform: none; }
+      ${bannerSelector} { animation: none; }
+    }
+    @keyframes hcv-zoom-enter {
+      from { opacity: 0; transform: translateY(-4px) scale(.98); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+  `);
+  let current = null;
+  let revision = 0;
+  let layer = null;
+  let dismissTimer = null;
+  let exitTimer = null;
+  let hovered = false;
+  let disposed = false;
+  function clearTimers() {
+    clearTimeout(dismissTimer);
+    clearTimeout(exitTimer);
+    dismissTimer = exitTimer = null;
+  }
+  function remove() {
+    clearTimers();
+    layer?.remove();
+    layer = null;
+    hovered = false;
+  }
+  function exit() {
+    if (!layer) return;
+    clearTimers();
+    layer.dataset.state = "exiting";
+    exitTimer = setTimeout(remove, EXIT_TIME);
+  }
+  function position2() {
+    if (!layer) return;
+    const overlay2 = navigator.windowControlsOverlay;
+    const rect = overlay2?.visible ? overlay2.getTitlebarAreaRect() : null;
+    const right = rect?.width ? Math.max(0, Math.round(window.innerWidth - rect.right)) : 0;
+    layer.style.right = `${16 + right}px`;
+  }
+  function update() {
+    if (!layer || !current) return;
+    layer.querySelector("[data-hcv-zoom-value]").textContent = `${current.percent}%`;
+    layer.querySelector("[data-hcv-zoom-reset]").disabled = Math.abs(current.level) < 1e-9;
+  }
+  function create() {
+    const ru = root.matches(":lang(ru)");
+    layer = document.createElement("div");
+    layer.dataset.hcvZoomLayer = "";
+    layer.dataset.state = "visible";
+    const banner = document.createElement("div");
+    banner.dataset.hcvZoomBanner = "";
+    const value = document.createElement("span");
+    value.dataset.hcvZoomValue = "";
+    value.setAttribute("aria-live", "polite");
+    const controls2 = document.createElement("div");
+    controls2.dataset.hcvZoomControls = "";
+    for (const [direction, label3] of [["out", ru ? "\u0423\u043C\u0435\u043D\u044C\u0448\u0438\u0442\u044C" : "Zoom out"], ["in", ru ? "\u0423\u0432\u0435\u043B\u0438\u0447\u0438\u0442\u044C" : "Zoom in"]]) {
+      const button5 = document.createElement("button");
+      button5.type = "button";
+      button5.dataset.hcvZoomStep = direction;
+      button5.setAttribute("aria-label", label3);
+      button5.addEventListener("click", () => step2(direction === "in" ? 1 : -1));
+      controls2.append(button5);
+    }
+    const separator = document.createElement("span");
+    separator.dataset.hcvZoomSeparator = "";
+    separator.setAttribute("aria-hidden", "true");
+    const reset = document.createElement("button");
+    reset.type = "button";
+    reset.dataset.hcvZoomReset = "";
+    reset.textContent = ru ? "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C" : "Reset";
+    reset.addEventListener("click", () => {
+      zoom2.setPercent(100);
+      show();
+    });
+    banner.addEventListener("mouseenter", () => {
+      hovered = true;
+    });
+    banner.addEventListener("mouseleave", () => {
+      hovered = false;
+      if (dismissTimer === null && layer?.dataset.state === "visible") exit();
+    });
+    banner.append(value, controls2, separator, reset);
+    layer.append(banner);
+    document.body.append(layer);
+    position2();
+  }
+  function show() {
+    if (disposed || root.dataset.hermesTheme !== themeName2 || !current) return;
+    if (!layer) create();
+    clearTimers();
+    layer.dataset.state = "visible";
+    update();
+    dismissTimer = setTimeout(() => {
+      dismissTimer = null;
+      if (!hovered) exit();
+    }, DISMISS_DELAY);
+  }
+  function step2(direction) {
+    if (!current) return;
+    const factor = Math.pow(ZOOM_BASE, current.level);
+    const target = Math.round(100 * Math.min(MAX_FACTOR, Math.max(MIN_FACTOR, factor + ZOOM_STEP * direction)));
+    zoom2.setPercent(target);
+    show();
+  }
+  const off = zoom2.onChanged((state) => {
+    if (disposed || !Number.isFinite(state?.level) || !Number.isFinite(state?.percent)) return;
+    revision++;
+    const previous = current;
+    current = state;
+    update();
+    if (previous && Math.abs(previous.level - state.level) > 1e-9) show();
+  });
+  void zoom2.get().then((state) => {
+    if (!disposed && revision === 0 && Number.isFinite(state?.level) && Number.isFinite(state?.percent)) current = state;
+  }).catch(() => {
+  });
+  const themeObserver = new MutationObserver(() => {
+    if (root.dataset.hermesTheme !== themeName2) remove();
+  });
+  themeObserver.observe(root, { attributes: true, attributeFilter: ["data-hermes-theme"] });
+  ctx.addEventListener(window, "resize", position2);
+  const overlay = navigator.windowControlsOverlay;
+  overlay?.addEventListener("geometrychange", position2);
+  ctx.onDispose(() => {
+    disposed = true;
+    off?.();
+    overlay?.removeEventListener("geometrychange", position2);
+    themeObserver.disconnect();
+    remove();
+  });
+}
+
 // source/plugin.js
 var id = "hermes-codex-visual";
 var marker3 = `data-${id}`;
@@ -19616,7 +20472,7 @@ var styles6 = `
     transition: none;
   }
 
-  ${sidebarNav}:is(:focus-visible, :active, [data-active="true"]) > [data-hcv-sidebar-fill] { opacity: 1; }
+  ${sidebarNav}:is(:focus-visible, :active, [data-active="true"], [class~="bg-(--ui-control-active-background)"]) > [data-hcv-sidebar-fill] { opacity: 1; }
   @media (hover: hover) {
     ${sidebarNav}:hover > [data-hcv-sidebar-fill] { opacity: 1; }
   }
@@ -19715,7 +20571,48 @@ var styles6 = `
     color: var(--hcv-chat-prose, var(--hcv-text));
     font-weight: 430;
   }
-  ${assistantRoot} .aui-md.prose { --tw-prose-bold: var(--hcv-chat-prose, var(--hcv-text)); }
+  ${assistantRoot} .aui-md.prose {
+    --tw-prose-bold: var(--hcv-chat-prose, var(--hcv-text));
+    /* Codex assistant Markdown uses 1.625 line height and one font size
+       between adjacent prose paragraphs. */
+    --dt-line-height: 1.625;
+    --paragraph-gap: var(--conversation-text-font-size);
+    line-height: 1.625;
+  }
+  /* Codex Desktop's InlineCode-Cddi3Y in 0cf36033c2f9.css. Keep this
+     scoped to inline snippets so fenced code and the editor stay unchanged. */
+  ${assistantRoot} .aui-md.prose :not(pre) > code {
+    font-family: ui-monospace, 'SFMono-Regular', 'SF Mono', menlo, consolas, 'Liberation Mono', monospace;
+    font-size: .92em;
+    font-weight: 400;
+    line-height: inherit;
+    color: inherit;
+    background: color-mix(in srgb, currentColor 11.1%, transparent);
+    padding: 1px 6px;
+    border-radius: 6px;
+    box-decoration-break: clone;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  /* Hermes already supplies the brand icon and the link's native actions. */
+  ${assistantRoot} .aui-md.prose a.ref:is([href^="http://"], [href^="https://"]) {
+    color: light-dark(#0169cc, #99ceff);
+    font-weight: 500;
+    text-decoration: none;
+  }
+  ${assistantRoot} .aui-md.prose a.ref:is([href^="http://"], [href^="https://"]) > svg {
+    display: inline-block;
+    inline-size: 16px;
+    block-size: 16px;
+    margin-inline-end: 3px;
+    opacity: 1;
+    vertical-align: middle;
+    transform: translateY(calc(.5ex - .5cap));
+  }
+  ${assistantRoot} .aui-md.prose a.ref:is([href^="http://"], [href^="https://"]):is(:hover, :focus-visible) {
+    text-decoration: underline dashed .5px;
+    text-underline-offset: 2px;
+  }
 
   ${chat2} [data-slot="aui_intro"] .wordmark { mix-blend-mode: normal; }
   ${chat2} [data-slot="aui_intro"] .wordmark + p {
@@ -19885,9 +20782,10 @@ var plugin_default = {
     25%, 100% { transform: translateX(-125%); }
   }
   ${liveTurn} > :is([data-hcv-live-time], [aria-hidden="true"]:not(.dither, [data-hcv-thinking])) {
-    color: var(--hcv-muted);
-    font-size: 10px;
-    line-height: 1.2;
+    color: color-mix(in srgb, var(--hcv-text) 38.5%, transparent);
+    font-size: var(--conversation-text-font-size);
+    line-height: calc(var(--conversation-text-font-size) + 8px);
+    letter-spacing: inherit;
   }
   @media (prefers-reduced-motion: reduce) {
     ${chat2} button[data-hcv-turn-line]::after { transition: none; }
@@ -20118,6 +21016,7 @@ var plugin_default = {
     registerTurnExperience(ctx, active);
     registerChatDisplay(ctx, active);
     registerChatResources(ctx, active);
+    registerChatFileLinks(ctx, active, previewResourceCard);
     registerChatActivity(ctx, active);
     registerChatTables(ctx, active);
     registerReviewProposals(ctx, active);
@@ -20136,6 +21035,7 @@ var plugin_default = {
     registerComposer(ctx, active);
     registerDraftSetup(ctx, active, localEnvironment);
     registerDictation(ctx, active);
+    registerZoomBanner(ctx, active, themeName);
     if (null) {
       void ctx.files.writeText(ctx.files.dataFolder, "loaded-version.json", JSON.stringify({
         version: null,

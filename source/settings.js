@@ -28,7 +28,7 @@ const groups = {
 
 const nativeIcons = {
   archive: 'archive', bell: 'bell', box: 'model', brain: 'memory', 'chart-bar': 'usage', 'circle-letter-a': 'artifacts',
-  cpu: 'model', download: 'download', 'file-image': 'artifacts', 'file-text': 'artifacts',
+  cpu: 'model', download: 'download', 'file-image': 'artifacts', 'file-text': 'artifacts', 'git-fork': 'bots',
   'folder-open': 'folderOpen', globe: 'globe', keyboard: 'keyboard', key: 'keys', 'key-round': 'keys', lock: 'lock',
   'message-circle': 'messages', microphone: 'mic', mic: 'mic', monitor: 'desktop', 'device-desktop': 'desktop', network: 'globe',
   palette: 'palette', paw: 'paw', photo: 'image', 'settings-2': 'sliders', 'adjustments-horizontal': 'sliders', 'shield-lock': 'shield',
@@ -169,6 +169,7 @@ export function registerSettingsStyle(ctx, active) {
     --hcv-settings-inset: 16px;
     --hcv-settings-row-gap: 24px;
     --hcv-settings-row-pad: 12px;
+    --hcv-settings-block-gap: 12px;
     --hcv-settings-fade: 150ms cubic-bezier(0, 0, .2, 1);
     font-family: var(--hcv-ui-font);
   }
@@ -264,6 +265,7 @@ export function registerSettingsStyle(ctx, active) {
     pointer-events: none;
   }
   ${mode}.ring-2 { background-color: var(--hcv-hover-menu); }
+  ${mode}.ring-2::before, ${mode}.ring-2 + button::before { visibility: hidden; }
   ${mode}:active:not(:disabled) { background-color: color-mix(in srgb, var(--hcv-text) 16%, transparent); }
   ${mode}:focus-visible { z-index: 1; }
   ${mode} > p { margin-block-start: 4px; }
@@ -412,6 +414,8 @@ export function registerSettingsStyle(ctx, active) {
   }
   ${settings} button[data-glass-opaque] { font-family: var(--hcv-ui-font); }
   @media (hover: hover) and (pointer: fine) {
+    ${mode}:hover:not(:disabled)::before,
+    ${mode}:hover:not(:disabled) + button::before { visibility: hidden; }
     ${search}:hover { color: var(--hcv-text); }
     ${segmented} > button:hover:not(:disabled, [aria-pressed="true"]) {
       background: var(--hcv-hover-menu);

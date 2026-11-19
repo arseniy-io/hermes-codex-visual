@@ -28,8 +28,8 @@ export async function verifyComposer({ page, expect, screenshot, mock, prompt })
   await expect(input.locator('[data-ref-text="/status"]')).toHaveCount(1)
 
   await input.fill(prompt)
-  await expect(queueControl).toHaveCount(1)
-  await expect(queueControl).toBeHidden()
+  // Current Hermes does not mount the queue action until a reply is running.
+  await expect(queueControl).toHaveCount(0)
   await input.press('Enter')
   await expect.poll(() => sent(prompt), { timeout: 40000 }).toBe(1)
   await expect(form.getByRole('button', { name: 'Стоп', exact: true })).toBeVisible()
@@ -49,10 +49,47 @@ export async function verifyComposer({ page, expect, screenshot, mock, prompt })
   await expect(tray.locator('.status-section-header')).toBeHidden()
   await expect(rows.first()).toContainText(firstLine)
   await expect(input).toHaveText('')
-  await input.press('Enter')
-  await expect(rows).toHaveCount(1)
+  // Empty Enter now sends the head of the queue immediately in Hermes, so it
+  // would remove the row whose edit, order and drain this fixture exercises.
   assert.deepEqual(mock.receivedPrompts, [prompt])
 
+  if (process.env.HERMES_VISUAL_DIAGNOSE_SERVER_QUEUE === '1') {
+    const extra = ['Диагностика очереди 2.', 'Диагностика очереди 3.']
+    for (const [index, text] of extra.entries()) {
+      await input.fill(text)
+      await input.press('Enter')
+      await expect(rows).toHaveCount(index + 2, { timeout: 15000 })
+      await expect(input).toHaveText('')
+    }
+    const grip = rows.first().locator('[data-hcv-queue-grip]')
+    const snapshot = async () => ({
+      order: await rows.locator('p').allTextContents(),
+      canReorder: await tray.getAttribute('data-hcv-queue-reorder'),
+      gripVisible: await grip.isVisible(),
+      queues: await page.evaluate(() => {
+        const queues = JSON.parse(localStorage.getItem('hermes.desktop.composerQueue.v1') || '{}')
+        return Object.values(queues).map(entries => entries.map(entry => ({
+          text: entry.text, serverStatus: entry.serverStatus || null, serverControls: entry.serverControls || null,
+        })))
+      }),
+    })
+    await expect.poll(async () => {
+      const data = await snapshot()
+      return data.queues.flat().filter(entry => entry.serverStatus === 'queued').length
+    }).toBe(3)
+    const before = await snapshot()
+    console.log('Server-owned queue', JSON.stringify(before))
+    await expect(tray).not.toHaveAttribute('data-hcv-queue-reorder', '')
+    await expect(grip).toBeHidden()
+    await more(rows.first()).click()
+    await expect(popup.getByRole('menuitem', { name: 'Редактировать сообщение' })).toBeDisabled()
+    await page.keyboard.press('Escape')
+    mock.releaseHeldStream()
+    await expect.poll(() => mock.receivedPrompts.slice(), { timeout: 45000 })
+      .toEqual([prompt, firstLine + '\n' + secondLine, ...extra])
+    console.log('Server queue received order', JSON.stringify(mock.receivedPrompts))
+    return
+  }
   await more(rows.first()).press('ArrowDown')
   const edit = popup.getByRole('menuitem', { name: 'Редактировать сообщение' })
   await expect(edit).toBeFocused()

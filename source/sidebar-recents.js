@@ -22,11 +22,18 @@ export function nativeDraftWorkspaceAction(sidebar) {
   return null
 }
 
-export function nativeWorktreePath(button) {
+export function nativeWorktreeTarget(button) {
   for (let node = committedFiber(button); node; node = node.return) {
-    if (typeof node.memoizedProps?.repoPath === 'string') return node.memoizedProps.repoPath
+    const props = node.memoizedProps
+    // Older Hermes releases passed the folder directly. Current releases
+    // pass the project, including its optional gateway and profile owner.
+    if (typeof props?.repoPath === 'string') return { path: props.repoPath }
+    if (typeof props?.project?.path === 'string') {
+      const { path, connectionId, profile } = props.project
+      return { path, connectionId, profile }
+    }
   }
-  return ''
+  return null
 }
 
 function groupingAction(element) {

@@ -18,6 +18,10 @@ Use a separate Hermes profile and a demo project. Put the built file in `desktop
 
 The optional Playwright suite in `verification/` uses a built local Hermes Desktop checkout and its Python environment. Set `HERMES_VISUAL_DESKTOP`, `HERMES_VISUAL_PYTHON`, and `HERMES_VISUAL_FIXTURE_PLUGIN` to those paths and the generated root `plugin.js`. Run that checkout's Playwright CLI with `test --config verification/playwright.config.mjs`. Use `HERMES_VISUAL_FOCUS=settings-audit` for the full settings walk.
 
+Use `HERMES_VISUAL_FOCUS=readme` to refresh the public screenshots in `docs/images/` with a synthetic Atlas chat. Point `HERMES_VISUAL_FIXTURE_PLUGIN` at the public module from the ZIP. The scenario captures dark and light workspaces, the stock-theme comparison, and subagent settings. Keep captures and verification in disposable profiles; the test teardown checks a gateway's profile and process identity before stopping it. The cleanup helper requires Python's `psutil` package.
+
+Passing focused scenarios does not imply a passing full suite. Record known failures alongside release notes; see [v0.15.87](release-0.15.87.md).
+
 ## Проверка в Hermes
 
 Используй отдельный профиль Hermes и тестовый проект. Скопируй собранный файл в `desktop-plugins/hermes-codex-visual/plugin.js`, пересканируй плагины, включи плагин и выбери тему **Codex**. Проверь ленту, поле ввода, порядок чатов и правую панель в обеих темах. Открой предпросмотр файла и сравни скачанную копию с оригиналом.

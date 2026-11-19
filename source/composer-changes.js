@@ -1,6 +1,8 @@
 import { host } from '@hermes/plugin-sdk'
+import { movedElementMatches } from './dom-changes.js'
 
 const dockSelector = '[data-chat-surface][data-composer-target="main"]:not([data-hud-shell] *, [data-pane-hidden] *, [inert] *) [data-slot="composer-dock"]:not([data-popped-out])'
+const dockMounts = '[data-chat-surface], [data-slot="composer-dock"]'
 const editTools = new Set(['edit_file', 'patch', 'write_file'])
 const ansi = /\x1b\[[0-?]*[ -/]*[@-~]/g
 const hunkHeader = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/
@@ -160,6 +162,9 @@ export function registerComposerChanges(ctx, active) {
   const motion = matchMedia('(prefers-reduced-motion: no-preference)')
   let currentKey
   let lastText
+  let lastCounts
+  let numberLocale
+  let numberFormatter
   let sizeAnimation
   let frame
   function hide() {
@@ -167,6 +172,7 @@ export function registerComposerChanges(ctx, active) {
     rail.remove()
     currentKey = undefined
     lastText = undefined
+    lastCounts = undefined
   }
   function sync() {
     frame = 0
@@ -178,11 +184,19 @@ export function registerComposerChanges(ctx, active) {
     if (!dock || !host.state.busyBySession.get()[session]) return hide()
     if (currentKey !== address || rail.parentElement !== dock) hide()
     const locale = root.lang.toLowerCase() || 'en'
-    const formatter = new Intl.NumberFormat(locale)
+    const count = turn.paths.size
+    if (lastCounts?.count === count && lastCounts.added === turn.added &&
+        lastCounts.removed === turn.removed && lastCounts.locale === locale) return
+    if (numberLocale !== locale) {
+      numberFormatter = new Intl.NumberFormat(locale)
+      numberLocale = locale
+    }
+    const formatter = numberFormatter
     const text = changesLabel(turn.paths.size, locale, formatter.format(turn.paths.size))
     const plus = formatter.format(turn.added)
     const minus = formatter.format(turn.removed)
     const accessible = text + ', +' + plus + ', −' + minus
+    lastCounts = { count, added: turn.added, removed: turn.removed, locale }
     if (accessible === lastText && currentKey === address) return
     const oldWidth = rail.isConnected ? chip.getBoundingClientRect().width : 0
     sizeAnimation?.cancel()
@@ -224,21 +238,48 @@ export function registerComposerChanges(ctx, active) {
   ctx.onEvent('message.complete', event => {
     if (turns.delete(eventKey(event))) schedule()
   })
-  const observer = new MutationObserver(() => {
+  const observer = new MutationObserver(records => {
     const session = host.state.activeSessionId.get()
-    if (rail.isConnected || (session && turns.get(key(...scope(), session))?.paths.size)) schedule()
+    if (!rail.isConnected && !(session && turns.get(key(...scope(), session))?.paths.size)) return
+    if (records.some(record => {
+      const target = record.target
+      if (!(target instanceof Element)) return false
+      if (record.type === 'attributes') {
+        return target === root || target.contains(rail) || target.matches(dockMounts) ||
+          Boolean(target.firstElementChild && target.querySelector(dockMounts))
+      }
+      if (target.closest('[data-slot="aui_thread-content"]')) return false
+      // React can replace a dock or clear its foreign children on navigation.
+      if ([...record.removedNodes].some(node => node === rail || node.contains?.(rail))) return true
+      return movedElementMatches(record, dockMounts)
+    })) schedule()
   })
   observer.observe(root, {
     childList: true, subtree: true, attributes: true,
-    attributeFilter: ['data-hermes-theme', 'lang', 'data-pane-hidden', 'data-popped-out'],
+    attributeFilter: ['data-hermes-theme', 'lang', 'data-pane-hidden', 'data-popped-out', 'inert', 'hidden'],
   })
-  const unsubscribe = [host.state.busyBySession, host.state.activeSessionId, host.state.connectionId, host.state.profile]
-    .map(atom => atom.listen(schedule))
+  const busyNow = () => Boolean(host.state.busyBySession.get()[host.state.activeSessionId.get()])
+  let previousBusy = busyNow()
+  const stopBusy = host.state.busyBySession.listen(() => {
+    const busy = busyNow()
+    if (busy === previousBusy) return
+    previousBusy = busy
+    schedule()
+  })
+  const scopeChanged = () => {
+    previousBusy = busyNow()
+    schedule()
+  }
+  const stopSession = host.state.activeSessionId.listen(scopeChanged)
+  const unsubscribe = [host.state.connectionId, host.state.profile]
+    .map(atom => atom.listen(scopeChanged))
   contrast.addEventListener('change', schedule)
   ctx.onDispose(() => {
     cancelAnimationFrame(frame)
     observer.disconnect()
     contrast.removeEventListener('change', schedule)
+    stopBusy()
+    stopSession()
     for (const off of unsubscribe) off()
     hide()
   })

@@ -45,6 +45,12 @@ export function settingsLayoutRules(screen, main) {
     background-color: var(--hcv-settings-group);
   }
   ${group}, ${looseRun}, ${delegationRows}, ${moaRows} { gap: 0; }
+  /* Separate independent cards while preserving intentionally joined rows. */
+  :is(${group}) + :is(${group}),
+  :is(${group}) + :is(${loose}),
+  :is(${loose}):not(:is(${attachmentHead})) + :is(${group}) {
+    margin-block-start: var(--hcv-settings-block-gap);
+  }
   ${group} > ${member} { min-inline-size: 0; border-radius: 0; }
   ${group} > ${member} + ${member},
   ${delegationRows} > ${settingsRowHost} + ${settingsRowHost},

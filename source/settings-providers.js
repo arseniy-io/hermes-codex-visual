@@ -15,7 +15,8 @@ export function registerSettingsProviders(ctx, active) {
   const endpointName = `${endpointList} > .grid > button:first-child`
   const localFiles = `${localMain} #local-model-browse .flex.flex-col.rounded-md.border`
   const localQuickstart = `${localMain} [class~="min-h-[60dvh]"] > .max-w-md`
-  const search = `${providerMain} .inline-flex:has(> svg.tabler-icon-search + input[type="text"])`
+  const searchField = '.inline-flex:has(> svg.tabler-icon-search + input[type="text"])'
+  const search = `${providerMain} ${searchField}`
   const badges = `:is(${accounts} > div.group.grid > button > div > span.inline-flex,
     ${accounts} > button > div > :is(div > span.inline-flex, span.inline-flex),
     ${providerMain} [data-slot="badge"])`
@@ -73,6 +74,9 @@ export function registerSettingsProviders(ctx, active) {
     border-radius: var(--hcv-settings-control-radius, 8px);
     background-color: var(--hcv-form-surface);
     opacity: 1;
+  }
+  ${endpointShortcut} + .grid:has(> .inline-flex > svg.tabler-icon-search + input[type="text"]) {
+    margin-block-start: var(--hcv-settings-block-gap);
   }
   ${search}:focus-within { border-color: var(--hcv-focus); }
   ${search} > input {

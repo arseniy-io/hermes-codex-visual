@@ -134,6 +134,8 @@ function sessionTabStyles(active) {
 @media (forced-colors: none) {
   /* PaneTab's usual 12rem maximum, reduced by a quarter for chat tabs. */
   ${tab} { max-inline-size: 9rem; }
+  /* Keep the native draft label and its spacing, but do not paint its dot. */
+  ${tab} .pane-tab-content span.rounded-full[class~="border-(--ui-text-quaternary)"]:not([role="status"]) { opacity: 0; }
   ${tab} .pane-tab-content span[aria-hidden="true"][class~="size-1"][class~="rounded-full"] { display: none; }
   ${tab} .pane-tab-content [role="status"]:is([class~="bg-(--ui-accent)"], [class~="border-(--ui-accent)"]) {
     position: absolute;

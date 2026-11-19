@@ -14,6 +14,12 @@ async function capture(page, screenshot, name, locator, padding = 10) {
 }
 
 export async function verifyActivityComposer({ page, expect, projectChat, screenshot, before, openThemeSettings, closeSettings }) {
+  if (process.env.HERMES_VISUAL_DRAFT_ONLY === '1') {
+    const { verifyDraftConsent } = await import('./draft-consent.spec-helper.mjs')
+    const chat = page.locator('[data-chat-surface][data-composer-target="main"]:visible').first()
+    const draftConsent = await verifyDraftConsent({ page, expect, chat, screenshot })
+    return { draftConsent }
+  }
   await page.emulateMedia({ reducedMotion: 'no-preference' })
   await projectChat('Время выполнения').click()
   const chat = page.locator('[data-chat-surface][data-composer-target="main"]').first()

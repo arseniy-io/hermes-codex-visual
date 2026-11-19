@@ -88,7 +88,7 @@ const findTitle = (entry, summary) => (summary ? entry : entry.firstElementChild
   ?.querySelector(':scope > div > button > span:first-child > span:first-child')
 
 function thoughtLabel(text) {
-  if (text === 'Thinking') return 'Думаю'
+  if (text === 'Thinking' || text === 'Думает') return 'Думаю'
   if (['Помыслил', 'Кратко подумал', 'Thought', 'Thought briefly'].includes(text)) return 'Думал'
   if (text.startsWith('Думал ') && !text.startsWith('Думал на протяжении ')) {
     return 'Думал на протяжении ' + text.slice('Думал '.length)
@@ -205,6 +205,11 @@ export function registerChatActivity(ctx, active) {
   }
   ${thinking} { opacity: 1; }
   ${thoughtToggle} { --conversation-scaffold-text: color-mix(in oklab, var(--hcv-chat-prose, var(--hcv-text)) 30%, transparent); }
+  ${thinking} > div:first-child > span:last-child span[class~="tabular-nums"] {
+    font: 430 var(--hcv-activity-font)/var(--hcv-activity-line) ${codex.font};
+    color: color-mix(in oklab, var(--hcv-chat-prose, var(--hcv-text)) 30%, transparent);
+    letter-spacing: normal;
+  }
   ${thoughtToggle}:is(:hover, :focus-visible) {
     --conversation-scaffold-text: var(--hcv-chat-prose, var(--hcv-text)) !important;
   }
@@ -219,6 +224,15 @@ export function registerChatActivity(ctx, active) {
   }
   ${title}:has(> img[${favicon}]) > span:first-of-type:has(> :is(svg[aria-hidden="true"], .codicon)) { display: none; }
   ${glyph} > :is(svg, .codicon):not([aria-label]) { color: inherit; }
+  /* Keep the live status accessible, but use the same browser glyph before
+     and after completion instead of Hermes' animated decorative frames. */
+  ${glyph}:is(${row}[${iconAttribute}="activityBrowser"] *):has(> [role="status"]) {
+    background: var(--hcv-activity-glyph);
+    mask: var(--hcv-activity-icon) center / contain no-repeat;
+  }
+  ${glyph}:is(${row}[${iconAttribute}="activityBrowser"] *) > [role="status"] > .glyph-spinner {
+    opacity: 0;
+  }
   ${caretBox} { opacity: 0; flex: none; }
   ${controls}[aria-expanded="true"]:not([${disclosureMotion}="closing"]) > span:nth-child(2),
   ${controls}[aria-expanded]:is(:hover, :focus-visible) > span:nth-child(2) { opacity: 1; }

@@ -50,8 +50,33 @@ function displayStyles(active, chat) {
   const errorActions = `${replyError} > div:last-child`
   const errorButton = `${errorActions} > .aui-error-action`
   const errorControls = `:is(${errorClose}, ${errorSummary}, ${errorButton})`
+  const modernError = `${active} ${chat} [data-slot="aui_error-card"][role="alert"]`
   return `
 @media (forced-colors: none) {
+  /* Current Hermes error surface. Adapt the same Codex panel and quiet
+     controls used below without replacing native actions or diagnostics. */
+  ${modernError} {
+    gap: 10px; margin-block-start: 8px; padding: 12px;
+    border: 1px solid var(--hcv-hairline); border-radius: 16px;
+    background: var(--hcv-panel); color: var(--hcv-text);
+    font: 13px/18px var(--hcv-ui-font);
+  }
+  ${modernError} .aui-error-card-head { gap: 8px; }
+  ${modernError} .aui-error-card-icon { color: var(--dt-destructive); }
+  ${codexIconRules(`${modernError} .aui-error-card-icon`, 'warning')}
+  ${modernError} .aui-error-card-title { font-weight: 600; }
+  ${modernError} .aui-error-card-body { color: var(--hcv-muted); }
+  ${modernError} :is(.aui-error-action, .aui-error-card-toggle, .aui-error-card-close, .aui-error-details-link) {
+    border-radius: 8px; font-size: 12px; line-height: 16px;
+    color: var(--hcv-muted);
+  }
+  ${modernError} .aui-error-action { background: var(--hcv-selected); color: var(--hcv-text); }
+  ${modernError} .aui-error-details-slab { background: var(--hcv-chat); color: var(--hcv-muted); border-radius: 8px; }
+  ${modernError} button:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }
+  ${codexIconRules(`${modernError} .aui-error-card-close > svg`, 'close')}
+  @media (hover: hover) {
+    ${modernError} button:hover:not(:disabled) { background: var(--hcv-hover-menu); color: var(--hcv-text); }
+  }
   ${replyError} {
     gap: 10px;
     margin-block-start: 8px;

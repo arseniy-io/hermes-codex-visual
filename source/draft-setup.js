@@ -1,7 +1,7 @@
 import { chatStyles, mountStyle } from './style-scope.js'
 import { host } from '@hermes/plugin-sdk'
 import { codexIconStyle, codexMask } from './codex-reference.js'
-import { nativeDraftWorkspaceAction, nativeWorktreePath } from './sidebar-recents.js'
+import { nativeDraftWorkspaceAction, nativeWorktreeTarget } from './sidebar-recents.js'
 
 const primary = '[data-chat-surface][data-composer-target="main"]:not([data-hud-shell] *, [inert] *)'
 const formSelector = 'form[data-slot="composer-root"]:not([data-popped-out])'
@@ -230,7 +230,11 @@ function newDraftBar(form, current, localEnvironment) {
     const label = CSS.escape(labels().nativeWorktree)
     const cwd = normalized(host.state.cwd.get())
     return [...document.querySelectorAll(sidebarSelector + ' button[aria-label="' + label + '"]:has(> .codicon-git-branch)')]
-      .find(button => normalized(nativeWorktreePath(button)) === cwd)
+      .find(button => {
+        const target = nativeWorktreeTarget(button)
+        return cwd && target && normalized(target.path) === cwd && (!target.connectionId ||
+          target.connectionId === host.state.connectionId.get() && (target.profile || 'default') === host.state.profile.get())
+      })
   }
   const newWorktree = button('worktree', labels().worktree, async () => {
     if (!localGit()) return
@@ -540,7 +544,12 @@ function newDraftBar(form, current, localEnvironment) {
   }
 
   strip.append(projects.element, projectMenu, device.element, localMenu, gear.element, gearMenu)
-  form.before(strip)
+  // The native status drawer is always mounted immediately before the form.
+  // Place the setup bar before it so a consent notice stays attached to the
+  // composer and the reading and keyboard order match the visual order.
+  const statusDrawer = form.parentElement?.querySelector(':scope > .status-drawer')
+  if (statusDrawer) statusDrawer.before(strip)
+  else form.before(strip)
   const unbind = [host.state.connectionId, host.state.profile, host.state.gateway, host.state.cwd]
     .map(store => store.listen(refresh))
   const resize = () => {
@@ -577,7 +586,7 @@ function styles(active) {
   return [
     '@media (forced-colors: none) {',
     draft + ' { position: relative; z-index: 1; display: flex; align-items: center; min-inline-size: 0; min-block-size: 40px; margin: 0 ' + toolbarInset + 'px -4px; padding: 6px 8px; border-radius: 20px 20px 0 0; background: var(--hcv-hover); color: var(--hcv-text); font: 12px/18px var(--hcv-ui-font); }',
-    draft + ' + ' + formSelector + ' { z-index: 2; }',
+    draft + ' + ' + formSelector + ', ' + draft + ' + .status-drawer + ' + formSelector + ' { z-index: 2; }',
     draft + ' ' + control + ' { display: flex; min-inline-size: 0; min-block-size: 28px; align-items: center; gap: 6px; padding: 0 8px; border-radius: 999px; text-align: start; cursor: pointer; -webkit-app-region: no-drag; }',
     draft + ' > ' + control + ':last-of-type { flex: none; justify-content: center; margin-inline-start: auto; inline-size: 28px; padding: 0; color: var(--hcv-muted); }',
     draft + ' ' + label + ' { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }',

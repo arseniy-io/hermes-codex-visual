@@ -459,7 +459,7 @@ export function registerChatTables(ctx, active) {
     stage.append(panel)
     modal.append(stage, close)
     document.body.append(modal)
-    preview = { modal, state, content }
+    preview = { modal, state, content, region, close }
     refreshPreview()
     state.expand.setAttribute('aria-expanded', 'true')
     close.addEventListener('click', () => closePreview())
@@ -507,6 +507,9 @@ export function registerChatTables(ctx, active) {
         if (value === null) wrapper.removeAttribute(name)
         else wrapper.setAttribute(name, value)
       }
+    }
+    if (wide && wrapper.getAttribute('aria-label') !== strings().scroll) {
+      wrapper.setAttribute('aria-label', strings().scroll)
     }
     if (!wide) return
     const right = left + width
@@ -705,7 +708,24 @@ export function registerChatTables(ctx, active) {
     if (root.matches(active)) for (const table of document.querySelectorAll(nativeTable)) pending.add(table)
     queue()
   }
-  const theme = new MutationObserver(collect)
+  function localize() {
+    const copy = strings()
+    for (const state of states.values()) {
+      state.copy.setAttribute('aria-label', state.copy.hasAttribute('data-copied') ? copy.copied : copy.copy)
+      state.expand.setAttribute('aria-label', copy.expand)
+      if (state.wrapper.hasAttribute('data-hcv-table-overflow')) state.wrapper.setAttribute('aria-label', copy.scroll)
+    }
+    if (preview) {
+      for (const [node, label] of [[preview.modal, copy.preview], [preview.region, copy.scroll], [preview.close, copy.close]]) {
+        node.setAttribute('aria-label', label)
+      }
+    }
+    if (tipButton && !tip.hidden) tip.textContent = tipButton.getAttribute('aria-label')
+  }
+  const theme = new MutationObserver(records => {
+    if (records.some(record => record.attributeName === 'data-hermes-theme')) collect()
+    if (records.some(record => record.attributeName === 'lang')) localize()
+  })
   theme.observe(root, { attributes: true, attributeFilter: ['lang', 'data-hermes-theme'] })
   collect()
   window.addEventListener('scroll', hideTip, true)
