@@ -2,13 +2,13 @@
 
 **Тема в стиле Codex для Hermes Desktop.** Компактная боковая панель проектов, скруглённое поле ввода и сводка чата работают прямо в Hermes Agent.
 
-[Установка](#установка) · [Скачать ZIP v0.15.87](https://raw.githubusercontent.com/arseniy-io/hermes-codex-visual/main/downloads/hermes-codex-visual-v0.15.87.zip) · [Сообщить об ошибке или предложить идею](https://github.com/arseniy-io/hermes-codex-visual/issues/new/choose) · [English](README.md)
+[Установка](#установка) · [Скачать ZIP v0.15.89](https://raw.githubusercontent.com/arseniy-io/hermes-codex-visual/main/downloads/hermes-codex-visual-v0.15.89.zip) · [Сообщить об ошибке или предложить идею](https://github.com/arseniy-io/hermes-codex-visual/issues/new/choose) · [English](README.md)
 
-![Тема Codex v0.15.87 в Hermes Desktop. Слева проекты, в центре ответ с таблицей, справа сводка](docs/images/workspace-dark.png)
+![Тема Codex v0.15.89 в Hermes Desktop. Слева проекты, в центре ответ с таблицей, справа сводка](docs/images/workspace-dark.png)
 
-<sub>v0.15.87 в Hermes Desktop v0.23.1+2062. Публичная сборка с демонстрационным проектом Atlas.</sub>
+<sub>v0.15.89 в Hermes Desktop v0.23.1+2062. Публичная сборка с демонстрационным проектом Atlas.</sub>
 
-В текущей версии обновлены лента чата, ссылки на файлы, таблицы, медиаплееры, навигация по проектам и настройки. Открытые вкладки сводки меняют подписи вместе с языком интерфейса. [Изменения, проверки и ограничения](docs/release-0.15.87.md).
+Публичная и локальная сборки теперь используют одинаковые иконки, как на этих скриншотах. Также обновлены лента чата, ссылки на файлы, таблицы, медиаплееры, проекты и настройки. [Изменения версии](docs/release-0.15.89.md) · [Ограничения проверок](docs/release-0.15.87.md).
 
 ## Что можно делать
 
@@ -44,7 +44,7 @@
 
 ### Установка из ZIP
 
-Скачай [ZIP v0.15.87](https://raw.githubusercontent.com/arseniy-io/hermes-codex-visual/main/downloads/hermes-codex-visual-v0.15.87.zip). В «Возможности → Плагины» открой папку плагинов приложения и распакуй туда папку `hermes-codex-visual`. Путь должен заканчиваться на `desktop-plugins/hermes-codex-visual/plugin.js`. Нажми «Пересканировать», включи плагин и выбери **Codex** во «Внешнем виде». [Контрольные суммы SHA-256](downloads/SHA256SUMS.txt) · [Что вошло в версию](CHANGELOG.md)
+Скачай [ZIP v0.15.89](https://raw.githubusercontent.com/arseniy-io/hermes-codex-visual/main/downloads/hermes-codex-visual-v0.15.89.zip). В «Возможности → Плагины» открой папку плагинов приложения и распакуй туда папку `hermes-codex-visual`. Путь должен заканчиваться на `desktop-plugins/hermes-codex-visual/plugin.js`. Нажми «Пересканировать», включи плагин и выбери **Codex** во «Внешнем виде». [Контрольные суммы SHA-256](downloads/SHA256SUMS.txt) · [Что вошло в версию](CHANGELOG.md)
 
 Чтобы обновить версию из ZIP, замени `plugin.js` в той же папке и запусти пересканирование. Чтобы вернуться к обычному виду, выбери штатную тему и выключи плагин.
 
@@ -70,4 +70,4 @@ npm run check
 
 Если с плагином работать удобнее, **поставь звезду** на GitHub, чтобы сохранить проект под рукой. Если какой-то экран ещё хочется улучшить, напиши какой. [Поставить звезду](https://github.com/arseniy-io/hermes-codex-visual) · [Оставить отзыв](https://github.com/arseniy-io/hermes-codex-visual/issues/new/choose)
 
-Независимый плагин сообщества. Визуальный ориентир - Codex Desktop. [Лицензия MIT](LICENSE) · [Лицензия значков Tabler](THIRD_PARTY_NOTICES.txt)
+Независимый плагин сообщества. Визуальный ориентир - Codex Desktop. [MIT для исходного кода](LICENSE) · [Происхождение значков и сторонние лицензии](THIRD_PARTY_NOTICES.txt)

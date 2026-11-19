@@ -1,5 +1,7 @@
-// Tabler Icons 3.44.0. MIT, Copyright (c) 2020-2026 Pawel Kuna.
-// The SVG paths below are from Tabler; see THIRD_PARTY_NOTICES.txt.
+import sharedAssets from './visual-assets.json' with { type: 'json' }
+
+// The shared workspace SVGs are identical in every build. Tabler Icons 3.44.0
+// below remain fallbacks for names outside that set. See THIRD_PARTY_NOTICES.txt.
 const glyphs = {
   circle: '<circle cx="12" cy="12" r="9" />',
   circleCheck: '<circle cx="12" cy="12" r="9" /><path d="M9 12l2 2l4 -4" />',
@@ -165,7 +167,10 @@ export const codexReference = Object.freeze({
   sidebar: Object.freeze({ rowHeight: 30, rowRadius: 10, previewWidth: 336, previewRadius: 12, previewOffset: 2 }),
 })
 
-export const localAssets = typeof HCV_LOCAL_ASSETS === 'undefined' ? null : HCV_LOCAL_ASSETS
+export const visualAssets = sharedAssets
+// Retain the existing internal name for consumers; it no longer selects a
+// private build variant or reads anything from the owner's .local directory.
+export const localAssets = visualAssets
 
 export const svgMask = svg => `url("data:image/svg+xml,${encodeURIComponent(svg)}")`
 const defaultMasks = new Map()

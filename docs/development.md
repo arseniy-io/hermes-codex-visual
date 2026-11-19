@@ -10,7 +10,9 @@ Use Node.js 22 or newer. Run `npm ci`, `npm run build`, and `npm run check`. The
 
 To prepare release assets, run `python scripts/package.py` after the build check. It writes a ZIP and SHA-256 checksums to `dist/`.
 
-Use this repository for source changes, builds, and releases. The tracked root `plugin.js` is generated from `source/` with `npm run build`. The repository bundles MIT-licensed Tabler icons and original subagent badges.
+Use this repository for source changes, builds, and releases. The tracked root `plugin.js` is generated from `source/` with `npm run build`. Both public and local builds import the shared workspace artwork from `source/visual-assets.json`. Tabler paths remain fallbacks; artwork provenance and license scope are recorded in [THIRD_PARTY_NOTICES.txt](../THIRD_PARTY_NOTICES.txt).
+
+`node scripts/build.mjs --local` writes the same module to `.local/plugin.js`; it changes the destination only. Run both builds, then `node verification/visual-assets.mjs` to verify byte equality, registry masks, avatars, and installer icons. The build never reads the owner's backup `.local/assets.json`.
 
 ## Test in Hermes
 
@@ -28,4 +30,4 @@ Passing focused scenarios does not imply a passing full suite. Record known fail
 
 Для сборки нужны Node.js 22 или новее и команды `npm ci`, `npm run build`, `npm run check`. После успешной проверки `python scripts/package.py` создаст ZIP и контрольные суммы в `dist/`.
 
-Исходники, сборка и выпуск ведутся в этом репозитории. Команда `npm run build` обновляет корневой `plugin.js` из `source/`. В плагин входят значки Tabler с лицензией MIT и собственные значки субагентов.
+Исходники, сборка и выпуск ведутся в этом репозитории. Команда `npm run build` обновляет корневой `plugin.js` из `source/`. Публичная и локальная сборки используют общий набор `source/visual-assets.json`. Флаг `--local` меняет только путь результата. Проверка `node verification/visual-assets.mjs` подтверждает совпадение модулей и всех SVG. Происхождение значков и область действия лицензий описаны в [THIRD_PARTY_NOTICES.txt](../THIRD_PARTY_NOTICES.txt).

@@ -16,4 +16,5 @@ __pycache__/
 /docs/*
 !/docs/development.md
 !/docs/release-0.15.87.md
+!/docs/release-0.15.89.md
 !/docs/images/

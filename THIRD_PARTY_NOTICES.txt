@@ -1,3 +1,6 @@
+Tabler fallback icons
+=====================
+
 MIT License
 
 Copyright (c) 2020-2026 Paweł Kuna
@@ -19,3 +22,18 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+Shared workspace artwork
+========================
+
+source/visual-assets.json contains the SVG set preserved from the owner's
+existing local Codex-style theme: 138 interface icons, 28 pairs of subagent
+badges, and 4 installer icons. It was originally collected from Codex Desktop
+for visual compatibility. The owner approved using this same set in the public
+and local builds on 19 November 2026.
+
+This set is separate from Tabler and is not covered by the Tabler MIT license
+above or by the repository's source-code MIT license. No separate license grant
+for the shared artwork is recorded here; rights remain with its respective
+owners. Owner approval records the project publication decision, not a license
+grant from a third-party rights holder.

@@ -14,6 +14,7 @@ import { registerSubagents } from './subagents.js'
 import { registerDraftSetup } from './draft-setup.js'
 import { codexMask, codexReference } from './codex-reference.js'
 import { registerInterface } from './interface.js'
+import { registerInterfaceCopy } from './interface-copy.js'
 import { registerDesktopPages } from './desktop-pages.js'
 import { registerDesktopCorners } from './desktop-corners.js'
 import { registerSettingsStyle } from './settings.js'
@@ -833,6 +834,7 @@ export default {
     registerChatTables(ctx, active)
     registerReviewProposals(ctx, active)
     registerInterface(ctx, active)
+    registerInterfaceCopy(ctx, active)
     registerDesktopPages(ctx, active)
     registerDesktopCorners(ctx, active)
     registerSettingsStyle(ctx, active)

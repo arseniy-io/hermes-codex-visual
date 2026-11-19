@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.15.89
+
+- Use the installed workspace SVG set in both public and local builds: 138 interface icons, 28 subagent badge pairs, and 4 installer icons.
+- Remove the build-time artwork switch. `--local` changes only the output path, and both modules must be byte-identical.
+- Check rendered sidebar icons before refreshing README screenshots and publish the matching ZIP.
+- Record the shared artwork's provenance separately from the Tabler fallback license.
+- Include the parallel Russian-copy update for model-switch warnings, error titles, and displayed chat punctuation.
+
+Публичная и локальная сборки теперь выглядят одинаково. Общий набор сохранён из рабочего Hermes; флаг локальной сборки больше не подменяет иконки. [Проверка и объяснение](docs/release-0.15.89.md).
+
 ## v0.15.87
 
 - Update the chat timeline, inline file links, tables, audio and video controls, and new-chat layout.

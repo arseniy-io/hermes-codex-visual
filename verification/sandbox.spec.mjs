@@ -50,6 +50,7 @@ const projectActivityFocus = process.env.HERMES_VISUAL_FOCUS === 'project-activi
 const dictationFocus = process.env.HERMES_VISUAL_FOCUS === 'dictation'
 const shellFocus = process.env.HERMES_VISUAL_FOCUS === 'shell-surfaces'
 const replyErrorFocus = process.env.HERMES_VISUAL_FOCUS === 'reply-error'
+const interfaceCopyFocus = process.env.HERMES_VISUAL_FOCUS === 'interface-copy'
 const renameTabsFocus = process.env.HERMES_VISUAL_FOCUS === 'rename-tabs'
 const turnDiffFocus = process.env.HERMES_VISUAL_FOCUS === 'turn-diff'
 const summaryLayoutFocus = process.env.HERMES_VISUAL_FOCUS === 'summary-layout'
@@ -230,7 +231,7 @@ test(`${mode} native desktop smoke`, async () => {
       : { name: 'write_file', args: { path: path.join(projectFolder, name), content: 'Одна строка для проверки.\n' } }),
   ]
   const mock = await startMockServer({
-    extraModels: contextFocus ? ['mock-wide'] : modelMenuFocus || densityFocus ? ['mock-variant-preview'] : undefined,
+    extraModels: contextFocus || interfaceCopyFocus ? ['mock-wide'] : modelMenuFocus || densityFocus ? ['mock-variant-preview'] : undefined,
     holdFirstStreamForPrompt: mode === 'candidate' ? prompt : undefined,
   })
   const mcp = createServer(async (req, res) => {
@@ -284,6 +285,9 @@ test(`${mode} native desktop smoke`, async () => {
         if (await composerFixture?.reply(request, (content, tools) => replyToFixture(res, request, content, tools))) return
         if (await chatFixture?.reply(request, (content, tools = []) => replyToFixture(res, request, content, tools))) return
         const message = request.messages?.findLast((item) => item.role === 'user')?.content
+        if (interfaceCopyFocus && message?.includes?.('Проверка — текст отправки.')) {
+          return replyToFixture(res, request, 'Новый ответ — готов.', [])
+        }
         if (message?.includes?.(editsPrompt)) {
           return replyToEditFixture(res, request, fixtureTools)
         }
@@ -469,6 +473,8 @@ for i, title in enumerate(titles, 1):
         sent = time() - (3 - i) * 7 * 86400
     db.append_message(sid, 'user', request, timestamp=sent)
     reply = 'Тестовый чат готов к проверке.'
+    if sys.argv[3] == 'interface-copy':
+        reply = ${JSON.stringify('Тестовый чат готов к проверке (ответ) — всё видно.\n\n`a—b`\n\n[Ссылка — пример](https://example.invalid/a%E2%80%94b)')}
     if sys.argv[3] == 'readme':
         reply = ${JSON.stringify('## Your workspace at a glance\n\nKeep the conversation, project context, and changes together. Here is a short overview for the **Atlas** demo project.\n\n| Area | Next step |\n| --- | --- |\n| Project | Review the release checklist |\n| Interface | Check the light and dark themes |\n| Changes | Open the diff before committing |\n\n### Ready for the next task\n\n- Open **Sources**, **Subagents**, or **Changes** from the summary.\n- Keep a draft in the composer while you review a reply.\n- Use `npm run check` to verify the build.\n\n[View the plugin on GitHub](https://github.com/arseniy-io/hermes-codex-visual)')}
     if i == 2 and sys.argv[3] in ('summary', 'summary-layout', 'summary-sources', 'desktop-surfaces', 'summary-parity'):
@@ -1044,6 +1050,8 @@ import(pathToFileURL(path.join(desktop, 'dist', 'electron-main.mjs')).href).catc
     await settingsCheck?.installSettingsAuditFixture(app, page, desktop)
     const replyErrorCheck = replyErrorFocus ? await import('./reply-error.spec-helper.mjs') : null
     await replyErrorCheck?.installReplyErrorFixture(page)
+    const interfaceCopyCheck = interfaceCopyFocus ? await import('./interface-copy.spec-helper.mjs') : null
+    const confirmations = await interfaceCopyCheck?.installInterfaceCopyFixture(page)
     const activityParity = activityParityFocus ? await import('./activity-parity.spec-helper.mjs') : null
     await activityParity?.installActivityReadinessFixture(page)
     const benchmarkReplacement = responsivenessFocus && process.env.HERMES_VISUAL_REPLACEMENT_PLUGIN
@@ -1570,6 +1578,10 @@ import(pathToFileURL(path.join(desktop, 'dist', 'electron-main.mjs')).href).catc
       }
       if (replyErrorCheck) {
         await replyErrorCheck.verifyReplyError({ page, expect, screenshot, projectChat, openThemeSettings, closeSettings })
+        return
+      }
+      if (interfaceCopyCheck) {
+        await interfaceCopyCheck.verifyInterfaceCopy({ page, expect, screenshot, projectChat, confirmations, openThemeSettings, closeSettings, themeCard })
         return
       }
       if (shellCheck) {

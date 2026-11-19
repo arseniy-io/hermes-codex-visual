@@ -44,8 +44,7 @@ export function registerChatFileLinks(ctx, active, candidate) {
   const linkCSS = `${cardCSS} > ${control}`
   const secondaryCSS = `${cardCSS} > ${secondary}`
   // Codex's workspace file reference uses a 16px icon slot and a 3px gap.
-  // The original document SVG stays in the private local icon set; the public
-  // build uses the project's Tabler fallback.
+  // The document SVG comes from the shared workspace set in every build.
   mountCSS(ctx, 'data-hcv-chat-file-reference-style', `
     ${cardCSS} { display: contents !important; }
     ${cardCSS} > :not(${control}):not(${secondary}) { display: none !important; }

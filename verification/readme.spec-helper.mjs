@@ -1,4 +1,5 @@
 import path from 'node:path'
+import assets from '../source/visual-assets.json' with { type: 'json' }
 
 // Capture the real public module in an isolated profile with synthetic content.
 // No replacement styles or edited pixels: each image is a native UI state.
@@ -22,6 +23,20 @@ export async function captureReadme({ page, expect, projectChat, openThemeSettin
   const summary = page.locator('[data-hcv-context-card]:visible')
   if (!(await summary.count())) await page.locator('[data-hcv-context-toggle]').click()
   await expect(summary).toBeVisible()
+  // README screenshots must use the same artwork as the installed workspace.
+  // Compare rendered masks, not only the names of icons in the source.
+  const mask = (node, pseudo = '::before') => node.evaluate((element, pseudo) => {
+    const value = getComputedStyle(element, pseudo).maskImage
+    const encoded = value.match(/^url\(["']?data:image\/svg\+xml,([^"']+)["']?\)$/)?.[1]
+    return encoded ? decodeURIComponent(encoded) : value
+  }, pseudo)
+  for (const [id, glyph] of [['new-session', 'newChat'], ['capabilities', 'plugins'], ['messaging', 'messages'], ['artifacts', 'artifacts'], ['cron', 'schedule']]) {
+    const button = page.locator(`[data-tour="sidebar-nav-${id}"]`).locator('xpath=ancestor::button[1]')
+    await expect.poll(() => mask(button)).toBe(assets.icons[glyph])
+  }
+  const project = page.locator('[data-hcv-project-row]').filter({ has: page.locator('[data-hcv-project-name]', { hasText: /^Atlas$/ }) })
+  const folder = project.locator('.codicon-folder-library, .codicon-repo').first()
+  await expect.poll(() => mask(folder)).toBe(assets.icons.folderOpen)
   const viewport = page.locator('[data-slot="aui_thread-viewport"]:visible')
   await viewport.evaluate(node => { node.scrollTop = 0 })
   const save = async name => {
@@ -48,5 +63,5 @@ export async function captureReadme({ page, expect, projectChat, openThemeSettin
   await expect(page.locator('[data-overlay-surface] main [data-slot="skeleton"]:visible')).toHaveCount(0)
   await save('settings-dark.png')
   await closeSettings()
-  console.log('Captured public workspace dark/light, stock comparison and settings screenshots from the same demo profile')
+  console.log('Verified six rendered shared icons and captured public dark/light, stock comparison and settings screenshots')
 }

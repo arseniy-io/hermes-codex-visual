@@ -6,19 +6,17 @@ import { build } from 'esbuild'
 const root = new URL('../', import.meta.url)
 const local = process.argv.includes('--local')
 const destination = new URL(local ? '.local/plugin.js' : 'plugin.js', root)
-const assets = local
-  ? JSON.parse(await readFile(new URL('.local/assets.json', root), 'utf8'))
-  : null
-if (local) {
+const assets = JSON.parse(await readFile(new URL('source/visual-assets.json', root), 'utf8'))
+{
   const isSvg = value => typeof value === 'string' && value.startsWith('<svg ')
   assert(['newChat', 'plugins', 'folder', 'folderOpen', 'edit', 'messageEdit', 'laptop', 'chatPreviewComputer']
-    .every(name => isSvg(assets.icons?.[name])), 'Missing original local icons')
-  assert(assets.avatars?.length && assets.avatars.every(pair => pair.length === 2 && pair.every(isSvg)), 'Missing local avatar pairs')
-  assert(['pending', 'done', 'failed', 'disclosure'].every(name => isSvg(assets.install?.[name])), 'Missing local installer icons')
+    .every(name => isSvg(assets.icons?.[name])), 'Missing shared workspace icons')
+  assert(assets.avatars?.length && assets.avatars.every(pair => pair.length === 2 && pair.every(isSvg)), 'Missing shared avatar pairs')
+  assert(['pending', 'done', 'failed', 'disclosure'].every(name => isSvg(assets.install?.[name])), 'Missing shared installer icons')
 }
-const version = local ? JSON.parse(await readFile(new URL('package.json', root), 'utf8')).version : null
+const version = JSON.parse(await readFile(new URL('package.json', root), 'utf8')).version
 const license = (await readFile(new URL('LICENSE', root), 'utf8')).trim()
-const tabler = (await readFile(new URL('THIRD_PARTY_NOTICES.txt', root), 'utf8')).trim()
+const notices = (await readFile(new URL('THIRD_PARTY_NOTICES.txt', root), 'utf8')).trim()
 const { outputFiles, metafile } = await build({
   absWorkingDir: fileURLToPath(root),
   entryPoints: ['source/plugin.js'],
@@ -27,11 +25,15 @@ const { outputFiles, metafile } = await build({
   platform: 'browser',
   target: 'es2022',
   external: ['@hermes/plugin-sdk', 'react'],
-  banner: { js: `/*! Hermes Codex Visual\n\n${license}\n\nTabler Icons\n\n${tabler}\n*/`.replaceAll('\r\n', '\n') },
-  define: { HCV_LOCAL_ASSETS: JSON.stringify(assets), HCV_LOCAL_VERSION: JSON.stringify(version) },
+  banner: { js: `/*! Hermes Codex Visual\n\n${license}\n\nThird-party notices\n\n${notices}\n*/`.replaceAll('\r\n', '\n') },
+  // --local changes only the output path. Both variants have the same
+  // source, asset import and version, so their modules are byte-identical.
+  define: { HCV_LOCAL_VERSION: JSON.stringify(version) },
   write: false,
   metafile: true,
 })
+assert(Object.hasOwn(metafile.inputs, 'source/visual-assets.json'), 'Shared artwork is missing from the build')
+assert(Object.keys(metafile.inputs).every(name => !name.split(/[\\/]/).includes('.local')), 'Build must not import private files')
 const hermesImports = new Set(['@hermes/plugin-sdk', 'react', 'react/jsx-runtime'])
 for (const output of Object.values(metafile.outputs)) {
   for (const dependency of output.imports) {

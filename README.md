@@ -2,13 +2,13 @@
 
 **A Codex-style theme for Hermes Desktop.** Get the compact project sidebar, rounded chat composer, and workspace summary of the Codex desktop interface inside your Hermes Agent workspace.
 
-[Install](#install) · [Download v0.15.87 ZIP](https://raw.githubusercontent.com/arseniy-io/hermes-codex-visual/main/downloads/hermes-codex-visual-v0.15.87.zip) · [Report a bug or request a feature](https://github.com/arseniy-io/hermes-codex-visual/issues/new/choose) · [Русский](README.ru.md)
+[Install](#install) · [Download v0.15.89 ZIP](https://raw.githubusercontent.com/arseniy-io/hermes-codex-visual/main/downloads/hermes-codex-visual-v0.15.89.zip) · [Report a bug or request a feature](https://github.com/arseniy-io/hermes-codex-visual/issues/new/choose) · [Русский](README.ru.md)
 
-![Codex-style theme v0.15.87 in Hermes Desktop with a project sidebar, a reply containing a table, and the workspace summary](docs/images/workspace-dark.png)
+![Codex-style theme v0.15.89 in Hermes Desktop with a project sidebar, a reply containing a table, and the workspace summary](docs/images/workspace-dark.png)
 
-<sub>v0.15.87 on Hermes Desktop v0.23.1+2062. Public build with the Atlas demo project.</sub>
+<sub>v0.15.89 on Hermes Desktop v0.23.1+2062. Public build with the Atlas demo project.</sub>
 
-The current version updates the chat timeline, inline file links, tables, media controls, project navigation, and settings. Open summary tabs follow the interface language. [Release notes and verification limits](docs/release-0.15.87.md).
+Public and local installations now use the same workspace icons, including the set shown in these screenshots. The chat timeline, inline file links, tables, media controls, project navigation, and settings are also updated. [Release notes](docs/release-0.15.89.md) · [Verification limits](docs/release-0.15.87.md).
 
 ## What you can do
 
@@ -44,7 +44,7 @@ Use [Hermes Desktop](https://hermes-agent.nousresearch.com/docs/user-guide/deskt
 
 ### Install from a ZIP
 
-Download the [v0.15.87 ZIP](https://raw.githubusercontent.com/arseniy-io/hermes-codex-visual/main/downloads/hermes-codex-visual-v0.15.87.zip). In **Capabilities → Plugins**, open the app plugins folder and extract the `hermes-codex-visual` folder there. The path should end in `desktop-plugins/hermes-codex-visual/plugin.js`. Click **Rescan**, enable the plugin, and choose **Codex** in Appearance. [SHA-256 checksums](downloads/SHA256SUMS.txt) · [What's in this version](CHANGELOG.md)
+Download the [v0.15.89 ZIP](https://raw.githubusercontent.com/arseniy-io/hermes-codex-visual/main/downloads/hermes-codex-visual-v0.15.89.zip). In **Capabilities → Plugins**, open the app plugins folder and extract the `hermes-codex-visual` folder there. The path should end in `desktop-plugins/hermes-codex-visual/plugin.js`. Click **Rescan**, enable the plugin, and choose **Codex** in Appearance. [SHA-256 checksums](downloads/SHA256SUMS.txt) · [What's in this version](CHANGELOG.md)
 
 To update a ZIP installation, replace `plugin.js` in the same folder and rescan. To switch back, choose a built-in theme and disable the plugin.
 
@@ -70,4 +70,4 @@ The build writes the root `plugin.js` that Hermes installs. See [the development
 
 If this makes Hermes easier for you to use, **star the repository** so you can find it again. Tell us which screen you'd like refined next. [Star on GitHub](https://github.com/arseniy-io/hermes-codex-visual) · [Send feedback](https://github.com/arseniy-io/hermes-codex-visual/issues/new/choose)
 
-Independent community plugin. Codex Desktop is the design reference. [MIT license](LICENSE) · [Tabler Icons attribution](THIRD_PARTY_NOTICES.txt)
+Independent community plugin. Codex Desktop is the design reference. [Source-code MIT license](LICENSE) · [Artwork provenance and third-party notices](THIRD_PARTY_NOTICES.txt)
