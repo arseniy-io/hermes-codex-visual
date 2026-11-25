@@ -2,15 +2,16 @@ import { mountStyle } from './style-scope.js'
 import { useI18n } from '@hermes/plugin-sdk'
 import { createElement as h, useEffect, useId, useState } from 'react'
 import { codexIconStyle } from './codex-reference.js'
+import { readWorkspaceChanges, readWorkspaceRepositoryRoot } from './workspace-actions.js'
 
 const labels = {
   ru: {
-    title: 'Изменения без коммита', refresh: 'Обновить', loading: 'Загрузка…',
+    title: 'Изменения без коммита', branchTitle: 'Изменения в ветке', omitted: 'Часть файлов не показана', refresh: 'Обновить', loading: 'Загрузка…',
     noProject: 'Выберите проект', empty: 'Нет изменений', unavailable: 'Не удалось прочитать список изменений',
     noDiff: 'Нет изменений для показа', diffError: 'Не удалось открыть изменения файла',
   },
   en: {
-    title: 'Uncommitted changes', refresh: 'Refresh', loading: 'Loading…',
+    title: 'Uncommitted changes', branchTitle: 'Branch changes', omitted: 'Some files are omitted', refresh: 'Refresh', loading: 'Loading…',
     noProject: 'Select a project', empty: 'No changes', unavailable: 'Could not read changed files',
     noDiff: 'No changes to display', diffError: 'Could not open the file diff',
   },
@@ -58,45 +59,69 @@ function DiffText({ text }) {
   }))
 }
 
-function FileDiff({ id, cwd, connectionId, profile, path, staged, copy }) {
+function FileDiff({ id, cwd, connectionId, profile, path, staged, base, previousPath, untracked, copy }) {
   const [result, setResult] = useState(null)
   useEffect(() => {
     let live = true
-    void readFileDiff(cwd, connectionId, profile, path, staged).then(
+    const request = base
+      ? readWorkspaceChanges({ connectionId, profile }, cwd, { file: path, base, previousPath, untracked })
+        .then(value => {
+          if (typeof value?.diff !== 'string') throw new Error('Diff unavailable')
+          return value.diff
+        })
+      : readFileDiff(cwd, connectionId, profile, path, staged)
+    void request.then(
       text => { if (live) setResult({ text }) },
       () => { if (live) setResult({}) },
     )
     return () => { live = false }
-  }, [cwd, connectionId, profile, path, staged])
+  }, [cwd, connectionId, profile, path, staged, base, previousPath, untracked])
 
   return h('div', { id, className: 'hcv-change-detail' }, result?.text
     ? h(DiffText, { text: result.text })
     : h('p', { role: 'status' }, !result ? copy.loading : result.text === '' ? copy.noDiff : copy.diffError))
 }
 
-function RepositoryChanges({ cwd, connectionId, profile, copy }) {
+function RepositoryChanges({ cwd, connectionId, profile, copy, workspaceDiff }) {
+  const title = workspaceDiff ? copy.branchTitle : copy.title
   const diffId = useId()
   const [revision, setRevision] = useState(0)
   const [result, setResult] = useState(null)
   const [selected, setSelected] = useState(null)
   useEffect(() => {
     let live = true
-    void readReview('list', cwd, connectionId, profile).then(value => {
-      const files = Array.isArray(value?.files) ? value.files.filter(file => typeof file?.path === 'string' && file.path) : null
-      if (live) setResult({ revision, files })
-    }, () => { if (live) setResult({ revision, files: null }) })
+    async function load() {
+      try {
+        if (workspaceDiff) {
+          const { workspace } = await readWorkspaceChanges({ connectionId, profile }, cwd, { files: true })
+          if (live) setResult({ revision, files: workspace?.files || null, root: workspace?.path,
+            base: workspace?.base, omitted: workspace?.filesOmitted })
+          return
+        }
+        // Git reports file names relative to the repository, even for chats
+        // started in a subdirectory. Use that same root for listing and opening.
+        const root = await readWorkspaceRepositoryRoot(cwd, { connectionId, profile }) || cwd
+        if (!live) return
+        const value = await readReview('list', root, connectionId, profile)
+        const files = Array.isArray(value?.files) ? value.files.filter(file => typeof file?.path === 'string' && file.path) : null
+        if (live) setResult({ revision, files, root })
+      } catch {
+        if (live) setResult({ revision, files: null })
+      }
+    }
+    void load()
     return () => { live = false }
-  }, [cwd, connectionId, profile, revision])
+  }, [cwd, connectionId, profile, revision, workspaceDiff])
   const current = result?.revision === revision ? result : null
 
   return h('div', { className: 'hcv-changes-content' },
     h('header', { className: 'hcv-changes-header' },
-      h('span', null, copy.title),
+      h('span', null, title),
       h('button', {
         type: 'button', className: 'hcv-changes-refresh', 'aria-label': copy.refresh, title: copy.refresh,
         onClick: () => { setSelected(null); setRevision(value => value + 1) },
       }, icon('refresh'))),
-    current?.files?.length ? h('ul', { 'aria-label': copy.title }, current.files.map(file => {
+    current?.files?.length ? h('ul', { 'aria-label': title }, current.files.map(file => {
       const open = selected === file.path
       return h('li', { key: file.path, 'data-hcv-changed-file': '' },
         h('button', {
@@ -108,19 +133,22 @@ function RepositoryChanges({ cwd, connectionId, profile, copy }) {
         h('span', { className: 'hcv-changes-counts' },
           h('span', { 'data-hcv-count': 'added' }, '+' + (file.added || 0)),
           h('span', { 'data-hcv-count': 'removed' }, '−' + (file.removed || 0)))),
-        open && h(FileDiff, { id: diffId, cwd, connectionId, profile, path: file.path, staged: file.staged === true, copy }))
+        open && h(FileDiff, { id: diffId, cwd: current.root, connectionId, profile,
+          path: file.path, staged: file.staged === true, base: current.base,
+          previousPath: file.previousPath, untracked: file.untracked, copy }))
     })) : h('p', { className: 'hcv-changes-status', role: 'status' },
-      !current ? copy.loading : current.files ? copy.empty : copy.unavailable))
+      !current ? copy.loading : current.files ? copy.empty : copy.unavailable),
+    current?.omitted && h('p', { className: 'hcv-changes-status', role: 'status' }, copy.omitted))
 }
 
-export function ChangesPane({ cwd, scope }) {
+export function ChangesPane({ cwd, scope, loading = false, workspaceDiff = false }) {
   const { locale } = useI18n()
   const copy = labels[locale] || labels.en
   const connectionId = scope?.connectionId
   const profile = scope?.profile
   return h('div', { 'data-hcv-changes-pane': '' }, cwd && connectionId && profile
-    ? h(RepositoryChanges, { key: JSON.stringify([cwd, connectionId, profile]), cwd, connectionId, profile, copy })
-    : h('p', { className: 'hcv-changes-status', role: 'status' }, copy.noProject))
+    ? h(RepositoryChanges, { key: JSON.stringify([cwd, connectionId, profile, workspaceDiff]), cwd, connectionId, profile, copy, workspaceDiff })
+    : h('p', { className: 'hcv-changes-status', role: 'status' }, loading ? copy.loading : copy.noProject))
 }
 
 export function registerSummaryChanges(ctx, active) {

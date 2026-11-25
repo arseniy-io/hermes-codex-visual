@@ -9,7 +9,8 @@ export async function verifySummaryParity({ page, expect, projectChat, screensho
   const card = page.locator('[data-hcv-context-card]:visible')
   const agents = card.locator('[data-hcv-open-subagents]')
   await expect(agents).toBeVisible()
-  await expect(card.getByRole('button', { name: 'Изменения', exact: true }).first()).toBeEnabled()
+  const changeRows = beforeRelease ? card.getByRole('button', { name: 'Изменения', exact: true }) : card.locator('.hcv-context-changes')
+  await expect(changeRows.first()).toBeEnabled({ timeout: 30000 })
   if (tabHeader) return verifyTabHeader({ page, expect, agents, screenshot, before: tabHeader === 'before' })
   if (process.env.HERMES_VISUAL_SUMMARY_LANGUAGE === '1') {
     await agents.click()
@@ -60,11 +61,11 @@ export async function verifySummaryParity({ page, expect, projectChat, screensho
 
   if (!beforeRelease && !responseMode) {
     const sections = card.locator('[data-hcv-summary-section]')
-    const site = sections.filter({ has: page.getByRole('button', { name: 'site', exact: true }) })
+    const site = card.locator('.hcv-context-changes').filter({ hasText: /^site(?: ·|$)/ })
     const outputs = sections.filter({ has: page.getByRole('button', { name: 'Результаты', exact: true }) })
     await expect(outputs.getByRole('button', { name: 'fixture-note.md', exact: true })).toBeVisible()
     try {
-      await expect(site.getByRole('button', { name: 'Изменения', exact: true })).toBeEnabled({ timeout: 18000 })
+      await expect(site).toBeEnabled({ timeout: 18000 })
     } catch (error) {
       const heads = await sections.locator(heading).allTextContents()
       const folders = await page.locator('[data-ref="folder"]').evaluateAll(nodes =>
@@ -73,10 +74,11 @@ export async function verifySummaryParity({ page, expect, projectChat, screensho
       console.log(JSON.stringify({ heads, folders }))
       throw error
     }
-    await expect(sections).toHaveCount(6)
+    await expect(sections).toHaveCount(5)
     facts.sections = await sections.locator(heading).allTextContents()
     const requests = sections.filter({ has: page.getByRole('button', { name: 'Запросы на включение изменений', exact: true }) })
     await expect(requests.getByRole('button', { name: 'Проверка правок сайта', exact: true })).toBeVisible()
+    await verifySummaryOutputs({ page, expect, projectChat, outputs })
 
     const first = sections.first().locator(heading)
     await page.mouse.move(0, 0)
@@ -90,6 +92,9 @@ export async function verifySummaryParity({ page, expect, projectChat, screensho
     for (const section of await sections.all()) {
       const button = section.locator(heading)
       const body = section.locator(disclosure)
+      // Reopening changes aria-expanded before the height transition ends.
+      // Finish that transition before measuring the next collapse.
+      await expect.poll(() => body.evaluate(node => Math.abs(node.getBoundingClientRect().height - node.scrollHeight))).toBeLessThan(1)
       const full = (await card.boundingBox()).height
       await button.press('Enter')
       await expect(button).toHaveAttribute('aria-expanded', 'false')
@@ -98,12 +103,13 @@ export async function verifySummaryParity({ page, expect, projectChat, screensho
       await expect(card.locator('[data-hcv-summary-heading][aria-expanded="false"]')).toHaveCount(1)
       await button.press('Enter')
       await expect(button).toHaveAttribute('aria-expanded', 'true')
+      await expect.poll(() => body.evaluate(node => Math.abs(node.getBoundingClientRect().height - node.scrollHeight))).toBeLessThan(1)
     }
 
     const sources = sections.filter({ has: page.getByRole('button', { name: 'Источники', exact: true }) })
     await sources.locator(heading).click()
     await cardShot('summary-collapsed.png')
-    await site.getByRole('button', { name: 'Изменения', exact: true }).click()
+    await site.click()
     const changesPane = page.locator('[data-hcv-changes-pane]:visible')
     await expect(changesPane).toContainText('page.md')
     await changesPane.getByRole('button', { name: 'page.md', exact: true }).click()
@@ -126,6 +132,13 @@ export async function verifySummaryParity({ page, expect, projectChat, screensho
   const firstAgent = row('Проверить описание сайта')
   const lastAgent = row('Сверить сохранённый отчёт')
   await expect(lastAgent).toBeVisible()
+  if (!beforeRelease) {
+    await expect(lastAgent.locator('[data-hcv-subagent-name]')).toHaveText('Субагент')
+    await expect(lastAgent).toHaveAttribute('aria-label', /^Субагент\. Сверить сохранённый отчёт/)
+    const storedDelegation = page.locator('[data-chat-surface][data-composer-target="main"] [data-slot="aui_turn-pair"]')
+      .filter({ hasText: 'Передай задачи и сохрани результаты.' })
+    await expect(storedDelegation.locator('[data-hcv-agent-activity="started"]')).toHaveCount(0)
+  }
   await lastAgent.hover()
   facts.agentHover = await lastAgent.evaluate(node => getComputedStyle(node).backgroundColor)
   await screenshot('subagents-list.png')
@@ -142,6 +155,11 @@ export async function verifySummaryParity({ page, expect, projectChat, screensho
   await expect(result).toHaveAttribute('data-source', 'transcript', { timeout: 20000 })
   await expect(result).toContainText('Сохранённый ответ 2.')
   await expect(result).not.toContainText('Сохранённый ответ 0.')
+  const task = pane.locator('[data-hcv-subagent-task]')
+  await task.locator('summary').press('Enter')
+  await expect(task.locator('p')).toBeVisible()
+  await expect(task.locator('p')).toHaveText('Сверить сохранённый отчёт')
+  await task.locator('summary').press('Enter')
   await expect(result.locator('li')).toHaveCount(2)
   await expect(pane.locator('[data-hcv-subagent-model]')).toHaveText('mock-model', { timeout: 15000 })
   const steps = pane.locator('[data-hcv-subagent-activity-log]')
@@ -210,6 +228,68 @@ export async function verifySummaryParity({ page, expect, projectChat, screensho
   await expect(page.locator('[data-hcv-summary-add-tab]')).toHaveCount(0)
   facts.history = 'canonical stored child transcripts and refused-task result'
   return facts
+}
+
+async function verifySummaryOutputs({ page, expect, projectChat, outputs }) {
+  const native = page.locator('[data-slot="aui_thread-content"]')
+  const result = outputs.getByRole('button', { name: 'fixture-note.md', exact: true })
+  await result.click()
+  const hidePreview = native.getByRole('button', { name: 'Скрыть', exact: true })
+  await expect(hidePreview).toBeVisible()
+  // Opening a native preview replaces the summary with the preview pane.
+  // Close it using the original action in the chat before returning to the list.
+  await hidePreview.click()
+  await expect(native.getByRole('button', { name: 'Скрыть', exact: true })).toHaveCount(0)
+  await expect(result).toBeVisible()
+
+  async function addResults() {
+    await page.evaluate(() => {
+      const selector = 'div:has(> span:first-child > svg.tabler-icon-device-desktop-analytics):has(> span.truncate[title] + button)'
+      const template = [...document.querySelectorAll('[data-slot="aui_thread-content"] ' + selector)]
+        .find(node => node.querySelector(':scope > span[title]')?.title.endsWith('fixture-note.md'))
+      if (!template) throw new Error('Original result preview is missing')
+      window.hcvOpenedOutputs = []
+      for (let index = 1; index <= 8; index++) {
+        const node = template.cloneNode(true)
+        node.dataset.hcvTestOutput = ''
+        const label = node.querySelector(':scope > span[title]')
+        label.title = `/tmp/hcv-output-${index}.md`
+        label.textContent = `hcv-output-${index}.md`
+        node.lastElementChild.addEventListener('click', () => window.hcvOpenedOutputs.push(index))
+        template.parentElement.append(node)
+      }
+    })
+  }
+  const list = outputs.getByRole('list', { name: 'Результаты' })
+  await addResults()
+  await expect(list.getByRole('listitem')).toHaveCount(6)
+  const more = outputs.getByRole('button', { name: 'Показать ещё 3', exact: true })
+  await expect(more).toHaveAttribute('aria-expanded', 'false')
+  await more.focus()
+  await page.keyboard.press('Enter')
+  await expect(list.getByRole('listitem')).toHaveCount(9)
+  await expect(outputs.getByRole('button', { name: 'Свернуть', exact: true })).toHaveAttribute('aria-expanded', 'true')
+  for (let index = 1; index <= 8; index++) {
+    await outputs.getByRole('button', { name: `hcv-output-${index}.md`, exact: true }).click()
+  }
+  assert.deepEqual(await page.evaluate(() => window.hcvOpenedOutputs), [1, 2, 3, 4, 5, 6, 7, 8])
+  const less = outputs.getByRole('button', { name: 'Свернуть', exact: true })
+  await less.focus()
+  await page.keyboard.press('Space')
+  await expect(list.getByRole('listitem')).toHaveCount(6)
+  await outputs.getByRole('button', { name: 'Показать ещё 3', exact: true }).click()
+  await expect(list.getByRole('listitem')).toHaveCount(9)
+  await page.evaluate(() => document.querySelectorAll('[data-hcv-test-output]').forEach(node => node.remove()))
+
+  await projectChat('Ревью интерфейса').click()
+  await projectChat('Проверка каталога').click()
+  await expect(result).toBeVisible()
+  await addResults()
+  await expect(list.getByRole('listitem')).toHaveCount(6)
+  await expect(outputs.getByRole('button', { name: 'Показать ещё 3', exact: true })).toBeVisible()
+  await page.evaluate(() => document.querySelectorAll('[data-hcv-test-output]').forEach(node => node.remove()))
+  await expect(list.getByRole('listitem')).toHaveCount(1)
+  console.log('Output previews, six-item limit, hidden count, keyboard controls and reset after chat switch passed')
 }
 
 async function dragSash(page, x, y, distance) {

@@ -1,6 +1,10 @@
 {
   "name": "hermes-codex-visual",
-  "version": "0.15.89",
+  "version": "0.15.135",
+  "hermesAgentPackage": true,
+  "hermesApprovalCore": true,
+  "hermesAgentNamesCore": true,
+  "hermesToolDisplayCore": true,
   "description": "Codex-style theme for Hermes Desktop",
   "type": "module",
   "private": true,
@@ -14,5 +18,8 @@
   },
   "devDependencies": {
     "esbuild": "0.28.1"
-  }
+  },
+  "hermesTimelineCore": true,
+  "hermesTurnControlCore": true,
+  "hermesModelSpeedCore": true
 }

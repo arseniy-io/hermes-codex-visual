@@ -129,15 +129,15 @@ export function registerSettingsStyle(ctx, active) {
     min-block-size: 30px;
     padding-inline: 8px;
     border-radius: 10px;
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 400;
-    line-height: 20px;
+    line-height: 21px;
     color: var(--hcv-text);
   }
   ${rail} button.row-hover:not([aria-current="page"]) { background-color: transparent; }
   ${rail} button.row-hover[aria-current="page"] { background-color: var(--hcv-settings-nav-fill); }
   ${rail} button.row-hover > :is(svg, .codicon) { color: inherit; }
-  ${rail} div[id] > button.row-hover { min-block-size: 30px; font-size: 12px; }
+  ${rail} div[id] > button.row-hover { min-block-size: 30px; font-size: 14px; }
   ${rail} div[id] > button.row-hover > svg { inline-size: 14px; block-size: 14px; }
   ${rail} button[data-tour^="nav-toggle-"] { border-radius: 6px; }
   ${rail} :is(button.row-hover, button[data-tour^="nav-toggle-"]):focus-visible,
@@ -282,7 +282,7 @@ export function registerSettingsStyle(ctx, active) {
     background-color: var(--hcv-settings-button);
     color: var(--hcv-text);
     font-size: 13px;
-    font-weight: 400;
+    font-weight: 430;
     line-height: 18px;
     text-decoration: none;
     white-space: normal;
@@ -402,7 +402,7 @@ export function registerSettingsStyle(ctx, active) {
     block-size: auto;
     min-block-size: 28px;
     padding: 4px 8px;
-    font: 400 13px/18px var(--hcv-ui-font);
+    font: 430 13px/18px var(--hcv-ui-font);
   }
   ${quietButton}[data-size^="icon"] { inline-size: 28px; block-size: 28px; border-radius: 8px; }
   ${focusable}:focus-visible {

@@ -2,6 +2,12 @@ import { host } from '@hermes/plugin-sdk'
 import { codexMask } from './codex-reference.js'
 import { committedFiber } from './sidebar-recents.js'
 
+export const projectTail = 'data-hcv-project-more-tail'
+
+function chatRows(list) {
+  return [...list.children].flatMap(row => row.hasAttribute(projectTail) ? [...row.children] : row)
+}
+
 const rowButton = 'button[data-slot="row-button"]'
 const ordered = 'data-hcv-sidebar-ordered'
 const orderProperty = '--hcv-sidebar-order'
@@ -10,7 +16,7 @@ const lifted = 'data-hcv-sidebar-lifted'
 
 export function sessionRows(list) {
   const chats = []
-  for (const row of list.children) {
+  for (const row of chatRows(list)) {
     const button = row.querySelector(rowButton)
     for (let fiber = committedFiber(button); fiber; fiber = fiber.return) {
       const props = fiber.memoizedProps
@@ -21,7 +27,7 @@ export function sessionRows(list) {
       const lineage = session._lineage_root_id ?? session.id
       const key = JSON.stringify([profile, lineage])
       if (props.branchStem && parent) parent.rows.push(row)
-      else chats.push({ key, id: session.id, profile, anchor: row, button, rows: [row] })
+      else chats.push({ key, id: session.id, profile, connectionId: session.connection_id, anchor: row, button, rows: [row] })
       break
     }
   }
@@ -79,7 +85,7 @@ export function attachSidebarOrder(content, storage) {
 
   function restore(list) {
     list.removeAttribute(ordered)
-    for (const row of list.children) row.style.removeProperty(orderProperty)
+    for (const row of chatRows(list)) row.style.removeProperty(orderProperty)
     styled.delete(list)
   }
 
@@ -92,7 +98,7 @@ export function attachSidebarOrder(content, storage) {
       const remaining = ranked.flatMap(item => item.rows)
       let index = 0
       list.setAttribute(ordered, kind)
-      const children = [...list.children]
+      const children = chatRows(list)
       // Move all visible chats in the project. Date dividers and other
       // controls retain their slots and collapsed dates remain reachable.
       const reordered = children.map(row => itemRows.has(row) ? remaining[index++] : row)
@@ -320,7 +326,7 @@ export function attachSidebarOrder(content, storage) {
 export function sidebarOrderStyles(active) {
   return `
     ${active} [${ordered}] { reading-flow: grid-order; }
-    ${active} [${ordered}] > * { order: var(${orderProperty}, 0); }
+    ${active} [${ordered}] > *, ${active} [${ordered}] > [${projectTail}] > * { order: var(${orderProperty}, 0); }
     ${active} [${ordered}="chat"] > [class~="group/workspace"]:has(> button[aria-expanded="true"]) {
       display: none;
     }

@@ -6,7 +6,7 @@ import { committedFiber } from './sidebar-recents.js'
 
 const formSelector = 'form[data-slot="composer-root"]'
 const editorSelector = '[data-slot="composer-rich-input"][contenteditable="true"]'
-const hubSelector = '[data-slot="fan-menu-anchor"] > button:has(> .codicon-mic)'
+export const hubSelector = '[data-slot="fan-menu-anchor"] > button:has(> .codicon-mic)'
 const inputCell = '[class~="[grid-area:input]"]'
 const captions = {
   ru: { record: 'Голосовая диктовка', stop: 'Остановить диктовку', cancel: 'Отменить диктовку', starting: 'Подключение микрофона…', transcribing: 'Расшифровка диктовки…', error: 'Диктовка не удалась', denied: 'Нет доступа к микрофону', empty: 'Речь не распознана', insert: 'Не удалось вставить диктовку в черновик' },

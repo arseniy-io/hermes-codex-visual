@@ -1,0 +1,7 @@
+{
+  "name": "hermes-codex-visual",
+  "label": "Hermes Codex Visual",
+  "description": "Usage data for the desktop settings page",
+  "tab": { "path": "/hermes-codex-visual", "hidden": true },
+  "api": "plugin_api.py"
+}

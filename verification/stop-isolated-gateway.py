@@ -30,6 +30,14 @@ def main():
 
     try:
         process = psutil.Process(int(record['pid']))
+        # Windows Hermes writes rounded centiseconds. Do not terminate a live
+        # PID unless that exact creation identity is present and still matches.
+        if os.name == 'nt':
+            started = record.get('start_time')
+            if type(started) is not int or started <= 0:
+                raise ValueError('gateway start time is missing or invalid')
+            if round(process.create_time() * 100) != started:
+                raise ValueError('gateway process has been replaced')
         env = process.environ()
         args = process.cmdline()
     except psutil.NoSuchProcess:
@@ -39,10 +47,6 @@ def main():
             or env.get('HERMES_DESKTOP_ISOLATED_BACKEND') != '1'
             or 'gateway' not in args or 'run' not in args):
         raise ValueError('running process is not this isolated gateway')
-    started = record.get('start_time')
-    if os.name == 'nt' and isinstance(started, int) and abs(started / 100 - process.create_time()) > 1:
-        raise ValueError('gateway process has been replaced')
-
     for other in psutil.process_iter(['name']):
         try:
             if ((other.info['name'] or '').lower() in ('electron.exe', 'hermes.exe')

@@ -6,10 +6,13 @@ import {
 } from '@hermes/plugin-sdk'
 import { codexIconStyle, codexIconRules, codexMask, codexReference as codex } from './codex-reference.js'
 import { attachProjects, projectSidebarStyles } from './sidebar-projects.js'
+import { createProjectRows, NativeProjectRows } from './sidebar-more.js'
 import { attachChatPreview, chatPreviewStyles, registerChatPreviewMarker } from './sidebar-chat-preview.js'
 import { createRecentRows, NativeRecentRows, projectGroupingAction } from './sidebar-recents.js'
 import { attachSidebarCron, sidebarCronStyles } from './sidebar-cron.js'
 import { movedElementMatches } from './dom-changes.js'
+import { readFocusedSession } from './sidebar-session-state.js'
+import { composerForSurface, composerRichInput } from './composer-native.js'
 
 function icon(name) {
   return h('span', { 'aria-hidden': true, 'data-hcv-icon': name, style: codexIconStyle(name) })
@@ -26,7 +29,7 @@ export const toolbarOffsetEvent = 'hcv:toolbar-offset'
 const russianPlurals = new Intl.PluralRules('ru')
 const sidebarCopy = {
   en: {
-    projects: 'Projects', showMore: 'Show more',
+    projects: 'Projects', showMore: 'Show more', showMoreError: 'Could not load project chats',
     recent: 'Recent', recentActions: 'Recent chats actions', newChat: 'New chat',
     refreshRecent: 'Refresh recent chats', findSession: 'Find a session',
     recentEmpty: 'No chats', recentLoading: 'Loading…', recentProfile: 'Open a Hermes profile',
@@ -38,7 +41,7 @@ const sidebarCopy = {
     terminalUnbound: 'Set a shortcut for New terminal in Keyboard shortcuts.',
   },
   ru: {
-    projects: 'Проекты', showMore: 'Показать больше',
+    projects: 'Проекты', showMore: 'Показать больше', showMoreError: 'Не удалось загрузить чаты проекта',
     recent: 'Недавние', recentActions: 'Действия с недавними', newChat: 'Новый чат',
     refreshRecent: 'Обновить недавние', findSession: 'Найти сеанс',
     recentEmpty: 'Нет чатов', recentLoading: 'Загрузка…', recentProfile: 'Откройте нужный профиль Hermes',
@@ -51,8 +54,8 @@ const sidebarCopy = {
   },
 }
 
-function visibleControl(selector) {
-  return [...document.querySelectorAll(selector)].find((control) =>
+function visibleControl(selector, root = document) {
+  return [...root.querySelectorAll(selector)].find((control) =>
     !control.disabled && !control.closest('[inert], [hidden]') &&
     control.getClientRects().length && getComputedStyle(control).visibility === 'visible',
   )
@@ -73,7 +76,9 @@ function openGrouping() {
 }
 
 function edit(command) {
-  const input = visibleControl('[data-chat-surface][data-composer-target="main"] [data-slot="composer-rich-input"]')
+  const focused = readFocusedSession({ state: host.state })
+  const form = focused && composerForSurface(focused.surface)
+  const input = form && visibleControl(composerRichInput, form)
   if (!input) return
   input.focus()
   if (command === 'selectAll') document.execCommand(command)
@@ -169,7 +174,7 @@ function windowMenuShortcut(action, fallback) {
   return () => keybindLabel(action, fallback, '+')
 }
 
-function WindowChrome({ themeName, recentRows }) {
+function WindowChrome({ themeName, recentRows, projectRows }) {
   const selected = useTheme().themeName === themeName
   const { locale } = useI18n()
   const [historyState, setHistoryState] = useState({ back: false, forward: false })
@@ -230,6 +235,7 @@ function WindowChrome({ themeName, recentRows }) {
     ),
     h(WindowMenus, { menus, label: text.menu }),
     h(NativeRecentRows, { rows: recentRows }),
+    h(NativeProjectRows, { rows: projectRows }),
   )
 }
 
@@ -459,7 +465,7 @@ function sidebarMenuBehavior(content) {
   }
 }
 
-function keybindLabel(action, fallback, separator) {
+export function keybindLabel(action, fallback, separator) {
   let binding
   try {
     binding = JSON.parse(localStorage.getItem('hermes.desktop.keybinds'))?.[action]
@@ -739,7 +745,7 @@ function sidebarFills() {
   }
 }
 
-function registerSidebar(ctx, active, recentRows) {
+function registerSidebar(ctx, active, recentRows, projectRows) {
   const wide = window.matchMedia('(forced-colors: none) and (min-width: 800px) and (min-height: 480px)')
   const contrast = window.matchMedia('(forced-colors: none)')
   const flatList = flatRecents(recentRows, ctx.i18n.t)
@@ -785,7 +791,7 @@ function registerSidebar(ctx, active, recentRows) {
       cron?.dispose()
       projectContent = sidebar
       if (sidebar) projectLabels.observe(sidebar, { characterData: true, subtree: true })
-      projects = sidebar ? attachProjects(sidebar, ctx.i18n.t, ctx.storage) : undefined
+      projects = sidebar ? attachProjects(sidebar, ctx.i18n.t, ctx.storage, projectRows) : undefined
       chatPreview = sidebar ? attachChatPreview(sidebar) : undefined
       cron = sidebar ? attachSidebarCron(sidebar, ctx.storage) : undefined
     }
@@ -859,7 +865,7 @@ function registerSidebar(ctx, active, recentRows) {
     if (records.some(({ target }) => target.parentElement?.closest('[data-hcv-native-project-action], .hover-marquee-inner'))) schedule()
   })
   const root = document.documentElement
-  const mounts = `${sideSelector}, [data-tree-group], [data-tree-tab="sessions"], [data-persistent-terminal]`
+  const mounts = `${sideSelector}, [data-tree-group], [data-tree-tab="sessions"], [data-persistent-terminal], [data-chat-surface]`
   const visibility = new Set(['data-window-top', 'inert', 'hidden', 'data-pane-hidden'])
   const observer = new MutationObserver(records => {
     const enabled = root.matches(active)
@@ -940,6 +946,7 @@ export function registerWorkspaceChrome(ctx, themeName) {
   const windowPopup = `${shell} [data-slot="dropdown-menu-content"][data-hcv-window-menu-content]`
   const windowItem = `${windowPopup} > [role="menuitem"]`
   const recentRows = createRecentRows()
+  const projectRows = createProjectRows()
   const stylesheet = element('style', { 'data-hcv-chrome-styles': '' })
   stylesheet.textContent = `
 @media (forced-colors: none) {
@@ -1158,14 +1165,6 @@ export function registerWorkspaceChrome(ctx, themeName) {
   }
   ${shell} [data-tree-tab="workspace"] { font-size: 13px; text-transform: none; box-shadow: none; background: transparent; }
   ${shell} [data-tree-tab="workspace"] :is(span, .truncate) { font-size: 13px; font-weight: 600; letter-spacing: normal; text-transform: none; }
-  ${shell} [data-tree-tab="workspace"]::before {
-    content: '';
-    inline-size: 16px;
-    block-size: 16px;
-    background: currentColor;
-    mask: ${codexMask('folder')} center / contain no-repeat;
-  }
-
   ${side} { border-start-start-radius: 12px; background: var(--hcv-sidebar); }
   ${side} > [data-panel-header]:has(> [data-hcv-sidebar-bar]) {
     block-size: 46px !important;
@@ -1201,6 +1200,7 @@ export function registerWorkspaceChrome(ctx, themeName) {
   }
   ${side} [data-hcv-sidebar-bar] button {
     position: relative;
+    border-radius: 50%;
     color: var(--hcv-muted);
     transition: color 150ms var(--hcv-ease), background-color 150ms var(--hcv-ease);
   }
@@ -1257,7 +1257,7 @@ export function registerWorkspaceChrome(ctx, themeName) {
   ${side} [data-sessions-mode] > [data-slot="sidebar-group"] > :first-child span > .dither { display: none; }
   ${side} [data-sessions-mode] > [data-slot="sidebar-group"] > :first-child button:not(${flatRecent}) > .codicon-chevron-right { opacity: 1; }
   ${codexIconRules(`${side} [data-sessions-mode] > [data-slot="sidebar-group"] > :first-child button:not(${flatRecent}) > .codicon-chevron-right`, 'right')}
-  ${side} [data-sessions-mode="projects"] .row-hover { min-block-size: ${codex.sidebar.rowHeight}px; border-radius: 9px; }
+  ${side} [data-sessions-mode="projects"] .row-hover { min-block-size: ${codex.sidebar.rowHeight}px; border-radius: ${codex.sidebar.rowRadius}px; }
   ${side} [data-sessions-project]:not([data-sessions-mode]) :is(.codicon-folder-library, .codicon-repo)::before {
     content: '';
     display: block;
@@ -1348,6 +1348,6 @@ export function registerWorkspaceChrome(ctx, themeName) {
 }
 `
   mountStyle(ctx, stylesheet)
-  ctx.register({ id: 'window-menu', area: TITLEBAR_AREAS.left, render: () => h(WindowChrome, { themeName, recentRows }) })
-  registerSidebar(ctx, active, recentRows)
+  ctx.register({ id: 'window-menu', area: TITLEBAR_AREAS.left, render: () => h(WindowChrome, { themeName, recentRows, projectRows }) })
+  registerSidebar(ctx, active, recentRows, projectRows)
 }

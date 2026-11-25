@@ -102,7 +102,7 @@ export async function verifyComposerSize({ page, expect, screenshot, projectChat
   console.log(JSON.stringify({ composer: compact, narrowWidth: body.width }))
 }
 
-export async function verifyComposerLive({ page, expect, screenshot, fixture, readMode }) {
+export async function verifyComposerLive({ page, expect, screenshot, fixture, readMode, projectChat }) {
   const chat = page.locator('[data-chat-surface][data-composer-target="main"]:visible')
   const form = chat.locator('form[data-slot="composer-root"]')
   const surface = form.locator('[data-slot="composer-surface"]')
@@ -112,6 +112,8 @@ export async function verifyComposerLive({ page, expect, screenshot, fixture, re
   const model = surface.locator('[data-tour="model-pill"]')
   const approvalMenu = page.locator('[data-hcv-approval-menu]')
   const chip = chat.locator('[data-hcv-composer-changes-chip]')
+  const rail = chat.locator('[data-hcv-composer-changes]')
+  const warning = chat.locator('[data-hcv-composer-changes-warning]')
 
   await expect(editor).toBeEditable()
   await expect(mode).toBeVisible()
@@ -174,29 +176,85 @@ export async function verifyComposerLive({ page, expect, screenshot, fixture, re
   }
 
   await page.emulateMedia({ reducedMotion: 'no-preference' })
+  const grip = chat.locator('[data-slot="status-drawer-toggle"]')
+  // A fresh isolated profile can initially show the native consent drawer.
+  const consent = chat.locator('[data-slot="status-row"]:has(> .status-row-icon > .codicon-graph)')
+  if (await consent.isVisible()) {
+    await consent.getByRole('button', { name: 'Нет, спасибо', exact: true }).click()
+    await expect(consent).toHaveCount(0)
+  }
+  await projectChat('Ревью интерфейса').click()
+  await expect(grip).toHaveAttribute('aria-expanded', 'true')
+  const kebab = chat.locator('.coding-status-bar button:has(> .codicon-kebab-vertical)')
+  await expect(kebab).toHaveCount(1)
+  await expect(kebab).toBeHidden()
+  // The hidden icon must not remove the native branch actions.
+  const branch = chat.locator('.coding-status-bar')
+  const branchButton = branch.locator('button:has(> .codicon-git-branch)')
+  const branchMenu = page.getByRole('menu').filter({ has: page.getByRole('menuitem') })
+  await branch.click({ button: 'right' })
+  await expect(branchMenu).toBeVisible()
+  const mouseItems = await branchMenu.getByRole('menuitem').allTextContents()
+  assert(mouseItems.length > 0, 'Right-click should expose native branch actions')
+  await page.keyboard.press('Escape')
+  await expect(branchMenu).toBeHidden()
+  await page.keyboard.press('Tab')
+  await branchButton.focus()
+  console.log('Branch keyboard focus', JSON.stringify(await page.evaluate(() => ({
+    tag: document.activeElement?.tagName, className: document.activeElement?.className,
+    inBranch: Boolean(document.activeElement?.closest('.coding-status-bar')),
+  }))))
+  await expect(branchButton).toBeFocused()
+  assert(await branchButton.evaluate(node => node.matches(':focus-visible')))
+  await expect(branchButton).toHaveCSS('outline-style', 'solid')
+  await page.keyboard.press('Shift+F10')
+  await expect(branchMenu).toBeVisible()
+  assert.deepEqual(await branchMenu.getByRole('menuitem').allTextContents(), mouseItems)
+  await page.keyboard.press('Escape')
+  await expect(branchMenu).toBeHidden()
+  // Use the real native button with the keyboard, not a synthetic attribute mutation.
+  await grip.focus()
+  await page.keyboard.press('Space')
+  await expect(grip).toHaveAttribute('aria-expanded', 'false')
   await expect(chip).toHaveCount(0)
   await editor.fill(prompt)
   await editor.press('Enter')
-  await expect(chip).toHaveAttribute('aria-label', 'Изменен 1 файл, +420, −0', { timeout: 45000 })
+  // This fixture uses ordinary Hermes tools, not the owner-bound Codex patch
+  // stream. It must report incomplete tracking rather than sum tool deltas.
+  await expect(warning).toHaveText('Не все изменения удалось отследить', { timeout: 45000 })
+  await expect(warning).toBeVisible()
+  await expect(chip).toBeHidden()
   assert.equal(fs.readFileSync(fixture.file, 'utf8'), fixture.content)
-  const units = chip.locator('[data-hcv-composer-changes-added] [data-hcv-changes-digit]').last()
-  await expect(units.locator('[data-hcv-changes-reel]')).toHaveCSS('transition-duration', '0.3s')
-  await units.evaluate(node => { node.dataset.hcvTestUnits = '' })
+  await grip.focus()
+  await page.keyboard.press('Enter')
+  await expect(grip).toHaveAttribute('aria-expanded', 'true')
+  await expect(rail).toBeHidden()
+  await grip.focus()
+  await page.keyboard.press('Space')
+  await expect(grip).toHaveAttribute('aria-expanded', 'false')
+  await expect(warning).toBeVisible()
+
   await editor.fill('Сообщение ждёт в очереди.')
   await editor.press('Enter')
   const queue = chat.getByRole('group', { name: 'Очередь сообщений' })
-  await expect(queue).toBeVisible()
-  const [chipBox, queueBox] = await Promise.all([chip.boundingBox(), queue.boundingBox()])
-  assert(chipBox.y + chipBox.height < queueBox.y)
-  assert.equal(chipBox.height, 34)
+  await expect(queue).toBeHidden()
   await screenshot('composer-live-changes.png')
+  await grip.focus()
+  await page.keyboard.press('Enter')
+  await expect(grip).toHaveAttribute('aria-expanded', 'true')
+  await expect(queue).toBeVisible()
+  await expect(rail).toBeHidden()
+  await grip.focus()
+  await page.keyboard.press('Space')
+  await expect(grip).toHaveAttribute('aria-expanded', 'false')
+  await expect(queue).toBeHidden()
+  await expect(warning).toBeVisible()
 
   fixture.next()
-  await expect(chip).toHaveAttribute('aria-label', 'Изменено 2 файла, +422, −1', { timeout: 45000 })
-  await expect(units).toHaveAttribute('data-hcv-test-units', '')
+  await expect(warning).toHaveText('Не все изменения удалось отследить')
   fixture.finish()
   await expect(chat.getByText(finished, { exact: true })).toBeVisible({ timeout: 45000 })
-  await expect(chip).toHaveCount(0)
+  await expect(rail).toHaveCount(0)
   console.log(JSON.stringify({ surfaceHeight: surfaceBox.height, controlsHeight: plusBox.height, approvals: 3,
-    firstDiff: [1, 420, 0], secondDiff: [2, 422, 1], rollingDigit: true, hiddenOnFinish: true }))
+    unsupportedToolsMarkedIncomplete: true, hiddenOnFinish: true }))
 }

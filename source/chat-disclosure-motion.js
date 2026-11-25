@@ -39,8 +39,19 @@ export function registerDisclosureMotion(ctx, enabled, getPanels, prepare) {
       const folded = turn ? { ...flat, translate: '0 -8px' } : flat
       const frames = phase === closing ? [from?.get(panel) ?? end, folded] : [from?.get(panel) ?? folded, end]
       const quickExit = turn && phase === closing
-      const animation = panel.animate(frames, { duration: quickExit ? 150 : duration,
-        easing: quickExit ? 'cubic-bezier(.23,1,.32,1)' : codexReference.enter, fill: 'both' })
+      const snappy = 'cubic-bezier(.23,1,.32,1)'
+      // Codex turn regions use 150ms ease-enter-snappy. On exit height
+      // starts 50ms later than opacity. Keep the split in one animation
+      // so rapid reversal captures both values from the same frame.
+      const { opacity: initialOpacity, ...initialGeometry } = frames[0]
+      const keyframes = quickExit ? [
+        { ...initialGeometry, opacity: initialOpacity, offset: 0, easing: 'ease-in' },
+        { ...initialGeometry, offset: .25, easing: snappy },
+        { opacity: 0, offset: .75 },
+        { ...folded, offset: 1 },
+      ] : frames
+      const animation = panel.animate(keyframes, { duration: quickExit ? 200 : turn ? 150 : duration,
+        easing: quickExit ? 'linear' : turn ? snappy : codexReference.enter, fill: 'both' })
       state.panels.push({ panel, animation })
     }
     void Promise.all(state.panels.map(({ animation }) => animation.finished)).then(() => {

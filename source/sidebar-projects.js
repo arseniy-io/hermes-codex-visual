@@ -4,9 +4,11 @@ import { committedFiber, nativeProjectActivity } from './sidebar-recents.js'
 import { attachSidebarOrder, sidebarOrderStyles } from './sidebar-chat-order.js'
 import { sidebarMarqueeStyles, trackTitleOverflow } from './title-overflow.js'
 import { attachProjectMore, projectMoreStyles } from './sidebar-more.js'
+import { attachFocusedDraft, focusedDraftProject } from './sidebar-session-state.js'
 
 const media = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
 const folderRows = '[data-sessions-project]:not([data-sessions-mode])'
+const noProjectId = '__no_project__'
 const scope = '[data-sessions-mode="projects"]'
 const sessionTitle = 'button[data-slot="row-button"] .hover-marquee'
 export const sidebarSessionRow = `[data-sessions-mode] .row-hover:has(${sessionTitle})`
@@ -163,6 +165,9 @@ export function disclosure(button, native, region, regionId, timing = sectionMot
       if (controlId && button.getAttribute('aria-controls') !== controlId) button.setAttribute('aria-controls', controlId)
       else if (!controlId) button.removeAttribute('aria-controls')
     },
+    finishOpening() {
+      if (motion && !motion.closing) cancel()
+    },
     dispose() {
       cancel()
       restoreId()
@@ -180,7 +185,7 @@ export function disclosure(button, native, region, regionId, timing = sectionMot
 
 const projectMenu = '[data-row-actions] button[aria-haspopup="menu"]'
 
-function nativeProject(trigger, id) {
+function nativeProjectData(trigger, id) {
   for (let fiber = committedFiber(trigger); fiber; fiber = fiber.return) {
     const project = fiber.memoizedProps?.project
     if (project?.id === id) return project
@@ -285,7 +290,7 @@ function projectPreview(content, t) {
     editLabel.textContent = t('renameProject')
     title.textContent = entry.name.textContent
     const trigger = entry.row.querySelector(projectMenu)
-    const project = nativeProject(trigger, entry.id)
+    const project = nativeProjectData(trigger, entry.id)
     sessions.hidden = true
     folder.hidden = true
     footer.hidden = !trigger || Boolean(project?.isAuto || project?.isNoProject)
@@ -360,32 +365,26 @@ function projectPreview(content, t) {
   }
 }
 
-export function attachProjects(content, t, storage) {
+export function attachProjects(content, t, storage, projectRows) {
   const rows = new Map()
   const preview = projectPreview(content, t)
   const order = attachSidebarOrder(content, storage)
-  const more = attachProjectMore(t)
+  const more = attachProjectMore(t, projectRows)
   const measureTitles = trackTitleOverflow({ marquee: true })
   let section
   let reveal
-  let nativeProject
+  let focused
 
-  function clearNativeProject() {
-    nativeProject = undefined
-    content.removeAttribute('data-hcv-native-project-view')
+  function syncSelection() {
+    const owner = { connectionId: host.state.connectionId.get(), profile: host.state.profile.get() }
+    const projects = [...rows.values()].map(entry => nativeProjectData(entry.link, entry.id)).filter(Boolean)
+    const selected = focusedDraftProject(focused?.get(), projects, owner)
+    for (const entry of rows.values()) {
+      if (entry.id === selected) entry.row.setAttribute('aria-current', 'page')
+      else entry.row.removeAttribute('aria-current')
+    }
   }
-  function allowNativeProject(event) {
-    if (localStorage.getItem('hermes.desktop.showAllProfiles') !== 'true') return
-    const button = event.target instanceof Element ? event.target.closest('button[class~="group/more"]') : null
-    const project = button?.closest('[data-sessions-project]:not([data-sessions-mode])')
-    const id = project?.dataset.sessionsProject
-    if (!id || button.disabled || !content.contains(button)) return
-    // In the all-profiles view Hermes opens the full native project instead
-    // of loading another page. Let that explicitly requested view stay open.
-    nativeProject = { id, connection: host.state.connectionId.get(), profile: host.state.profile.get(), entered: false, until: Date.now() + 5000 }
-    content.setAttribute('data-hcv-native-project-view', '')
-  }
-  content.addEventListener('click', allowNativeProject, true)
+  focused = attachFocusedDraft({ state: host.state, onChange: syncSelection })
 
   function clearSection() {
     if (!section) return
@@ -403,6 +402,7 @@ export function attachProjects(content, t, storage) {
     entry.detach()
     entry.motion?.dispose()
     entry.row.removeAttribute('data-hcv-project-row')
+    entry.row.removeAttribute('aria-current')
     entry.link.removeAttribute('data-hcv-native-project-action')
     entry.toggle?.removeAttribute('data-hcv-native-project-action')
     entry.name.remove()
@@ -450,23 +450,13 @@ export function attachProjects(content, t, storage) {
   return {
     syncActivity,
     sync() {
+      focused.sync()
       measureTitles(content.querySelectorAll(`${scrollingRow} .hover-marquee`))
       const view = content.querySelector('[data-sessions-mode]')
       const mode = view?.dataset.sessionsMode
       if (reveal && (reveal.connection !== host.state.connectionId.get() || reveal.profile !== host.state.profile.get())) reveal = undefined
-      if (nativeProject && (localStorage.getItem('hermes.desktop.showAllProfiles') !== 'true' ||
-        nativeProject.connection !== host.state.connectionId.get() || nativeProject.profile !== host.state.profile.get() ||
-        (!nativeProject.entered && Date.now() > nativeProject.until) || (nativeProject.entered && mode && mode !== 'project'))) clearNativeProject()
       if (mode === 'project') {
         order.sync({ chats: [], projects: [] })
-        if (nativeProject?.id === view.dataset.sessionsProject) {
-          nativeProject.entered = true
-          for (const [key, entry] of rows) clearRow(key, entry)
-          rows.clear()
-          clearSection()
-          return
-        }
-        clearNativeProject()
         // Hermes can enter a project after launch from the palette, project
         // creation, or a restored scope. Use its own back action each time.
         const back = view.querySelector('button[class~="group/back"]')
@@ -483,6 +473,7 @@ export function attachProjects(content, t, storage) {
       const seen = new Set()
       const projectLists = []
       for (const item of tree?.querySelectorAll(folderRows) || []) {
+        if (item.dataset.sessionsProject === noProjectId) continue
         const row = item.querySelector(':scope > [class~="group/workspace"]')
         // Hermes adds a tooltip to automatically discovered projects, changing
         // the label's slot to tooltip-trigger. The adjacent disclosure also has
@@ -492,7 +483,7 @@ export function attachProjects(content, t, storage) {
         if (!text) continue
         const toggle = row.querySelector(':scope > div > button[data-row-actions]:has(> .codicon-chevron-right)')
         const id = item.dataset.sessionsProject
-        const emptyKey = !toggle && id && id !== 'home'
+        const emptyKey = !toggle && id
           ? JSON.stringify(['emptyProjectOpen', host.state.connectionId.get(), host.state.profile.get(), id])
           : null
         seen.add(item)
@@ -549,6 +540,7 @@ export function attachProjects(content, t, storage) {
       syncActivity(tree)
       order.sync({ chats: projectLists, projects: [...rows.values()] })
       more.sync([...rows.values()])
+      syncSelection()
       if (section && reveal) {
         if (section.button.ariaExpanded === 'false') {
           if (reveal.header !== section.button) {
@@ -566,8 +558,7 @@ export function attachProjects(content, t, storage) {
       }
     },
     dispose() {
-      content.removeEventListener('click', allowNativeProject, true)
-      clearNativeProject()
+      focused.dispose()
       measureTitles()
       order.dispose()
       more.dispose()
@@ -584,6 +575,8 @@ export function projectSidebarStyles(active) {
   const toggle = `${sectionHeader} > [data-hcv-section-toggle]`
   const caret = '[data-hcv-icon="sidebarDisclosure"]'
   const row = `${active} ${projectRow}`
+  const session = `${active} [data-tour="sessions-sidebar"] ${sidebarSessionRow}`
+  const interactive = `:is(${row}, ${session})`
   const preview = `${active} ${previewCard}`
   const project = `${active} ${folderRows}`
   const nameFont = '430 14px/21px var(--hcv-ui-font)'
@@ -599,7 +592,8 @@ export function projectSidebarStyles(active) {
   ${projectMoreStyles(active)}
   ${sidebarMarqueeStyles(`${active} [data-tour="sessions-sidebar"] ${scrollingRow}`)}
   ${active} [data-hcv-native-project-action] { display: none !important; }
-  ${active} [data-tour="sessions-sidebar"] [data-slot="sidebar-content"]:not([data-hcv-native-project-view]) [data-sessions-mode="project"]:has(button[class~="group/back"]) { visibility: hidden; }
+  ${active} [data-tour="sessions-sidebar"] [data-sessions-project="${noProjectId}"]:not([data-sessions-mode]) { display: none !important; }
+  ${active} [data-tour="sessions-sidebar"] [data-slot="sidebar-content"] [data-sessions-mode="project"]:has(button[class~="group/back"]) { visibility: hidden; }
   ${active} [data-hcv-disclosure-motion] {
     flex: 0 0 auto;
     min-block-size: 0;
@@ -618,21 +612,44 @@ export function projectSidebarStyles(active) {
     white-space: nowrap;
     text-align: start;
     border-radius: 8px;
-    color: var(--hcv-text);
+    color: var(--hcv-sidebar-row-text);
     font: ${nameFont};
   }
   ${row} button[data-hcv-project-name] { cursor: pointer; }
   ${row} + div.grid { padding-block-start: 1px; }
   ${project} .hover-marquee-inner { font: ${nameFont}; line-height: 20px; }
+  ${active} [data-tour="sessions-sidebar"] ${scrollingRow} .hover-marquee-inner {
+    color: var(--hcv-sidebar-row-text);
+  }
   ${project} > [data-hcv-project-empty] {
     padding: 4px 32px;
     color: var(--hcv-muted);
     font: ${nameFont};
   }
   ${project} > [data-hcv-project-empty] > span { opacity: .5; }
+  ${active} [data-tour="sessions-sidebar"] {
+    --hcv-sidebar-row-highlight: ${codex.sidebar.rowHighlight};
+    --hcv-sidebar-row-text: ${codex.sidebar.rowText};
+    --hcv-sidebar-row-emphasis: ${codex.sidebar.rowEmphasis};
+    --ui-row-open-background: transparent;
+  }
   ${row} { position: relative; }
-  ${row}:is(:hover, [data-hcv-preview-open], [data-state="open"], :has(> [data-row-actions] button[data-state="open"])) {
-    background-color: var(--hcv-sidebar-highlight);
+  ${interactive}, ${interactive}:hover {
+    min-block-size: ${codex.sidebar.rowHeight}px;
+    border-radius: ${codex.sidebar.rowRadius}px;
+    corner-shape: round;
+    background-color: transparent;
+    color: var(--hcv-sidebar-row-text);
+    transition: none;
+  }
+  ${interactive}:is([aria-current="page"], [class~="bg-(--ui-row-active-background)"], :has([aria-haspopup="menu"][aria-expanded="true"])) {
+    background-color: var(--hcv-sidebar-row-highlight);
+  }
+  ${interactive}:is([aria-current="page"], [class~="bg-(--ui-row-active-background)"]) {
+    --hcv-sidebar-row-text: var(--hcv-sidebar-row-emphasis);
+  }
+  @media (hover: hover) {
+    ${interactive}:hover { background-color: var(--hcv-sidebar-row-highlight); }
   }
   ${rowActions} { padding-inline-end: 4px; }
   ${rowActions}, ${rowActions} > div[class~="group/group-actions"] > div { column-gap: 8px; }

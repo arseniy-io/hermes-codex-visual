@@ -2,13 +2,13 @@
 
 **A Codex-style theme for Hermes Desktop.** Get the compact project sidebar, rounded chat composer, and workspace summary of the Codex desktop interface inside your Hermes Agent workspace.
 
-[Install](#install) · [Download v0.15.89 ZIP](https://raw.githubusercontent.com/arseniy-io/hermes-codex-visual/main/downloads/hermes-codex-visual-v0.15.89.zip) · [Report a bug or request a feature](https://github.com/arseniy-io/hermes-codex-visual/issues/new/choose) · [Русский](README.ru.md)
+[Install](#install) · [Download v0.15.135 ZIP](https://raw.githubusercontent.com/arseniy-io/hermes-codex-visual/main/downloads/hermes-codex-visual-v0.15.135.zip) · [Report a bug or request a feature](https://github.com/arseniy-io/hermes-codex-visual/issues/new/choose) · [Русский](README.ru.md)
 
 ![Codex-style theme v0.15.89 in Hermes Desktop with a project sidebar, a reply containing a table, and the workspace summary](docs/images/workspace-dark.png)
 
 <sub>v0.15.89 on Hermes Desktop v0.23.1+2062. Public build with the Atlas demo project.</sub>
 
-Public and local installations now use the same workspace icons, including the set shown in these screenshots. The chat timeline, inline file links, tables, media controls, project navigation, and settings are also updated. [Release notes](docs/release-0.15.89.md) · [Verification limits](docs/release-0.15.87.md).
+Version 0.15.135 brings equal-width chat tabs, lighter switching between open chats, quick archiving, and improved activity history. [Release notes](CHANGELOG.md#v015135)
 
 ## What you can do
 
@@ -39,14 +39,16 @@ Use [Hermes Desktop](https://hermes-agent.nousresearch.com/docs/user-guide/deskt
    ```text
    https://github.com/arseniy-io/hermes-codex-visual
    ```
-2. Select the desktop plugin in the installer. Enable **Hermes Codex Visual** in the plugins list.
+2. Install and enable both the desktop and agent parts. The desktop part applies the theme, and the agent part supplies features such as Activity and Usage.
 3. Open **Settings → Appearance → Theme** and select **Codex**.
 
 ### Install from a ZIP
 
-Download the [v0.15.89 ZIP](https://raw.githubusercontent.com/arseniy-io/hermes-codex-visual/main/downloads/hermes-codex-visual-v0.15.89.zip). In **Capabilities → Plugins**, open the app plugins folder and extract the `hermes-codex-visual` folder there. The path should end in `desktop-plugins/hermes-codex-visual/plugin.js`. Click **Rescan**, enable the plugin, and choose **Codex** in Appearance. [SHA-256 checksums](downloads/SHA256SUMS.txt) · [What's in this version](CHANGELOG.md)
+Download the ZIP. In **Capabilities → Plugins**, open the app plugins folder and extract the `hermes-codex-visual` folder there. The path should end in `desktop-plugins/hermes-codex-visual/plugin.js`. Click **Rescan**, enable the plugin, and choose **Codex** in Appearance. [Download v0.15.135 ZIP](https://raw.githubusercontent.com/arseniy-io/hermes-codex-visual/main/downloads/hermes-codex-visual-v0.15.135.zip) · [SHA-256 checksums](downloads/SHA256SUMS.txt)
 
-To update a ZIP installation, replace `plugin.js` in the same folder and rescan. To switch back, choose a built-in theme and disable the plugin.
+To use Activity, Usage and saved chat history features, install the agent files from the same ZIP. On update, replace both parts with files from the new ZIP, restart the gateway if it already loaded the agent part, and rescan the desktop plugins. [Agent installation and updates](docs/development.md#usage-analytics-in-source-builds)
+
+To switch back, choose a built-in theme and disable the desktop plugin.
 
 ## Frequently asked questions
 
@@ -66,7 +68,7 @@ npm run build
 npm run check
 ```
 
-The build writes the root `plugin.js` that Hermes installs. See [the development notes](docs/development.md) for loading a local build and testing changes.
+The build writes the root `plugin.js` and the agent files that Hermes installs. [Development notes](docs/development.md)
 
 If this makes Hermes easier for you to use, **star the repository** so you can find it again. Tell us which screen you'd like refined next. [Star on GitHub](https://github.com/arseniy-io/hermes-codex-visual) · [Send feedback](https://github.com/arseniy-io/hermes-codex-visual/issues/new/choose)
 

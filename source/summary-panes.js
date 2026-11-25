@@ -6,6 +6,7 @@ import {
 import { createElement as h } from 'react'
 import { codexIconStyle, codexReference as codex } from './codex-reference.js'
 import { movedElementMatches } from './dom-changes.js'
+import { useFocusedWorkspace } from './workspace-focus.js'
 
 const workspacePrefix = 'hermes-codex-visual-summary-'
 const panePrefix = 'plugin-workspace:' + workspacePrefix
@@ -26,6 +27,7 @@ function icon(kind) {
 function Picker({ state, open }) {
   const menu = useValue(state)
   const { locale } = useI18n()
+  const focus = useFocusedWorkspace()
   if (!menu) return null
   const select = kind => () => open(kind)
   return h(DropdownMenu, { open: true, onOpenChange: value => { if (!value) state.set(null) } },
@@ -40,7 +42,9 @@ function Picker({ state, open }) {
         if (menu.trigger.isConnected) menu.trigger.focus({ preventScroll: true })
       },
     },
-    ...['agents', 'sources'].map(kind => h(DropdownMenuItem, { key: kind, onSelect: select(kind) },
+    ...['agents', 'sources'].map(kind => h(DropdownMenuItem, {
+      key: kind, disabled: kind === 'agents' && !focus, onSelect: select(kind),
+    },
       icon(kind), copy(locale)[kind])),
     h(DropdownMenuSeparator),
     ...['changes', 'files'].map(kind => h(DropdownMenuItem, { key: kind, onSelect: select(kind) },

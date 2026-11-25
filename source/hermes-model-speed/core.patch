@@ -1,0 +1,534 @@
+--- a/agent/fast_mode.py
++++ b/agent/fast_mode.py
+@@ -24,7 +24,7 @@
+ #: selects Anthropic/xAI fast mode). Ultrafast is OpenAI-only and gated per model.
+ STATIC_TIERS = frozenset({"priority", "ultrafast"})
+ # Codex app-server names for wire tiers it accepts (turn/start.serviceTier); a tier missing here is not sent.
+-CODEX_TIER_WORDS: dict[str, str] = {"priority": "fast"}
++CODEX_TIER_WORDS: dict[str, str] = {"priority": "fast", "ultrafast": "ultrafast"}
+ NORMAL_TIER_WORDS = frozenset({"", "normal", "default", "standard", "off", "none"})
+ # User/config word -> agent.service_tier. The single table every surface (config loaders, /fast
+ # on CLI / gateway / TUI) parses through, so a new tier is one edit.
+@@ -74,7 +74,7 @@
+     agent._fast_until = time.monotonic() + max(window, 0.0)
+ 
+ 
+-def effective_request_overrides(agent: Any) -> dict[str, Any]:
++def effective_request_overrides(agent: Any, *, _hcv_codex_app_server: bool = False) -> dict[str, Any]:
+     """``agent.request_overrides`` plus the fast override while the window is open, minus
+     ``speed`` for a model this session learned has no fast capacity."""
+     overrides = dict(getattr(agent, "request_overrides", None) or {})
+@@ -89,8 +89,14 @@
+     if "speed" in overrides and getattr(agent, "model", None) in (getattr(agent, "_fast_mode_unavailable_models", None) or ()):
+         overrides.pop("speed", None)
+     from agent.codex_service_tiers import apply_daybreak, negotiate_request_tier
+-    negotiate_request_tier(agent, overrides)
+-    apply_daybreak(agent, overrides)
++    if not _hcv_codex_app_server:
++        from agent.hcv_model_speed import is_codex_route, require_codex_responses_tier
++        selected = getattr(agent, "service_tier", None)
++        if selected in STATIC_TIERS and getattr(agent, "api_mode", None) == "codex_responses" and getattr(agent, "provider", None) == "openai-codex" and is_codex_route(getattr(agent, "provider", None), getattr(agent, "base_url", None)):
++            overrides["service_tier"] = selected
++        require_codex_responses_tier(agent, overrides)
++        negotiate_request_tier(agent, overrides)
++        apply_daybreak(agent, overrides)
+     return overrides
+ 
+ 
+--- a/agent/codex_service_tiers.py
++++ b/agent/codex_service_tiers.py
+@@ -27,7 +27,7 @@
+         if any(not isinstance(item, dict) or not isinstance(item.get("id"), str) for item in tiers):
+             return None
+         if tiers:
+-            return frozenset(item["id"] for item in tiers)
++            return frozenset({"fast": "priority"}.get(item["id"], item["id"]) for item in tiers)
+     speeds = entry.get("additional_speed_tiers")
+     if isinstance(speeds, list) and all(isinstance(item, str) for item in speeds):
+         return frozenset({"fast": "priority"}.get(item, item) for item in speeds)
+--- a/agent/transports/codex_app_server.py
++++ b/agent/transports/codex_app_server.py
+@@ -148,6 +148,8 @@
+             bufsize=0, env=spawn_env, creationflags=windows_hide_flags(),
+         )
+         self._next_id = 1
++        self._request_id_lock = threading.Lock()
++        self._send_lock = threading.Lock()
+         self._pending: dict[int, queue.Queue] = {}  # request id -> single-slot reply queue
+         self._pending_lock = threading.Lock()
+         self._notifications: queue.Queue = queue.Queue()
+@@ -227,7 +229,8 @@
+ 
+     def request(self, method: str, params: Optional[dict] = None, timeout: float = 30.0) -> dict:
+         """Send a request and block for ``result``; raise CodexAppServerError on ``error``."""
+-        rid, self._next_id = self._next_id, self._next_id + 1
++        with self._request_id_lock:
++            rid, self._next_id = self._next_id, self._next_id + 1
+         q: queue.Queue = queue.Queue(maxsize=1)
+         with self._pending_lock:
+             self._pending[rid] = q
+@@ -291,17 +294,18 @@
+         return self._proc.poll() is None
+ 
+     def _send(self, obj: dict) -> None:
+-        if self._closed:
+-            raise CodexAppServerTransportError(code=_TRANSPORT_LOST_CODE, message="codex app-server client is closed")
+-        if self._proc.stdin is None:
+-            raise CodexAppServerTransportError(code=_TRANSPORT_LOST_CODE, message="codex app-server stdin not available")
+-        try:
+-            self._proc.stdin.write((json.dumps(obj) + "\n").encode("utf-8"))
+-            self._proc.stdin.flush()
+-        except (OSError, ValueError) as exc:  # BrokenPipe, EINVAL on a torn-down pipe, write on closed file
+-            raise CodexAppServerTransportError(
+-                code=_TRANSPORT_LOST_CODE, message=f"codex app-server stdin closed unexpectedly: {exc}",
+-            ) from exc
++        with self._send_lock:
++            if self._closed:
++                raise CodexAppServerTransportError(code=_TRANSPORT_LOST_CODE, message="codex app-server client is closed")
++            if self._proc.stdin is None:
++                raise CodexAppServerTransportError(code=_TRANSPORT_LOST_CODE, message="codex app-server stdin not available")
++            try:
++                self._proc.stdin.write((json.dumps(obj) + "\n").encode("utf-8"))
++                self._proc.stdin.flush()
++            except (OSError, ValueError) as exc:  # BrokenPipe, EINVAL on a torn-down pipe, write on closed file
++                raise CodexAppServerTransportError(
++                    code=_TRANSPORT_LOST_CODE, message=f"codex app-server stdin closed unexpectedly: {exc}",
++                ) from exc
+ 
+     def _append_stderr(self, line: str) -> None:
+         with self._stderr_lock:
+--- a/agent/codex_runtime.py
++++ b/agent/codex_runtime.py
+@@ -591,9 +591,15 @@
+ def _codex_turn_service_tier(agent) -> str | None:
+     """``turn/start.serviceTier``: the tier Hermes' own Responses path would request this turn (a static
+     ``/fast`` tier pinned in request_overrides, or an open ``auto``/``cold`` window), in codex's words: the
+-    OpenAI ``priority`` tier is codex's ``fast``. A tier codex has no word for (``ultrafast``) is not sent."""
++    OpenAI ``priority`` tier is codex's ``fast``. ``ultrafast`` is sent only after an active model/list check."""
+     from agent.fast_mode import CODEX_TIER_WORDS, effective_request_overrides
+-    return CODEX_TIER_WORDS.get(effective_request_overrides(agent).get("service_tier"))
++    selected = getattr(agent, "service_tier", None)
++    if selected in {"priority", "ultrafast"}:
++        return CODEX_TIER_WORDS[selected]
++    if selected in {"auto", "cold"}:
++        import time
++        return "fast" if time.monotonic() < getattr(agent, "_fast_until", 0.0) else None
++    return CODEX_TIER_WORDS.get(effective_request_overrides(agent, _hcv_codex_app_server=True).get("service_tier"))
+ 
+ 
+ def _ensure_codex_session(agent, messages: list[dict[str, Any]] | None = None) -> None:
+@@ -760,10 +766,16 @@
+     try:
+         _start_codex_thread(agent)
+         wire_model = _codex_wire_model(agent, getattr(agent, "_codex_session_model_provider", None))
+-        turn = agent._codex_session.run_turn(
+-            user_input=user_message,
+-            model=wire_model, reasoning_effort=_codex_turn_effort(agent, wire_model),
+-            service_tier=_codex_turn_service_tier(agent))
++        wire_tier = _codex_turn_service_tier(agent)
++        if wire_tier is not None:
++            from agent.hcv_model_speed import require_app_server_tier
++            require_app_server_tier(agent._codex_session, wire_model, wire_tier, model_provider=getattr(agent, "_codex_session_model_provider", None))
++        from agent.hcv_codex_diff_bridge import install_live_bridge
++        with install_live_bridge(agent, turn_id):
++            turn = agent._codex_session.run_turn(
++                user_input=user_message,
++                model=wire_model, reasoning_effort=_codex_turn_effort(agent, wire_model),
++                service_tier=wire_tier)
+     except Exception as exc:
+         logger.exception("codex app-server turn failed")
+         _close_codex_session(agent)
+--- a/hermes_cli/models.py
++++ b/hermes_cli/models.py
+@@ -1286,6 +1286,9 @@
+     Ultrafast model, None elsewhere (never a silent downgrade to a different paid tier).
+     With ``provider``/``base_url`` the route is gated too (``_fast_mode_route_supported``) so proxies
+     never see the params. Single fast-mode gate for ``/fast`` and ``agent.fast_mode`` windows."""
++    from agent.hcv_model_speed import is_codex_route, catalog_override
++    if is_codex_route(provider, base_url):
++        return catalog_override(model_id, provider, base_url, tier)
+     if not model_supports_fast_mode(model_id):
+         return None
+     if (provider or base_url) and not _fast_mode_route_supported(model_id, provider, base_url):
+--- a/hermes_cli/inventory.py
++++ b/hermes_cli/inventory.py
+@@ -545,7 +545,7 @@
+     serving aggregator's detail overrides models.dev (adds ``can_disable_reasoning``). ``supported_efforts``
+     is deliberately NOT forwarded — it under-reports levels that work."""
+     from agent.codex_service_tiers import daybreak_offered, ultrafast_offered
+-    from hermes_cli.models import model_supports_ultrafast, resolve_fast_mode_overrides
++    from hermes_cli.models import resolve_fast_mode_overrides
+ 
+     try:
+         from agent.models_dev import get_model_capabilities
+@@ -574,7 +574,7 @@
+             fast = resolve_fast_mode_overrides(
+                 model, provider=slug, base_url=row.get("api_url")) is not None
+             entry: dict[str, Any] = {"fast": fast, "reasoning": reasoning}
+-            if fast and model_supports_ultrafast(model) and ultrafast_offered(
++            if ultrafast_offered(
+                     model, provider=slug, base_url=row.get("api_url")):
+                 entry["ultrafast"] = True
+             if not _app_server and daybreak_offered(model, provider=slug, base_url=row.get("api_url")):
+--- a/gateway/session_config.py
++++ b/gateway/session_config.py
+@@ -242,6 +242,32 @@
+                 from hermes_cli.runtime_provider import canonical_custom_identity
+                 selected = canonical_custom_identity(base_url=base_url, config_provider=ctx.current_provider, model=model,
+                                                      requested=getattr(agent, 'requested_provider', None)) or selected
+-            return build_model_options_payload(ctx.with_overrides(current_provider=selected,
++            payload = build_model_options_payload(ctx.with_overrides(current_provider=selected,
+                 current_model=model, current_base_url=base_url), **{k: params[k] for k in flags & params.keys()})
++            from agent.hcv_model_speed import uses_codex_app_server, app_server_catalog, project_app_server_catalog
++            from hermes_cli.config import load_config
++            config = policy.effective(connection.authority, secrets=False)[0] if policy else load_config()
++            follows = policy is not None and policy.follows_profile
++            route_agent = None if follows else agent
++            model_cfg = config.get('model') if isinstance(config.get('model'), dict) else {}
++            route_provider = (model_cfg.get('provider') if follows else None) or selected or ctx.current_provider
++            if uses_codex_app_server(route_agent, config, route_provider):
++                session = getattr(route_agent, '_codex_session', None)
++                try:
++                    catalog = app_server_catalog(session=session, config=config,
++                        model_provider=getattr(session, '_model_provider', None))
++                except Exception:
++                    catalog = {}  # unknown is unavailable; never advertise another account's tiers
++                project_app_server_catalog(payload, route_provider, catalog)
++            elif route_provider == 'openai-codex':
++                from agent.hcv_model_speed import responses_route_credential, responses_catalog
++                try:
++                    credential = responses_route_credential(connection.authority, ref, policy, route_agent, config)
++                    catalog = responses_catalog(credential)
++                except Exception:
++                    catalog = {}
++                # Profile-level inventory may have used another login; expose
++                # only tiers proven for this session's actual Responses route.
++                project_app_server_catalog(payload, route_provider, catalog, app_server=False)
++            return payload
+     return await asyncio.to_thread(discover)
+--- a/gateway/session_tui_config.py
++++ b/gateway/session_tui_config.py
+@@ -262,11 +262,37 @@
+             provider = getattr(agent, 'provider', None) or provider
+             base_url = getattr(agent, 'base_url', None) or base_url
+             access_token = getattr(agent, 'api_key', None)
+-        if not model or resolve_fast_mode_overrides(model, provider=provider, base_url=base_url) is None:
++        if not model:
+             return []
+-        options = ['normal', 'fast', 'auto', 'cold']
+-        if include_ultrafast and ultrafast_offered(model, provider=provider, base_url=base_url,
+-                                                   access_token=access_token):
++        from agent.hcv_model_speed import uses_codex_app_server, app_server_catalog, app_server_model_capabilities
++        route_agent = None if policy is not None and policy.follows_profile else agent
++        if uses_codex_app_server(route_agent, config, provider):
++            session = getattr(route_agent, '_codex_session', None)
++            try:
++                catalog = app_server_catalog(session=session, config=config,
++                    model_provider=getattr(session, '_model_provider', None))
++                caps = app_server_model_capabilities(catalog, model)
++            except Exception:
++                return []
++            fast = caps['fast']
++            ultra = include_ultrafast and caps['ultrafast']
++        elif provider == 'openai-codex':
++            from agent.hcv_model_speed import responses_route_credential, responses_catalog
++            try:
++                credential = responses_route_credential(connection.authority, ref, policy, route_agent, config)
++                caps = app_server_model_capabilities(responses_catalog(credential), model)
++            except Exception:
++                caps = {'fast': False, 'ultrafast': False}
++            fast = caps['fast']
++            ultra = include_ultrafast and caps['ultrafast']
++        else:
++            fast = resolve_fast_mode_overrides(model, provider=provider, base_url=base_url) is not None
++            ultra = include_ultrafast and ultrafast_offered(
++                model, provider=provider, base_url=base_url, access_token=access_token)
++        options = ['normal'] if fast or ultra else []
++        if fast:
++            options.extend(['fast', 'auto', 'cold'])
++        if ultra:
+             options.append('ultrafast')
+         return options
+ 
+--- a/gateway/session_local.py
++++ b/gateway/session_local.py
+@@ -409,7 +409,7 @@
+         return GUEST_MODEL if free_tier_route() else model
+ 
+ 
+-def _reasoning_fields(agent, policy, model, authority=None, override=None):
++def _reasoning_fields(agent, policy, model, authority=None, override=None, route=None):
+     """Main's session-info effort/tier fields, from the built agent or (lazy) what the policy's next turn
+     resolves (a following session's current profile): a resumed Desktop slice holds its reasoning pill
+     pending until ``reasoning_effort`` arrives."""
+@@ -421,14 +421,21 @@
+     if view is None:
+         from hermes_constants import resolve_reasoning_config
+         effective, next_model = policy.effective(authority, secrets=False)
+-        route = effective.get('model') or {}
++        route_config = effective.get('model') or {}
+     config = (getattr(view, 'reasoning_config', None) if view is not None
+               else override if override is not None else resolve_reasoning_config(effective, next_model or ''))
+     tier = (getattr(view, 'service_tier', None) if view is not None
+             else parse_service_tier((effective.get('agent') or {}).get('service_tier'))) or ''
+-    provider = getattr(view, 'provider', None) if view is not None else route.get('provider')
+-    base_url = getattr(view, 'base_url', None) if view is not None else route.get('base_url')
+-    return effort_fields(config, tier, model, provider, base_url, getattr(view, 'api_mode', None))
++    provider = getattr(view, 'provider', None) if view is not None else route_config.get('provider')
++    base_url = getattr(view, 'base_url', None) if view is not None else route_config.get('base_url')
++    if policy is not None and authority is not None and route is not None:
++        tier = policy.current_service_tier(authority.runner, route) or ''
++    api_mode = getattr(view, 'api_mode', None)
++    if view is None:
++        from agent.hcv_model_speed import uses_codex_app_server
++        if uses_codex_app_server(None, effective, provider):
++            api_mode = 'codex_app_server'
++    return effort_fields(config, tier, model, provider, base_url, api_mode)
+ 
+ 
+ def effort_fields(config, tier, model, provider, base_url, api_mode=None):
+@@ -444,8 +451,10 @@
+     if effort and effort != 'none':
+         wire = str(clamp_effort(effort, route_supported_efforts(provider, model, api_mode)) or '')
+     try:
+-        fast = tier in STATIC_TIERS and resolve_fast_mode_overrides(
+-            model, provider=provider or None, base_url=base_url or None, tier=tier) is not None
++        # On app-server this is the selected mode, validated by the live catalog before a turn.
++        # Keep it visible even if catalog lookup fails, so Desktop can switch back to Standard.
++        fast = tier in STATIC_TIERS and (api_mode == 'codex_app_server' or resolve_fast_mode_overrides(
++            model, provider=provider or None, base_url=base_url or None, tier=tier) is not None)
+     except Exception:  # health: allow BLE001 -- main's _fast_tier_applies gate: unknown means not Fast
+         fast = False
+     return {'reasoning_effort': effort, 'reasoning_effort_wire': wire, 'service_tier': tier, 'fast': fast}
+@@ -480,7 +489,7 @@
+         from gateway.session_messaging_picks import messaging_route_info
+         info.update(messaging_route_info(authority.runner, live))
+     else:
+-        info.update(_reasoning_fields(agent, policy, info['model'], authority, override))
++        info.update(_reasoning_fields(agent, policy, info['model'], authority, override, live.route))
+     if policy:
+         # The creation request the route was frozen with (secrets already extracted), so a
+         # resuming client can tell "same flags again" from a real override attempt.
+--- a/tui_gateway/methods_config_set.py
++++ b/tui_gateway/methods_config_set.py
+@@ -254,6 +254,9 @@
+     overrides = None
+     if nv in ("fast", "ultrafast"):
+         from hermes_cli.models import resolve_fast_mode_overrides
++        session_override = (session or {}).get("model_override") or {}
++        route_provider = getattr(agent, "provider", None) or (session_override.get("provider") if isinstance(session_override, dict) else None)
++        route_base = getattr(agent, "base_url", None)
+         if agent is not None:
+             target_model = getattr(agent, "model", None)
+         else:  # a pre-build session may carry a picked model (desktop draft): validate against THAT
+@@ -261,15 +264,43 @@
+             target_model = (isinstance(session_override, dict) and session_override.get("model")) or _resolve_model()
+         if not target_model:
+             return _err(rid, 4002, "fast mode is not available without a selected model")
+-        overrides = resolve_fast_mode_overrides(target_model, provider=getattr(agent, "provider", None),
+-                                                base_url=getattr(agent, "base_url", None),
+-                                                tier="ultrafast" if nv == "ultrafast" else None)
+-        if overrides is not None and nv == "ultrafast":
+-            from agent.codex_service_tiers import ultrafast_offered
+-            if not ultrafast_offered(target_model, provider=getattr(agent, "provider", None),
+-                                     base_url=getattr(agent, "base_url", None),
+-                                     access_token=getattr(agent, "api_key", None)):
+-                overrides = None
++        from agent.hcv_model_speed import uses_codex_app_server, app_server_catalog, app_server_model_capabilities
++        from hermes_cli.config import load_config
++        config = load_config()
++        route_provider = route_provider or (config.get('model') or {}).get('provider')
++        route_base = route_base or (session_override.get('base_url') if isinstance(session_override, dict) else None)
++        if uses_codex_app_server(agent, config, route_provider):
++            codex_session = getattr(agent, '_codex_session', None)
++            try:
++                catalog = app_server_catalog(session=codex_session, config=config,
++                    model_provider=getattr(codex_session, '_model_provider', None))
++                available = app_server_model_capabilities(catalog, target_model).get(nv)
++            except Exception:
++                available = False
++            overrides = {'service_tier': 'priority' if nv == 'fast' else 'ultrafast'} if available else None
++        elif route_provider == 'openai-codex':
++            from agent.hcv_model_speed import responses_route_credential, responses_catalog
++            # A private pre-build override is not the profile's login. Without
++            # an agent there is no safe account identity to infer for it.
++            private = agent is None and isinstance(session_override, dict) and any(
++                session_override.get(k) for k in ('api_key', 'api', 'api_key_from', 'api_key_env', 'key_env',
++                                                   'credential_pool', 'base_url', 'api_mode'))
++            try:
++                credential = None if private else responses_route_credential(None, None, None, agent, config)
++                available = app_server_model_capabilities(responses_catalog(credential), target_model).get(nv)
++            except Exception:
++                available = False
++            overrides = {'service_tier': 'priority' if nv == 'fast' else 'ultrafast'} if available else None
++        else:
++            overrides = resolve_fast_mode_overrides(target_model, provider=route_provider,
++                                                    base_url=route_base,
++                                                    tier="ultrafast" if nv == "ultrafast" else None)
++            if overrides is not None and nv == "ultrafast":
++                from agent.codex_service_tiers import ultrafast_offered
++                if not ultrafast_offered(target_model, provider=route_provider,
++                                         base_url=route_base,
++                                         access_token=getattr(agent, "api_key", None)):
++                    overrides = None
+         if overrides is None:
+             return _err(rid, 4002, f"{nv} mode is not available for this model")
+     if session is not None:
+--- a/gateway/local_viewer_events.py
++++ b/gateway/local_viewer_events.py
+@@ -128,6 +128,11 @@
+ 
+ def publish_progress(turn, event_type, name, preview, kwargs) -> None:
+     """``subagent.*``, ``reasoning.available`` and the MoA facade events from the agent's progress callback; a classic CLI renders MoA references whatever its reasoning display (main's ``_on_tool_progress``), while other viewers get them only with reasoning shown."""
++    if event_type == "hcv.turn_diff":
++        value = kwargs.get("hcv_diff")
++        if isinstance(value, dict):
++            turn._publish_execution(event_type, value)
++        return
+     if isinstance(event_type, str) and event_type.startswith("subagent."):
+         if event_type == "subagent.text":
+             return
+--- a/gateway/session_mutations.py
++++ b/gateway/session_mutations.py
+@@ -14,6 +14,127 @@
+ from hermes_state_runtime import RuntimeStoreError, mutate_runtime_session
+ 
+ logger = logging.getLogger(__name__)
++
++
++def _app_server_tier_check(authority, ref, live):
++    """Inspect a newly committed model without mutating the owner or its profile."""
++    from agent.fast_mode import STATIC_TIERS
++    from agent.hcv_model_speed import (app_server_catalog, uses_codex_app_server,
++                                       responses_route_credential, responses_cached_catalog)
++    from agent.model_metadata import strip_codex_context_variant_suffix
++    from gateway.session_policy import bound_route_holds, policy_for_source, restore_policy
++    from hermes_cli.model_normalize import normalize_model_for_provider
++    from hermes_state_local import local_receipt
++
++    old = policy_for_source(authority.runner, live.source)
++    if old is None:
++        return None
++    tier = old.current_service_tier(authority.runner, live.route)
++    if tier not in STATIC_TIERS:
++        return None
++    old_cfg, old_model = old.effective(authority, secrets=False)
++    old_provider = (old_cfg.get('model') or {}).get('provider')
++    target = restore_policy(local_receipt(authority.db, ref.session_id)['policy'])
++    config, model = target.effective(authority, secrets=False)
++    block = config.get('model') or {}
++    provider = block.get('provider')
++    if (old_model, old_provider) == (model, provider):
++        return None
++    clean = strip_codex_context_variant_suffix(str(model or ''))
++    wire = normalize_model_for_provider(clean, 'openai-codex') if clean else ''
++    if not clean:
++        return None
++    # Only app-server may retain its running client's catalog on the same
++    # route. Responses resolves a fresh credential on the next model turn;
++    # its pool can select a different account from the old live agent.
++    same_route = bound_route_holds(old_cfg.get('model'), old_cfg, block, config)
++    agent = None if old.follows_profile or not same_route else authority.agent(ref)
++    credential_marker = None
++    if uses_codex_app_server(None, config, provider):
++        session = getattr(agent, '_codex_session', None)
++        catalog = app_server_catalog(session=session, config=config,
++                                     model_provider=getattr(session, '_model_provider', None))
++    elif provider == 'openai-codex':
++        credential = responses_route_credential(authority, ref, target, None, config)
++        if credential is None:
++            return None
++        from agent.model_metadata import _codex_oauth_token_fingerprint
++        credential_marker = _codex_oauth_token_fingerprint(*credential)
++        catalog = responses_cached_catalog(credential)
++    else:
++        return None
++    caps = catalog.get(wire) or catalog.get(clean)
++    if caps is None or caps['ultrafast' if tier == 'ultrafast' else 'fast']:
++        return None  # absent model is unknown; supported is preserved
++    identity = (model, provider, block.get('base_url'), block.get('openai_runtime'), block.get('codex_bin'))
++    # Re-read after the bounded catalog lookup: the owning profile may have changed meanwhile.
++    target_now = restore_policy(local_receipt(authority.db, ref.session_id)['policy'])
++    config_now, model_now = target_now.effective(authority, secrets=False)
++    block_now = config_now.get('model') or {}
++    current_identity = (model_now, block_now.get('provider'), block_now.get('base_url'),
++                        block_now.get('openai_runtime'), block_now.get('codex_bin'))
++    if current_identity != identity:
++        return None
++    if credential_marker is not None:
++        current_credential = responses_route_credential(authority, ref, target_now, None, config_now)
++        if current_credential is None or _codex_oauth_token_fingerprint(*current_credential) != credential_marker:
++            return None
++        identity += (credential_marker,)
++    return tier, identity
++
++
++async def _reconcile_app_server_tier(authority, ref, live, result):
++    """Clear only a tier known unsupported for this committed model and owner."""
++    from gateway.session_policy import policy_for_source, restore_policy
++    from hermes_state_local import local_receipt
++
++    epoch, profile_id, route = authority.epoch, authority.profile_id, live.route
++    generation = result.get('execution_generation')
++    try:
++        checked = await asyncio.to_thread(_app_server_tier_check, authority, ref, live)
++        if (checked is None or authority.epoch != epoch or authority.profile_id != profile_id or
++                ref.profile_id != profile_id or getattr(authority, 'retiring', False)):
++            return
++        if authority.sessions.get(ref.session_id) is not live or live.route != route:
++            return
++        row = authority.db.get_session(ref.session_id)
++        if row is None or row['runtime_generation'] != generation:
++            return
++        tier, identity = checked
++        target = restore_policy(local_receipt(authority.db, ref.session_id)['policy'])
++        config, model = target.effective(authority, secrets=False)
++        block = config.get('model') or {}
++        current_identity = (model, block.get('provider'), block.get('base_url'),
++                            block.get('openai_runtime'), block.get('codex_bin'))
++        if current_identity != identity[:5]:
++            return
++        if len(identity) == 6:
++            # Credentials may rotate independently of model and endpoint.
++            # Recheck the chosen key before changing the user's saved speed.
++            from agent.hcv_model_speed import responses_route_credential
++            from agent.model_metadata import _codex_oauth_token_fingerprint
++            credential = await asyncio.to_thread(responses_route_credential, authority, ref, target, None, config)
++            if credential is None or _codex_oauth_token_fingerprint(*credential) != identity[5]:
++                return
++            if (authority.epoch != epoch or authority.profile_id != profile_id or
++                    getattr(authority, 'retiring', False) or authority.sessions.get(ref.session_id) is not live or
++                    live.route != route):
++                return
++            row = authority.db.get_session(ref.session_id)
++            if row is None or row['runtime_generation'] != generation:
++                return
++            target = restore_policy(local_receipt(authority.db, ref.session_id)['policy'])
++            config, model = target.effective(authority, secrets=False)
++            block = config.get('model') or {}
++            if (model, block.get('provider'), block.get('base_url'),
++                    block.get('openai_runtime'), block.get('codex_bin')) != current_identity:
++                return
++        old = policy_for_source(authority.runner, live.source)
++        if old is None or old.current_service_tier(authority.runner, route) != tier:
++            return  # a newer speed choice wins
++        authority.runner._set_session_service_tier_override(route, None)
++    except Exception:  # a failed/unknown catalog must not erase a user's choice
++        logger.debug('Could not check the selected model speed', exc_info=True)
+ 
+ _METADATA = frozenset({'rename', 'archive', 'sidebar'})
+ # Prepared off the commit like model, then published as a new frozen policy.
+@@ -300,6 +421,13 @@
+     current = authority.db.get_session(ref.session_id)
+     owns_projection = current is not None and (
+         current['runtime_generation'] == result.get('execution_generation', params.get('expected_generation')))
++    if operation == 'model' and applied and owns_projection and live is not None:
++        # The session's mutation lock remains held: an immediately submitted
++        # prompt cannot start between the model commit and this tier check.
++        await _reconcile_app_server_tier(authority, ref, live, result)
++        current = authority.db.get_session(ref.session_id)
++        owns_projection = current is not None and (
++            current['runtime_generation'] == result.get('execution_generation', params.get('expected_generation')))
+     if operation == 'compress' and applied and owns_projection and live is not None:
+         # Before the boundary evicts the agent whose compressor holds the running count.
+         from gateway.session_usage import note_compression

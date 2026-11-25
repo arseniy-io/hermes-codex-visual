@@ -51,7 +51,9 @@ export async function verifyMarkdownParity({ app, page, expect, projectChat, scr
   assert.equal(dark.github.icon.width, '16px')
   assert.equal(dark.github.icon.height, '16px')
   assert.equal(dark.github.icon.opacity, '1')
-  assert.notEqual(dark.block.font, dark.code.font)
+  // Codex uses the same mono family for InlineCode and Source, with
+  // separate font sizes. Matching only an unequal family hid host leftovers.
+  assert.equal(dark.block.font, dark.code.font)
   await github.hover()
   await expect(github).toHaveCSS('text-decoration-line', 'underline')
   await expect(github).toHaveAttribute('href', 'https://github.com/example/repo/blob/main/tool.py')

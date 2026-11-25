@@ -143,6 +143,11 @@ const glyphAliases = {
 export const codexReference = Object.freeze({
   spacing: 4,
   font: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+  // 26.1111.2228.0: 66582da7ee6b.css --font-mono-default; F1Ti applies
+  // sansFontSize/codeFontSize (defaults 14/12) without changing the 16px rem.
+  fontMono: 'ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
+  typography: Object.freeze({ ui: 14, small: 13, caption: 12, code: 12, weight: 430,
+    uiLine: 1.5, smallLine: 1.25 / .875, captionLine: 16, proseLine: 1.625 }),
   enter: 'cubic-bezier(.19, 1, .22, 1)',
   exit: 'cubic-bezier(.8, 0, .4, 1)',
   hover: 'cubic-bezier(.4, 0, .2, 1)',
@@ -164,7 +169,16 @@ export const codexReference = Object.freeze({
   disclosure: Object.freeze({ heightTime: 450, enterTime: 300, enterDelay: 75, exitTime: 150, ease: 'cubic-bezier(.23, 1, .32, 1)' }),
   // Sidebar navigation tokens and the compact end of vQc5's rich preview width.
   // 499225.6d2e47bea2.js, 182735.bb2cb0d2af.js, e77f816560c6.css.
-  sidebar: Object.freeze({ rowHeight: 30, rowRadius: 10, previewWidth: 336, previewRadius: 12, previewOffset: 2 }),
+  sidebar: Object.freeze({
+    rowHeight: 30, rowRadius: 10, previewWidth: 336, previewRadius: 12, previewOffset: 2,
+    // Codex 26.1117.4957: MM7P.D (911644.eaf037cac0.js), Navigation-bibgtK
+    // (881612.d5f896add0.js), 4d21324f5cf6.css + d3ab4a472878.css.
+    // Hover, the current row and its expanded dropdown use the same alpha
+    // surface, with no color transition. Idle text is foreground at 80%.
+    rowHighlight: 'light-dark(rgb(26 28 31 / 5%), rgb(255 255 255 / 8%))',
+    rowText: 'light-dark(rgb(26 28 31 / 80%), rgb(223 223 223 / 80%))',
+    rowEmphasis: 'light-dark(#1a1c1f, #dfdfdf)',
+  }),
 })
 
 export const visualAssets = sharedAssets

@@ -87,7 +87,8 @@ export function registerSettingsSpecial(ctx, active) {
     background-color: var(--hcv-settings-group);
   }
   ${shortcutCategory} { min-block-size: 28px; padding-block: 4px; border-radius: 8px; }
-  ${shortcutCategory} > span { color: var(--hcv-muted); font-size: 11px; letter-spacing: .06em; }
+  ${shortcutCategory} > span { color: var(--hcv-muted); font-size: 12px; font-weight: 500; line-height: 16px; letter-spacing: normal; }
+  ${shortcutList} > div:first-child :is(p, button) { font-size: 13px; line-height: calc(1.25 / .875); font-weight: 430; }
   ${shortcutRow} { min-block-size: 34px; border-radius: var(--hcv-settings-control-radius); }
   ${shortcutRow}:focus-within { background-color: var(--hcv-hover-menu); }
   ${keycap} { border-radius: 5px; box-shadow: none; }

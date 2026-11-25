@@ -1,0 +1,122 @@
+import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
+
+function fixture(projectFolder) {
+  const root = fs.realpathSync(projectFolder)
+  const file = path.join(root, 'child-fixture', '.timeline-parity.json')
+  const value = JSON.parse(fs.readFileSync(file, 'utf8'))
+  const target = name => {
+    const target = path.resolve(root, name)
+    const rel = path.relative(root, target)
+    assert(rel && !rel.startsWith('..') && !path.isAbsolute(rel), 'Fixture target must remain in its synthetic repository')
+    return target
+  }
+  const bytes = name => fs.existsSync(target(name)) ? fs.readFileSync(target(name)).toString('base64') : null
+  return { ...value, bytes }
+}
+
+// The source dMTK/nMiI contract was established before this fixture: a pause
+// strictly greater than one hour after the first final produces a date at
+// second input, with py16, 14/20/400 text and only the day at weight500.
+export async function verifyChildTimelineParity({ page, expect, detail, projectFolder, screenshot, reopen }) {
+  const data = fixture(projectFolder)
+  assert.equal(data.secondStartedAtMs - data.firstFinalStartedAtMs, 98 * 60000)
+  assert.equal(data.visibleAssistantCount, 105)
+  const first = detail.locator(`[data-hcv-agent-turn="${data.firstTurnId}"]`)
+  const second = detail.locator(`[data-hcv-agent-turn="${data.secondTurnId}"]`)
+  await expect(first).toHaveCount(1)
+  await expect(second).toHaveCount(1)
+  await expect(first.locator('[data-hcv-agent-message="assistant"]')).toHaveCount(104)
+  await expect(second.locator('[data-hcv-agent-message="assistant"]')).toHaveCount(1)
+  await expect(second.locator('[data-hcv-agent-message="user"]')).toHaveText(data.secondTask)
+  await expect(second.locator('[data-hcv-agent-message="assistant"]')).toContainText(data.secondFinal)
+  const separators = detail.locator('[data-hcv-timestamp-separator]')
+  await expect(separators).toHaveCount(2)
+  const secondDate = second.locator(':scope > [data-hcv-timestamp-separator]')
+  await expect(secondDate).toHaveCount(1)
+  await expect(secondDate).toHaveAttribute('role', 'separator')
+  await expect(secondDate).toHaveAttribute('data-markdown-copy', 'exclude')
+  await expect(secondDate.locator('time')).toHaveAttribute('datetime', new Date(data.secondStartedAtMs).toISOString())
+  const expectedDate = await page.evaluate(ms => {
+    const sent = new Date(ms)
+    const now = new Date()
+    const day = value => Date.UTC(value.getFullYear(), value.getMonth(), value.getDate())
+    const ago = Math.max((day(now) - day(sent)) / 86400000, 0)
+    return new Intl.RelativeTimeFormat('ru', { numeric: 'auto' }).format(-ago, 'day') + ', ' +
+      new Intl.DateTimeFormat('ru', { hour: 'numeric', minute: '2-digit' }).format(sent)
+  }, data.secondStartedAtMs)
+  await expect(secondDate).toHaveText(expectedDate)
+  await expect(secondDate).toHaveAttribute('aria-label', expectedDate)
+  await expect(secondDate).toHaveCSS('padding-top', '16px')
+  await expect(secondDate).toHaveCSS('padding-bottom', '16px')
+  await expect(secondDate.locator('time')).toHaveCSS('font-size', '14px')
+  await expect(secondDate.locator('time')).toHaveCSS('line-height', '20px')
+  await expect(secondDate.locator('time')).toHaveCSS('font-weight', '400')
+  await expect(secondDate.locator('[data-hcv-timestamp-day]')).toHaveCSS('font-weight', '500')
+  await expect(first.locator('[data-hcv-subagent-meta]')).toHaveText('Работал на протяжении 2m 20s')
+  await expect(second.locator('[data-hcv-subagent-meta]')).toHaveText('Работал на протяжении 25s')
+  const feed = detail.locator('[data-hcv-subagent-feed]')
+  await expect.poll(() => feed.evaluate(node => Math.abs(node.scrollHeight - node.clientHeight - node.scrollTop))).toBeLessThanOrEqual(2)
+  const card = second.locator('[data-hcv-saved-turn-card]')
+  await expect(card).toHaveAttribute('data-hcv-saved-turn-card', data.secondUserUid)
+  await expect(card.locator('[data-hcv-turn-card-title]')).toHaveText('Изменено 4 файла')
+  await expect(card.locator('[data-hcv-turn-card-header] [data-hcv-turn-card-added]')).toHaveText('+7')
+  await expect(card.locator('[data-hcv-turn-card-header] [data-hcv-turn-card-removed]')).toHaveText('−4')
+  await expect(card.locator('[data-hcv-turn-card-file]')).toHaveCount(3)
+  await expect.poll(() => feed.evaluate(node => Math.abs(node.scrollHeight - node.clientHeight - node.scrollTop))).toBeLessThanOrEqual(2)
+  const more = card.locator('[data-hcv-turn-card-more]')
+  await expect(more).toHaveText('Показать еще 1 файл')
+  await expect(more).toHaveAttribute('aria-expanded', 'false')
+  const superellipse = await page.evaluate(() => CSS.supports('corner-shape', 'superellipse(1.5)'))
+  await expect(card).toHaveCSS('border-top-left-radius', superellipse ? '12.5px' : '10px')
+  await expect(card.locator('[data-hcv-turn-card-header]')).toHaveCSS('padding-top', '12px')
+  await expect(card.locator('[data-hcv-turn-card-header]')).toHaveCSS('gap', '10px')
+  await expect(card.locator('[data-hcv-turn-card-icon]')).toHaveCSS('width', '40px')
+  await screenshot('timeline-child-dates-card-collapsed.png')
+  await more.click()
+  await expect(card.locator('[data-hcv-turn-card-file]')).toHaveCount(4)
+  await expect(more).toHaveText('Свернуть файлы')
+  await expect(more).toHaveAttribute('aria-expanded', 'true')
+  const names = await card.locator('[data-hcv-turn-card-file]').evaluateAll(nodes => nodes.map(node => node.getAttribute('title')))
+  assert.deepEqual(names, data.files.map(file => file.path), 'Unique file order follows first saved patch occurrence; alpha appears once')
+  await more.click()
+  await expect(card.locator('[data-hcv-turn-card-file]')).toHaveCount(3)
+  const snapshotId = await card.getAttribute('data-snapshot-id')
+  assert(snapshotId)
+  const parentUnchanged = () => assert.equal(data.bytes(data.parentControl.path), data.parentControl.bytes,
+    'The parent fixture must remain byte-identical during child Undo/Reapply')
+  const states = state => data.files.map(file => [file.path, file[state]])
+  const actual = () => data.files.map(file => [file.path, data.bytes(file.path)])
+  assert.deepEqual(actual(), states('after'))
+  parentUnchanged()
+  const undo = card.locator('[data-hcv-turn-card-apply="undo"]')
+  await expect(undo).toHaveText('Отменить')
+  await expect(undo).toBeEnabled()
+  await undo.click()
+  await expect.poll(actual, { timeout: 30000, message: 'Actual child files must be restored by saved-patch Undo' }).toEqual(states('before'))
+  const reapply = card.locator('[data-hcv-turn-card-apply="reapply"]')
+  await expect(reapply).toHaveText('Повторно применить')
+  await expect(reapply).toBeEnabled()
+  parentUnchanged()
+  await screenshot('timeline-child-card-undone.png')
+  await reapply.click()
+  await expect.poll(actual, { timeout: 30000, message: 'Actual child bytes must return after saved-patch Reapply' }).toEqual(states('after'))
+  await expect(card.locator('[data-hcv-turn-card-apply="undo"]')).toBeEnabled()
+  parentUnchanged()
+  await screenshot('timeline-child-card-reapplied.png')
+  await reopen()
+  const reopened = detail.locator(`[data-hcv-saved-turn-card="${data.secondUserUid}"]`)
+  await expect(reopened).toHaveAttribute('data-snapshot-id', snapshotId)
+  await expect(reopened.locator('[data-hcv-turn-card-apply="undo"]')).toBeEnabled()
+  await expect(reopened.locator('[data-hcv-turn-card-file]')).toHaveCount(3)
+  await expect(detail.locator('[data-hcv-agent-message="assistant"]')).toHaveCount(105)
+  await expect(detail.locator('[data-hcv-timestamp-separator]')).toHaveCount(2)
+  assert.deepEqual(actual(), states('after'))
+  parentUnchanged()
+  await expect.poll(() => feed.evaluate(node => Math.abs(node.scrollHeight - node.clientHeight - node.scrollTop))).toBeLessThanOrEqual(2)
+  await screenshot('timeline-child-card-reopened.png')
+  return { fullPagedVisibleAssistants: 105, sourceDateSeparators: 2, sourceDateText: expectedDate,
+    perTurnDurations: ['2m 20s', '25s'], uniqueFiles: 4, shownInitially: 3, returnedPatchOperations: 5,
+    actualUndo: true, actualReapply: true, parentBytesPreserved: true, reopenedSnapshotId: snapshotId }
+}

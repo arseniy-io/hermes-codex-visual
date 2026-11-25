@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
 export async function verifyReviewPolish({ page, expect, projectChat, screenshot, openThemeSettings, closeSettings, themeCard }) {
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
   const capture = async name => {
     try {
       await screenshot(name, { timeout: 5000 })
@@ -13,12 +14,77 @@ export async function verifyReviewPolish({ page, expect, projectChat, screenshot
   const dock = page.locator('[data-slot="composer-dock"]:visible')
   const branch = dock.locator('.coding-status-bar')
   const grip = dock.locator('[data-slot="status-drawer-toggle"]')
+  const surface = dock.locator('[data-slot="composer-surface"]')
+  const drawer = surface.locator(':scope > .status-drawer')
   await expect(branch).toBeVisible({ timeout: 15000 })
+  if (process.env.HERMES_VISUAL_BRANCH_CONTEXT_ONLY === '1') {
+    const branchButton = branch.locator('button:has(> .codicon-git-branch)')
+    const branchMenu = page.getByRole('menu').filter({ has: page.getByRole('menuitem') })
+    await branch.click({ button: 'right' })
+    await expect(branchMenu).toBeVisible()
+    const mouseItems = await branchMenu.getByRole('menuitem').allTextContents()
+    await page.keyboard.press('Escape')
+    await expect(branchMenu).toBeHidden()
+    await page.keyboard.press('Tab')
+    await branchButton.focus()
+    console.log('Branch keyboard focus', JSON.stringify(await page.evaluate(() => ({
+      tag: document.activeElement?.tagName, className: document.activeElement?.className,
+      inBranch: Boolean(document.activeElement?.closest('.coding-status-bar')),
+    }))))
+    await expect(branchButton).toBeFocused()
+    assert(await branchButton.evaluate(node => node.matches(':focus-visible')))
+    await expect(branchButton).toHaveCSS('outline-style', 'solid')
+    await page.keyboard.press('Shift+F10')
+    await expect(branchMenu).toBeVisible()
+    assert.deepEqual(await branchMenu.getByRole('menuitem').allTextContents(), mouseItems)
+    await page.keyboard.press('Escape')
+    return
+  }
   await expect(branch).toHaveCSS('border-bottom-color', 'rgba(0, 0, 0, 0)')
   await expect(grip).toHaveAttribute('aria-expanded', 'true')
+  await branch.hover()
+  const cwd = branch.locator('[data-slot="coding-status-cwd"]')
+  await expect(cwd).toBeVisible()
+  await expect(cwd).toHaveCSS('font-size', '12px')
+  await expect(cwd).toHaveCSS('font-weight', '400')
+  await expect(cwd).toHaveCSS('color', 'rgb(169, 169, 169)')
+  assert.match(await cwd.evaluate(node => getComputedStyle(node).fontFamily), /Segoe UI/)
+  const branchLabel = branch.locator('button.contents > span[title]')
+  await expect(branchLabel).toHaveCSS('color', 'rgb(223, 223, 223)')
+  const added = branch.locator('span[class~="text-(--ui-green)"]').filter({ hasText: /^\+/ })
+  const removed = branch.locator('span[class~="text-(--ui-red)"]').filter({ hasText: /^−/ })
+  await expect(added).toHaveCSS('color', 'rgb(64, 201, 119)')
+  await expect(removed).toHaveCSS('color', 'rgb(250, 66, 62)')
+  await expect(drawer).toHaveCSS('transition-duration', '0.28s')
+  await capture('status-branch.png')
 
   await grip.click()
   await expect(grip).toHaveAttribute('aria-expanded', 'false')
+  await page.mouse.move(1, 1)
+  await expect(grip).toHaveCSS('opacity', '0')
+  const composerBox = await surface.boundingBox()
+  assert(composerBox)
+  // The 28px line has only 14px of reach at its sides and 12px vertically.
+  await page.mouse.move(composerBox.x + composerBox.width / 2 + 90, composerBox.y + 35)
+  await expect(grip).toHaveCSS('opacity', '0')
+  await page.mouse.move(composerBox.x + composerBox.width / 2 + 45, composerBox.y - 4)
+  await expect(grip).toHaveCSS('opacity', '0')
+  assert(!await grip.evaluate((node, point) => node.contains(document.elementFromPoint(point.x, point.y)),
+    { x: composerBox.x + composerBox.width / 2 + 45, y: composerBox.y - 4 }))
+  await page.mouse.move(composerBox.x + composerBox.width / 2 + 15, composerBox.y + 4)
+  await expect(grip).toHaveCSS('opacity', '1')
+  assert(await grip.evaluate((node, point) => node.contains(document.elementFromPoint(point.x, point.y)),
+    { x: composerBox.x + composerBox.width / 2 + 15, y: composerBox.y + 4 }))
+  await page.mouse.click(composerBox.x + composerBox.width / 2 + 15, composerBox.y + 4)
+  await expect(grip).toHaveAttribute('aria-expanded', 'true')
+  await grip.click()
+  await expect(grip).toHaveAttribute('aria-expanded', 'false')
+  const input = surface.locator('[data-slot="composer-rich-input"]')
+  // The editor starts 14px below the edge and must remain clickable.
+  assert(!await grip.evaluate((node, point) => node.contains(document.elementFromPoint(point.x, point.y)),
+    { x: composerBox.x + composerBox.width / 2, y: composerBox.y + 16 }))
+  await page.mouse.click(composerBox.x + composerBox.width / 2, composerBox.y + 16)
+  await expect(input).toBeFocused()
   await page.mouse.move(1, 1)
   await expect(grip).toHaveCSS('opacity', '0')
   await capture('grip-hidden.png')
@@ -40,6 +106,12 @@ export async function verifyReviewPolish({ page, expect, projectChat, screenshot
   await expect(grip).toHaveCSS('opacity', '1')
   await grip.press('Enter')
   await expect(grip).toHaveAttribute('aria-expanded', 'true')
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  for (const control of [drawer, grip]) {
+    const duration = await control.evaluate(node => getComputedStyle(node).transitionDuration)
+    assert(duration.split(',').every(value => parseFloat(value) <= 0.001), duration)
+  }
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
 
   await branch.locator('button:has(> .codicon-git-branch)').click()
   const review = page.getByRole('complementary', { name: 'Проверить', exact: true })
@@ -95,6 +167,16 @@ export async function verifyReviewPolish({ page, expect, projectChat, screenshot
     }
   })
   assert.deepEqual(decorations, ['none', 'none', 'underline'])
+
+  await openThemeSettings()
+  await page.getByText(/^(Светлая|Light)$/, { exact: true }).first().click()
+  await expect(page.locator('html')).toHaveAttribute('data-hermes-mode', 'light')
+  await closeSettings()
+  await branch.hover()
+  await expect(branchLabel).toHaveCSS('color', 'rgb(26, 28, 31)')
+  await expect(added).toHaveCSS('color', 'rgb(0, 162, 64)')
+  await expect(removed).toHaveCSS('color', 'rgb(186, 38, 35)')
+  await capture('status-branch-light.png')
 
   await openThemeSettings()
   await themeCard('Nous').click()

@@ -19,6 +19,9 @@ const calls = []
 window.hermesDesktop = { api: async options => {
   const url = new URL(options.path, 'http://localhost/')
   calls.push(url.pathname + (url.searchParams.has('staged') ? ':' + url.searchParams.get('staged') : ''))
+  if (fixture.nested && url.searchParams.get('path') !== fixture.root) {
+    throw new Error('Git paths must be relative to the repository root')
+  }
   if (url.pathname === '/api/git/review/list') return { files: [{ path: 'mixed.txt', staged: fixture.staged, added: 2, removed: 0 }] }
   if (url.pathname === '/api/git/file-diff') {
     if (fixture.fail) throw new Error('fixture unavailable')
@@ -28,17 +31,19 @@ window.hermesDesktop = { api: async options => {
   throw new Error('Unexpected fixture request')
 } }
 Object.assign(window, { h: React.createElement, useEffect: React.useEffect, useId: React.useId,
-  useState: React.useState, useI18n: () => ({ locale: 'ru' }), codexIconStyle: () => ({}), mountStyle: () => {} })
+  useState: React.useState, useI18n: () => ({ locale: 'ru' }), codexIconStyle: () => ({}), mountStyle: () => {},
+  readWorkspaceRepositoryRoot: async cwd => fixture.nested ? fixture.root : cwd })
 const source = fs.readFileSync('source/summary-changes.js', 'utf8')
   .replace(/^import[^\n]*\n/gm, '').replace(/^export function /gm, 'function ')
 window.eval(source + '\nwindow.TestChanges = ChangesPane')
 const root = createRoot(window.document.querySelector('#app'))
 let number = 0
 async function render(next) {
-  fixture = next
+  fixture = { ...next, root: '/repo-' + ++number }
   calls.length = 0
   await act(async () => {
-    root.render(React.createElement(window.TestChanges, { cwd: '/repo-' + ++number, scope: { connectionId: 'local', profile: 'default' } }))
+    const cwd = fixture.nested ? fixture.root + '/subdirectory' : fixture.root
+    root.render(React.createElement(window.TestChanges, { cwd, scope: { connectionId: 'local', profile: 'default' } }))
     await Promise.resolve()
   })
   await act(async () => { window.document.querySelector('.hcv-changes-file').click(); await Promise.resolve(); await Promise.resolve() })
@@ -65,6 +70,8 @@ try {
 
   const untracked = await render({ staged: false, combined: '--- /dev/null\n+++ b/file\n+new file' })
   assert(untracked.includes('+new file'))
+  const nested = await render({ nested: true, staged: false, combined: '@@ -1 +1 @@\n+from project root' })
+  assert(nested.includes('+from project root'), 'Changes must open from a chat inside the repository')
   const failed = await render({ staged: true, fail: true })
   assert.equal(failed, 'Не удалось открыть изменения файла')
   console.log('Combined, cancelled, first-commit, staged-only, new-file and error cases passed.')

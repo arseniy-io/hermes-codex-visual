@@ -2,18 +2,16 @@ import { chatStyles, mountStyle } from './style-scope.js'
 import { host } from '@hermes/plugin-sdk'
 import { registerQueueAppearance, queueingPreference } from './queue.js'
 import { registerComposerLayout } from './composer-layout.js'
+import { composerRoot as composer, composerRichInput as editor, composerCompletionDrawer as drawer,
+  composerQueuedEdit as queuedEdit, composerAwaitingInput,
+  composerVoiceStartIcon as voiceStartIcon, composerVoiceStartGroup as voiceStartGroup } from './composer-native.js'
+import { committedFiber } from './sidebar-recents.js'
 
-const composer = 'form[data-slot="composer-root"]'
-const editor = '[data-slot="composer-rich-input"][contenteditable="true"]'
-const drawer = '[data-slot="composer-completion-drawer"][role="listbox"]'
 const slashMenu = `${drawer}:has(> button > :is([data-ref="command"], [data-ref="skill"], [data-ref="theme"]))`
 const queueButton = '[data-slot="composer-surface"] button[type="button"]:has(> svg.tabler-icon-layers-intersect-2)'
-const voiceStartIcon = 'svg.tabler-icon-wave-sine'
-const voiceStartGroup = `[data-slot="composer-surface"] span:has(> button[type="button"] > ${voiceStartIcon})`
 const voiceStartItem = `[data-slot="dropdown-menu-content"]:has(> [data-slot="dropdown-menu-checkbox-item"]) > [data-slot="dropdown-menu-item"]:has(> ${voiceStartIcon})`
 const menuSeparator = '[data-slot="dropdown-menu-separator"]'
 const attachments = '[data-slot="composer-attachments"]'
-const queuedEdit = '[data-slot="composer-surface"] [class~="bg-accent/18"]:has(> div > button + button)'
 const russianGroups = {
   Session: 'Сеанс',
   Sessions: 'Сеансы',
@@ -54,7 +52,7 @@ function isSlashCommand(input) {
 }
 
 function shouldQueue(form, input) {
-  return isBusy(form) && !form.querySelector(queuedEdit)
+  return isBusy(form) && !form.querySelector(queuedEdit) && !composerAwaitingInput(form, committedFiber)
     && (form.querySelector(attachments) || !isSlashCommand(input))
 }
 
@@ -74,10 +72,12 @@ function registerQueueShortcut(ctx, enabled, queueing) {
     const input = inputOf(event)
     if (input) composing.add(input)
   }, true)
-  ctx.addEventListener(document, 'compositionend', event => {
+  const stopComposing = event => {
     const input = inputOf(event)
     if (input) composing.delete(input)
-  }, true)
+  }
+  ctx.addEventListener(document, 'compositionend', stopComposing, true)
+  ctx.addEventListener(document, 'focusout', stopComposing, true)
 
   ctx.addEventListener(document, 'keydown', event => {
     if (event.defaultPrevented || event.key !== 'Enter' || event.ctrlKey || event.metaKey
@@ -244,6 +244,6 @@ export function registerComposer(ctx, active) {
   registerComposerLayout(ctx, active)
   const queueing = () => queueingPreference(ctx)
   registerQueueShortcut(ctx, enabled, queueing)
-  registerQueueAppearance(ctx, active, queueing)
+  registerQueueAppearance(ctx, active)
 }
 

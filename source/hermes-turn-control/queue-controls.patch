@@ -1,0 +1,140 @@
+--- a/hermes_state_runtime.py
++++ b/hermes_state_runtime.py
+@@ -197,7 +197,14 @@
+         # bound the (target, status, seq) index, so every probe scanned the session's history.
+         sql = ("SELECT * FROM session_admissions WHERE target_session_id=? "
+                + ("AND status IN ('queued','started','unknown') " if pending_only else "") + "ORDER BY seq")
+-        return [_row(row) for row in conn.execute(sql, (session_id,))]
++        rows = [_row(row) for row in conn.execute(sql, (session_id,))]
++        if pending_only and rows:
++            from gateway.hcv_queue_order import CLAIMED_SORT_KEY, effective, pending_sort, ranks
++            slots = ranks(conn, session_id)
++            for row in rows:
++                row[CLAIMED_SORT_KEY] = effective(row, slots)
++            rows.sort(key=pending_sort)
++        return rows
+ 
+ 
+ _ANY_HEAD = object()
+@@ -223,7 +230,10 @@
+             raise RuntimeStoreError('unknown_execution')
+         if blocked or workers:
+             return None
+-        row = conn.execute("SELECT * FROM session_admissions WHERE target_session_id=? AND status='queued' ORDER BY seq LIMIT 1", (session_id,)).fetchone()
++        from gateway.hcv_queue_order import effective, ranks
++        slots = ranks(conn, session_id)
++        queued = conn.execute("SELECT * FROM session_admissions WHERE target_session_id=? AND status='queued' ORDER BY seq", (session_id,))
++        row = min(queued, key=lambda candidate: effective(candidate, slots), default=None)
+         if head is not _ANY_HEAD and (row['admission_id'] if row is not None else None) != head:
+             return False
+         if row is None:
+--- a/gateway/session_authority.py
++++ b/gateway/session_authority.py
+@@ -328,7 +328,8 @@
+             return rows
+         rows = {row['admission_id']: row for row in rows}
+         rows.update(masked)
+-        return sorted(rows.values(), key=lambda row: row['seq'])
++        from gateway.hcv_queue_order import pending_sort
++        return sorted(rows.values(), key=pending_sort)
+ 
+     def _handle(self, ref):
+         row = self.db.get_session(ref.session_id)
+--- a/gateway/session_controls.py
++++ b/gateway/session_controls.py
+@@ -97,7 +97,7 @@
+ # Verbs whose param sets are closed and never carried a ``profile`` key.
+ _PROFILE_IMPLICIT = frozenset({'session.create', 'session.list', 'session.info', 'session.resume', 'session.detach',
+                                'prompt.submit', 'prompt.receipt', 'prompt.cancel', 'prompt.resolve_unknown',
+-                               'prompt.steer_queued', 'prompt.replace_queued',
++                               'prompt.steer_queued', 'prompt.replace_queued', 'prompt.reorder_queued',
+                                'session.interrupt', 'session.tree_status', 'session.continue_tree', 'session.events.since', 'session.mutate', 'session.stats',
+                                'approval.respond', 'clarify.respond'})
+ 
+--- a/tui_gateway/contracts/canonical_sessions.py
++++ b/tui_gateway/contracts/canonical_sessions.py
+@@ -404,3 +404,15 @@
+                      "at the back of the FIFO, in one write bound to the replaced admission. "
+                      "Refusals: admission_started, admission_conflict (the submission_id replaced "
+                      "another admission), queue_full, unsupported_control, not_found.")
++
++
++class CanonicalReorderQueuedParams(CanonicalSessionParams):
++    expected: list[str]
++    desired: list[str]
++
++
++class CanonicalReorderQueuedResult(Result):
++    order: list[str]
++
++
++canonical_method('prompt.reorder_queued', params=CanonicalReorderQueuedParams, result=CanonicalReorderQueuedResult)
+--- a/gateway/session_queued_controls.py
++++ b/gateway/session_queued_controls.py
+@@ -32,7 +32,8 @@
+ 
+ def handlers(connection):
+     return {'prompt.steer_queued': partial(steer_queued, connection),
+-            'prompt.replace_queued': partial(replace_queued, connection)}
++            'prompt.replace_queued': partial(replace_queued, connection),
++            'prompt.reorder_queued': partial(reorder_queued, connection)}
+ 
+ 
+ def _interactive(authority, session_id):
+@@ -54,11 +55,22 @@
+     lists none, so its clients show none)."""
+     payload = row.get('payload') or {}
+     text = payload.get('text')
+-    if (row.get('status') != 'queued' or set(payload) - _TEXT_ONLY or not isinstance(text, str) or not text.strip()
++    # Desktop advertises batch clarify on every canonical submit. This alone
++    # is a viewer capability, not special model input. Never allow other CLI
++    # fields (API-only text, author attribution or a model override) through.
++    cli_turn = payload.get('cli_turn_v1')
++    allowed = _TEXT_ONLY
++    if (isinstance(cli_turn, dict) and set(cli_turn) == {'clarify_batch'}
++            and cli_turn['clarify_batch'] is True):
++        allowed = allowed | {'cli_turn_v1'}
++    if (row.get('status') != 'queued' or set(payload) - allowed or not isinstance(text, str) or not text.strip()
+             or (payload.get('display_v1') or {}).get('kind') == 'hidden'
+             or not _interactive(authority, row['target_session_id'])):
+         return []
+-    return ['steer', 'replace']
++    controls = ['steer', 'replace']
++    if not row.get('request_id', '').startswith('hcv-tree-continue-'):
++        controls.append('reorder')
++    return controls
+ 
+ 
+ def pending_rows(authority, ref):
+@@ -72,7 +84,8 @@
+         if row is not None and row['status'] == 'terminal' and row['outcome'] == STEERING:
+             rows[admission_id] = row
+     from gateway.hcv_tree_owner import visible_pending
+-    return visible_pending(authority, ref, sorted(rows.values(), key=lambda row: row['seq']))
++    from gateway.hcv_queue_order import pending_sort
++    return visible_pending(authority, ref, sorted(rows.values(), key=pending_sort))
+ 
+ 
+ async def _queued(connection, ref, admission_id):
+@@ -225,6 +238,11 @@
+         authority.cancel_obligations.add(old_id)  # owed from before the write, like prompt.cancel
+     elif (receipt.status, receipt.outcome) != ('terminal', 'cancelled'):
+         raise RuntimeStoreError('admission_conflict')  # that request id names other work
++    # The Desktop client sets this on prompt.submit, not on replace. Preserve
++    # the capability on the edited admission and on exact-save retries.
++    payload = (replacement if replacement is not None else row)['payload']
++    if (payload.get('cli_turn_v1') or {}).get('clarify_batch') is True:
++        request.payload['clarify_batch'] = True
+     binding = replacement_binding(actor.subject, ref.session_id, request.request_id)
+     try:
+         admitted = await authority.submit(actor, request, queue_while_restarting=connection._operator is True,
+@@ -239,3 +257,9 @@
+     from gateway.session_ingress_media import release_admission_media
+     await asyncio.to_thread(release_admission_media, authority.db, old_id)
+     return asdict(admitted)
++
++
++async def reorder_queued(connection, ref, params):
++    from gateway.hcv_queue_order import move
++    authority = connection.authority
++    return await move(connection, ref, params, eligible=lambda row: 'reorder' in queued_controls(authority, row))

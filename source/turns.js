@@ -1,5 +1,12 @@
 import { host } from '@hermes/plugin-sdk'
 import { committedFiber } from './sidebar-recents.js'
+import { nativeRenderedMessageRecord } from './native-rendered-message.js'
+import { savedTimelineMetadata } from './chat-timestamp-data.js'
+import { elapsedTurnSeconds } from './turn-stop-history.js'
+import { completedWorkSteps, setWorkOpen, syncWorkSteps } from './completed-turn-disclosure.js'
+import { mountCSS, chatStyles } from './style-scope.js'
+import { clearTurnFilePreview, syncTurnFilePreview, clearTurnFilePreviewRows, syncTurnFilePreviewRows,
+  registerTurnFilePreviewStyle } from './turn-file-preview.js'
 
 const response = '[data-slot="aui_response-group"]'
 const assistant = '[data-slot="aui_assistant-message-root"]'
@@ -7,14 +14,17 @@ const answer = '[data-slot="aui_assistant-message-content"]'
 const duration = '[data-slot="aui_turn-duration"]'
 const changes = '[data-slot="aui_changed-files"]'
 const transcript = '[data-slot="aui_thread-content"]'
-const promptRoot = '[data-slot="aui_turn-pair"] > [data-slot="aui_user-message-root"][data-message-id]'
+const turnPair = '[data-slot="aui_turn-pair"]'
+const user = '[data-slot="aui_user-message-root"]'
+const promptRoot = `${turnPair} > ${user}[data-message-id]`
+const stoppedNotice = '[data-slot="aui_assistant-message-stopped"]'
+const stopDiagnostic = '[data-hcv-stop-diagnostic]'
+const stopRecovery = '[data-slot="aui_system-message-root"][data-hcv-stop-diagnostic]'
 const primary = '[data-chat-surface][data-composer-target="main"]'
 const nativeActivity = ':is([data-slot="aui_response-loading"], [data-slot="aui_turn-activity"][data-state="active"])'
 const activeIndicators = `[data-chat-surface] :is(${nativeActivity}, [data-hcv-live-turn])`
 const streaming = '[data-message-streaming="true"]'
-const step = ':is([data-conversation-scaffold]:not([role="status"]), [data-slot="tool-block"], [data-slot="aui_reasoning-text"])'
 const actionable = ':is([role="alert"], [data-approval-activity-only], [data-approval-stack], [data-clarify-choices], [data-clarify-late-choices], [data-clarify-batch-preview], [data-clarify-batch-question]:not([data-locked]))'
-const protectedStep = `:is(${actionable}, [data-slot="aui_artifact-card"], [data-slot="aui_generated-image"], [data-delegate-card], [data-hcv-agent-rows], svg.text-destructive[aria-label])`
 
 const isRussian = () => document.documentElement.lang.toLowerCase().startsWith('ru')
 
@@ -81,29 +91,15 @@ function savedDuration(prompt, message) {
   return Number.isFinite(start) && start > 0 && end > start ? Math.floor(end - start) : null
 }
 
-function findSteps(group, roots, final) {
-  const canFold = (node) => !node.matches(protectedStep) && !node.querySelector(protectedStep)
-  const earlier = roots.slice(0, roots.indexOf(final)).filter(canFold)
-  const body = final.querySelector(answer)
-  const detail = [...(body?.querySelectorAll(step) || [])].filter((node) => !node.parentElement.closest(step) && canFold(node))
-  const prose = [...(body?.querySelectorAll('.aui-md') || [])].filter((node) => !node.parentElement.closest(step))
-  const lastStep = detail.at(-1)
-  const commentary = lastStep ? prose.slice(0, -1).filter((node) =>
-    canFold(node) && Boolean(node.compareDocumentPosition(lastStep) & Node.DOCUMENT_POSITION_FOLLOWING),
-  ) : []
-  return [...earlier, ...detail, ...commentary].filter((node) => node.closest(response) === group)
-}
-
 function clearSteps(group, state) {
-  for (const node of state.steps) node.removeAttribute('data-hcv-turn-step')
-  state.steps.clear()
+  syncWorkSteps(group, state, [])
   state.bar?.remove()
   state.bar = null
   group.removeAttribute('data-hcv-turn-folded')
   group.removeAttribute('data-hcv-turn-summary')
 }
 
-function showSummary(group, state, steps, elapsed, interrupted) {
+function showSummary(group, state, steps, elapsed) {
   const hasSteps = steps.length > 0
   if (!state.bar || (state.bar.tagName === 'BUTTON') !== hasSteps) {
     clearSteps(group, state)
@@ -113,8 +109,7 @@ function showSummary(group, state, steps, elapsed, interrupted) {
       bar.setAttribute('aria-expanded', 'false')
       group.setAttribute('data-hcv-turn-folded', '')
       bar.addEventListener('click', () => {
-        const open = group.toggleAttribute('data-hcv-turn-folded') === false
-        bar.setAttribute('aria-expanded', String(open))
+        setWorkOpen(group, state, bar.getAttribute('aria-expanded') !== 'true')
       })
     }
     state.bar = bar
@@ -122,15 +117,64 @@ function showSummary(group, state, steps, elapsed, interrupted) {
   if (group.firstElementChild !== state.bar) group.prepend(state.bar)
   const ru = isRussian()
   let label = ru ? 'Выполнено' : 'Worked'
-  if (interrupted) label = ru ? 'Остановлено' : 'Stopped'
-  else if (elapsed) label = ru ? `Выполнено за ${elapsed}` : `Worked for ${elapsed}`
+  if (elapsed) label = ru ? `Работал на протяжении ${elapsed}` : `Worked for ${elapsed}`
   updateText(state.bar, label)
   group.setAttribute('data-hcv-turn-summary', '')
 
-  const next = new Set(steps)
-  for (const node of state.steps) if (!next.has(node)) node.removeAttribute('data-hcv-turn-step')
-  for (const node of next) if (!state.steps.has(node)) node.setAttribute('data-hcv-turn-step', '')
-  state.steps = next
+  syncWorkSteps(group, state, steps)
+}
+
+function savedStopSeconds(history, surface, notice) {
+  const record = nativeRenderedMessageRecord(notice.closest(assistant))
+  const snapshot = history?.forSurface(surface)
+  if (!record?.storedId || ![snapshot?.sessionId, snapshot?.requestedSessionId].includes(record.storedId)) return null
+  const ids = new Set([record.rowId, ...record.sourceRowIds])
+  const row = snapshot.rows?.findLast(row => row.role === 'assistant' &&
+    row.display_metadata?.interrupted === true && ids.has(row.row_id ?? row.id))
+  const timing = savedTimelineMetadata(row)
+  return elapsedTurnSeconds(timing?.turnStartedAtMs, timing?.completedAtMs ?? row?.timestamp * 1000)
+}
+
+function clearStoppedPair(pair, states) {
+  const state = states.get(pair)
+  if (!state) return
+  state.line.remove()
+  pair.removeAttribute('data-hcv-turn-stopped')
+  states.delete(pair)
+}
+
+function syncStoppedPair(pair, states, history, surface, readStop) {
+  const prompt = pair.querySelector(`:scope > ${user}[data-message-id]`)
+  const notice = pair.querySelector(`:scope > ${response} > ${assistant} > ${answer} > ${stoppedNotice}`)
+  const stop = prompt && readStop?.(prompt.dataset.messageId, renderedMessage(prompt)?.metadata?.custom?.rowId)
+  if (!prompt || (!stop && !notice) || pair.querySelector(`${streaming}, ${nativeActivity}`)) {
+    clearStoppedPair(pair, states)
+    return
+  }
+
+  let state = states.get(pair)
+  if (!state) {
+    const line = make('div', 'turn-stop-line')
+    line.setAttribute('role', 'status')
+    const label = document.createElement('span')
+    const time = document.createElement('time')
+    line.append(label, time)
+    state = { line, label, time }
+    states.set(pair, state)
+  }
+
+  const seconds = stop ? stop.seconds : savedStopSeconds(history, surface, notice)
+  const elapsed = Number.isSafeInteger(seconds) && seconds >= 0 ? formatDuration(seconds) : ''
+  const label = isRussian()
+    ? stop ? 'Вы остановили выполнение' : 'Выполнение прервано'
+    : stop ? 'You stopped the task' : 'Task interrupted'
+  updateText(state.label, elapsed ? label + (isRussian() ? ' через' : ' after') + ' ' : label)
+  updateText(state.time, elapsed)
+  state.time.hidden = !elapsed
+  if (elapsed) state.time.dateTime = `PT${seconds}S`
+  else state.time.removeAttribute('datetime')
+  if (prompt.nextElementSibling !== state.line) prompt.after(state.line)
+  pair.setAttribute('data-hcv-turn-stopped', stop ? 'user' : 'interrupted')
 }
 
 function clearLive(state) {
@@ -269,6 +313,8 @@ function clearFileRow(row) {
 function clearFiles(state) {
   const files = state.files
   if (!files) return
+  clearTurnFilePreview(files)
+  clearTurnFilePreviewRows(files)
   files.heading.remove()
   files.open.remove()
   files.more.remove()
@@ -294,7 +340,11 @@ function showFiles(state, card) {
   const nativeTitle = header?.querySelector(':scope > span')
   const review = header?.querySelector(':scope > button:not([data-hcv-generated])')
   if (!nativeTitle || !review || !list) return clearFiles(state)
+  let restoreMoreFocus = false
   if (state.files?.card !== card || state.files.nativeTitle !== nativeTitle || state.files.review !== review) {
+    // Hermes can replace the native review button while keeping this turn.
+    // Its repaint must not collapse the user's list or discard keyboard focus.
+    restoreMoreFocus = Boolean(state.files?.more?.contains(document.activeElement))
     clearFiles(state)
     const heading = make('div', 'files-heading')
     const name = make('span', 'files-title')
@@ -319,7 +369,10 @@ function showFiles(state, card) {
     more.append(make('span', 'files-more-label'))
     more.setAttribute('aria-expanded', 'false')
     more.addEventListener('click', () => {
-      more.setAttribute('aria-expanded', String(card.toggleAttribute('data-hcv-files-open')))
+      anchorTurnCard(header)
+      state.filesExpanded = !state.filesExpanded
+      card.toggleAttribute('data-hcv-files-open', state.filesExpanded)
+      more.setAttribute('aria-expanded', String(state.filesExpanded))
       updateMoreLabel(state.files)
     })
     const checkpoint = make('button', 'files-checkpoint')
@@ -337,9 +390,10 @@ function showFiles(state, card) {
   const count = rows.size
   const ru = isRussian()
   const format = new Intl.NumberFormat(document.documentElement.lang || 'en')
-  const cwd = count > 1 ? nativeCardCwd(card) : ''
+  const cwd = nativeCardCwd(card)
   let plus = 0
   let minus = 0
+  const previewRows = []
   for (const [row, display] of files.rows) {
     if (count > 1 && rows.has(row)) continue
     clearFileRow(display)
@@ -353,6 +407,7 @@ function showFiles(state, card) {
     if (count === 1) continue
     const basename = row.querySelector(':scope > span.truncate')?.textContent || ''
     const path = fileDisplayPath(row, basename, cwd)
+    previewRows.push({ row, basename, path: fileDisplayPath(row, '', cwd) })
     if (!files.rows.has(row)) files.rows.set(row, makeFileRow(row))
     paintFileRow(files.rows.get(row), path, added, removed, format)
   }
@@ -374,17 +429,25 @@ function showFiles(state, card) {
     checkpoint.remove()
   }
   if (files.single) {
+    clearTurnFilePreviewRows(files)
     const basename = files.single.querySelector(':scope > span.truncate')?.textContent || ''
-    updateText(name, ru ? `Изменён ${basename}` : `Edited ${basename}`)
+    syncTurnFilePreview(files, fileDisplayPath(files.single, '', ''), cwd, basename, ru)
+    if (!files.previewLink) updateText(name, ru ? `Изменён ${basename}` : `Edited ${basename}`)
   } else {
+    clearTurnFilePreview(files)
     updateText(name, ru ? `Изменено ${format.format(count)} ${fileNoun(count)}` : `Edited ${format.format(count)} files`)
+    syncTurnFilePreviewRows(files, previewRows, cwd, ru)
   }
   showNumbers(files.counts, plus, minus, format)
   if (card.toggleAttribute('data-hcv-files-foldable', count > 3)) {
     if (more.parentElement !== card) card.append(more)
+    card.toggleAttribute('data-hcv-files-open', Boolean(state.filesExpanded))
+    more.setAttribute('aria-expanded', String(Boolean(state.filesExpanded)))
     files.remaining = count - 3
     updateMoreLabel(files)
+    if (restoreMoreFocus && more.isConnected) more.focus({ preventScroll: true })
   } else {
+    state.filesExpanded = false
     card.removeAttribute('data-hcv-files-open')
     more.setAttribute('aria-expanded', 'false')
     more.remove()
@@ -392,10 +455,9 @@ function showFiles(state, card) {
 }
 
 function nativeCheckpoint(card) {
-  const label = isRussian() ? 'Восстановить чекпоинт' : 'Restore checkpoint'
-  const turn = card.closest('[data-slot="aui_turn-pair"]')
-  const prompt = turn?.querySelector('[data-slot="aui_user-message-root"]')
-  return prompt?.querySelector(`button[aria-label="${label}"]:not(:disabled)`)
+  // Restoring a conversation checkpoint is a different action. Source-based
+  // file undo is owned by chat-turn-history and its immutable saved patches.
+  return null
 }
 
 function updateMoreLabel({ card, more, remaining }) {
@@ -415,8 +477,10 @@ function synchronize(group, state, now, tail, ownPrompt, completedSeconds, start
     return
   }
   const working = Boolean(group.querySelector(`${streaming}, ${nativeActivity}`))
+  const justFinished = !working && state.startedAt !== null
   const blocked = roots.some((root) => root.matches(actionable) || root.querySelector(actionable))
-  const final = roots.findLast((root) => root.querySelector('[data-slot="aui_msg-actions"]'))
+  const final = roots.findLast((root) => [...root.querySelectorAll('[data-slot="aui_msg-actions"]')]
+    .some(actions => actions.closest(assistant) === root))
   if (working && tail) {
     state.startedAt ??= startedAt ?? now
   } else if (!working) {
@@ -428,22 +492,53 @@ function synchronize(group, state, now, tail, ownPrompt, completedSeconds, start
     clearLive(state)
   }
 
-  if (!working && !blocked && final) {
+  if (!working && !blocked && final && !group.closest(`${turnPair}[data-hcv-turn-stopped]`)) {
     const message = renderedMessage(final)
-    const interrupted = Boolean(message?.metadata?.custom?.interrupted)
-    const elapsed = interrupted ? '' : formatDuration(durationSeconds(final.querySelector(duration)?.textContent) ??
+    const elapsed = formatDuration(durationSeconds(final.querySelector(duration)?.textContent) ??
       completedSeconds ?? savedDuration(ownPrompt, message))
-    const steps = findSteps(group, roots, final)
-    if (elapsed || steps.length) showSummary(group, state, steps, elapsed, interrupted)
-    else clearSteps(group, state)
+    const steps = completedWorkSteps(group, final, {
+      isInterim: root => renderedMessage(root)?.metadata?.custom?.interim === true,
+    })
+    if (elapsed || steps.length) {
+      showSummary(group, state, steps, elapsed)
+      if (justFinished) state.bar.setAttribute('data-hcv-turn-finish', '')
+    } else clearSteps(group, state)
   } else {
     clearSteps(group, state)
   }
   showFiles(state, group.querySelector(changes))
 }
 
-export function registerTurnExperience(ctx, active) {
+export function registerTurnExperience(ctx, active, stoppedTurns, history) {
+  registerTurnFilePreviewStyle(ctx, active)
+  const chat = `${active} [data-chat-surface]`
+  const stoppedPair = `${chat} ${turnPair}[data-hcv-turn-stopped]`
+  const stoppedRoot = `${stoppedPair} > ${response} > ${assistant}`
+  const activities = ':is([data-slot="tool-block"], [data-hcv-activity-group], [data-hcv-agent-rows])'
+  const visibleFlow = `:is(${activities}, .aui-md:not(${stopDiagnostic})):not([data-hcv-activity-member="closed"], [data-delegate-card])`
+  const tailResponse = `:is(${stoppedPair} > ${response}:last-child,` +
+    ` ${stoppedPair}[data-hcv-turn-stopped="user"] > ${response}:nth-last-child(1 of :not(${stopRecovery})))`
+  const tailRoot = `${tailResponse} > ${assistant}:last-child` +
+    `:has(> ${answer} > ${activities}:nth-last-child(1 of ${visibleFlow}))` +
+    `:not(:has([role="alert"], ${changes}, [data-hcv-saved-turn-card]))`
+  const replyFooter = 'div:has(> div > [data-slot="aui_msg-actions"])'
+  mountCSS(ctx, 'data-hcv-stop-line-style', `
+    ${chat} [data-hcv-turn-stop-line] {
+      align-self: start; color: var(--hcv-activity-text, var(--hcv-muted));
+      font: 430 var(--hcv-activity-font, var(--conversation-text-font-size))/var(--hcv-activity-line, 1.5) var(--hcv-ui-font);
+    }
+    ${stoppedPair}[data-hcv-turn-stopped="user"] > ${stopRecovery},
+    ${stoppedRoot} > ${answer} > :is(${stoppedNotice}, ${stopDiagnostic}),
+    ${stoppedRoot} ${duration} { display: none !important; }
+    ${stoppedRoot}:has(> ${answer} > ${stopDiagnostic}):not(:has(> ${answer} > .aui-md:not(${stopDiagnostic})))
+      > ${replyFooter} { display: none; }
+    ${tailRoot} { position: relative; overflow: visible; }
+    /* Keep the hover and keyboard actions inside the existing clearance. */
+    ${tailRoot} > ${replyFooter}:has(> div:only-child) { position: absolute; inset-block-start: 100%; inset-inline: 0; }
+  `, chatStyles)
   const states = new Map()
+  const stoppedPairs = new Map()
+  const dirtyPairs = new Set()
   const thinkingLabels = new Map()
   const started = new Map()
   const durations = new Map()
@@ -453,9 +548,10 @@ export function registerTurnExperience(ctx, active) {
   const live = new Set()
   const tails = new Set()
   const allGroups = `[data-chat-surface] ${response}`
-  const user = '[data-slot="aui_user-message-root"]'
-  const turnStructure = `${response}, ${user}`
+  const allPairs = `[data-chat-surface] ${turnPair}`
+  const turnStructure = `${turnPair}, ${response}, ${user}`
   let full = true
+  let refreshStopped = false
   let frame = 0
   let clockFrame = 0
   let timer = 0
@@ -485,7 +581,10 @@ export function registerTurnExperience(ctx, active) {
     const start = key && started.get(key)
     if (!start) return
     started.delete(key)
-    if (event.payload?.error || (event.payload?.status && event.payload.status !== 'complete')) return
+    if (event.payload?.error || (event.payload?.status && event.payload.status !== 'complete')) {
+      if (event.payload?.status === 'interrupted') queue()
+      return
+    }
     const prompt = primaryPrompt(event)
     const promptId = prompt?.dataset.messageId || start.promptId
     if (!promptId) return
@@ -508,9 +607,17 @@ export function registerTurnExperience(ctx, active) {
 
   function render() {
     frame = 0
-    const enabled = contrast.matches && document.documentElement.matches(active)
-    if (full || !enabled) {
-      const groups = enabled ? [...document.querySelectorAll(allGroups)] : []
+    const enabled = document.documentElement.matches(active)
+    const styled = enabled && contrast.matches
+    if (full || refreshStopped || !enabled) {
+      refreshStopped = false
+      const pairs = enabled ? new Set(document.querySelectorAll(allPairs)) : new Set()
+      for (const pair of stoppedPairs.keys()) if (!pairs.has(pair)) clearStoppedPair(pair, stoppedPairs)
+      if (full || !enabled) dirtyPairs.clear()
+      for (const pair of pairs) dirtyPairs.add(pair)
+    }
+    if (full || !styled) {
+      const groups = styled ? [...document.querySelectorAll(allGroups)] : []
       const present = new Set(groups)
       for (const [group, state] of states) if (!present.has(group)) remove(group, state)
       dirty.clear()
@@ -524,6 +631,21 @@ export function registerTurnExperience(ctx, active) {
     }
     full = false
     if (enabled) {
+      const readers = new Map()
+      for (const pair of dirtyPairs) {
+        if (!pair.isConnected) continue
+        const surface = pair.closest('[data-chat-surface]')
+        if (!surface) continue
+        if (!readers.has(surface)) readers.set(surface, stoppedTurns?.forSurface(surface))
+        const hadStop = stoppedPairs.has(pair)
+        syncStoppedPair(pair, stoppedPairs, history, surface, readers.get(surface))
+        if (hadStop !== stoppedPairs.has(pair)) {
+          for (const group of pair.querySelectorAll(`:scope > ${response}`)) dirty.add(group)
+        }
+      }
+    }
+    dirtyPairs.clear()
+    if (styled) {
       const now = Date.now()
       const runtime = host.state.activeSessionId.get()
       const key = runtime && sessionKey(runtime)
@@ -548,7 +670,7 @@ export function registerTurnExperience(ctx, active) {
       }
     }
     dirty.clear()
-    syncThinkingLabels(thinkingLabels, enabled)
+    syncThinkingLabels(thinkingLabels, styled)
     if (live.size) {
       if (!timer) timer = window.setInterval(() => {
         if (!clockFrame) clockFrame = requestAnimationFrame(() => {
@@ -581,10 +703,12 @@ export function registerTurnExperience(ctx, active) {
       const element = target instanceof Element ? target : target.parentElement
       if (!element || element.closest('[data-hcv-generated]')) continue
       const group = element.closest(response)
+      const pair = element.closest(turnPair)
       if (type === 'characterData') {
         if (group && element.closest(`${changes}, ${duration}`)) dirty.add(group)
       } else if (type === 'attributes') {
         if (group) dirty.add(group)
+        if (pair) dirtyPairs.add(pair)
       } else {
         for (const nodes of [addedNodes, removedNodes]) {
           for (const node of nodes) {
@@ -592,6 +716,7 @@ export function registerTurnExperience(ctx, active) {
               // Changes to the list of turns can change which answer owns the clock.
               if (node.matches(turnStructure) || node.querySelector(turnStructure)) return queue()
               if (group) dirty.add(group)
+              if (pair) dirtyPairs.add(pair)
             } else if (group && node.nodeType === Node.TEXT_NODE && element.closest(`${changes}, ${duration}`)) {
               dirty.add(group)
             }
@@ -606,21 +731,31 @@ export function registerTurnExperience(ctx, active) {
         }
       }
     }
-    if (dirty.size) schedule()
+    if (dirty.size || dirtyPairs.size) schedule()
   })
   observer.observe(document.documentElement, {
     childList: true,
     characterData: true,
     subtree: true,
     attributes: true,
-    attributeFilter: ['data-state', 'data-message-streaming', 'data-hermes-theme', 'data-hermes-codex-visual', 'lang'],
+    attributeFilter: ['data-state', 'data-message-streaming', 'data-hermes-theme', 'data-hermes-codex-visual', 'lang', 'title', 'disabled'],
   })
   contrast.addEventListener('change', queue)
+  const stopUpdates = stoppedTurns?.subscribe(queue)
+  // Timeline snapshots supply interruption timing. Only a changed stop
+  // marker affects the response presentation, through the dirty-pair pass.
+  const historyUpdates = history?.subscribe(() => {
+    refreshStopped = true
+    schedule()
+  })
   const unsubscribe = [host.state.activeSessionId, host.state.focusedSessionId, host.state.focusedStoredSessionId,
     host.state.connectionId, host.state.profile].map(atom => atom.listen(queue))
   queue()
   ctx.onDispose(() => {
     observer.disconnect()
+    stopUpdates?.()
+    historyUpdates?.()
+    for (const pair of stoppedPairs.keys()) clearStoppedPair(pair, stoppedPairs)
     contrast.removeEventListener('change', queue)
     for (const stop of unsubscribe) stop()
     if (frame) cancelAnimationFrame(frame)
@@ -630,3 +765,4 @@ export function registerTurnExperience(ctx, active) {
     syncThinkingLabels(thinkingLabels, false)
   })
 }
+import { anchorTurnCard } from './turn-card-scroll.js'

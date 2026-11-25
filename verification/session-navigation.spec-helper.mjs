@@ -66,6 +66,12 @@ export async function verifySessionNavigation({ app, page, expect, projectChat, 
   const sidebar = { label: await geometry(longLabel), age: await renderedAge(shortRow), dot: await shortDot.evaluate(dot => getComputedStyle(dot).opacity) }
   if (process.env.HERMES_VISUAL_NAVIGATION_OBSERVE === '1') {
     const row = await observeProjectRow({ page, expect, long, short, shortRow, screenshot, cdp })
+    if (checking) {
+      for (const state of ['idle', 'hover', 'selected']) {
+        assert.equal(row[state].labelColor, state === 'selected' ? 'rgb(223, 223, 223)' : 'rgba(223, 223, 223, 0.8)', `Chat title color in ${state}`)
+        assert.equal(row[state].folderColor, 'rgba(223, 223, 223, 0.8)', `Project title color in ${state}`)
+      }
+    }
     await cdp.detach()
     return { sidebar, row }
   }
@@ -91,6 +97,9 @@ export async function verifySessionNavigation({ app, page, expect, projectChat, 
     await expect(recentLabel).toHaveAttribute('data-hcv-title-overflow', '')
     await expect(recentDot).toHaveCSS('opacity', '0')
     assert.equal(sidebar.recent.age.visible, 0)
+    await expect(shortRow.locator('.hover-marquee-inner')).toHaveCSS('color', 'rgba(223, 223, 223, 0.8)')
+    await expect(recentShortRow.locator('.hover-marquee-inner')).toHaveCSS('color', 'rgba(223, 223, 223, 0.8)')
+    await expect(folder).toHaveCSS('color', 'rgba(223, 223, 223, 0.8)')
   }
 
   for (const [kind, row, label] of [['project', rowOf(long), longLabel], ['recent', recentLongRow, recentLabel]]) {
@@ -99,6 +108,7 @@ export async function verifySessionNavigation({ app, page, expect, projectChat, 
       // Hover the row's left inset, clear of the native title's pointer listener.
       await row.hover({ position: { x: 2, y: 12 } })
       await expect(content).toHaveCSS('animation-name', 'hcv-chat-title-scroll')
+      await expect(content).toHaveCSS('color', 'rgba(223, 223, 223, 0.8)')
     } else await label.hover()
     const motion = await sampleMarquee(label)
     sidebar[kind + 'Motion'] = motion
@@ -210,9 +220,7 @@ export async function verifySessionNavigation({ app, page, expect, projectChat, 
     await expect(longTab).toHaveAccessibleName(longTitle)
     await screenshot('session-navigation-dark.png')
 
-    const action = shortRow.locator('button[data-session-actions]')
-    await shortRow.hover()
-    await action.click()
+    await shortRow.locator('button[data-slot="row-button"]').click({ button: 'right' })
     await expect(page.getByRole('menu').last()).toBeVisible()
     await page.keyboard.press('Escape')
     await page.setViewportSize({ width: 1040, height: 790 })
@@ -221,6 +229,9 @@ export async function verifySessionNavigation({ app, page, expect, projectChat, 
     await page.getByText(/^(Светлая|Light)$/, { exact: true }).first().click()
     await expect(page.locator('html')).toHaveAttribute('data-hermes-mode', 'light')
     await closeSettings()
+    await expect(shortRow.locator('.hover-marquee-inner')).toHaveCSS('color', 'rgb(26, 28, 31)')
+    await expect(recentShortRow.locator('.hover-marquee-inner')).toHaveCSS('color', 'rgb(26, 28, 31)')
+    await expect(folder).toHaveCSS('color', 'rgba(26, 28, 31, 0.8)')
     await screenshot('session-navigation-narrow.png')
 
     await openThemeSettings()
@@ -273,6 +284,9 @@ async function observeProjectRow({ page, expect, long, short, shortRow, screensh
     await screenshot(`project-row-${state}.png`, { clip })
     return shortRow.evaluate(node => {
       const css = getComputedStyle(node)
+      const button = node.querySelector('button[data-slot="row-button"]')
+      const label = node.querySelector('.hover-marquee-inner')
+      const folder = node.closest('[data-sessions-project]')?.querySelector('[data-hcv-project-name]')
       const { width, height } = node.getBoundingClientRect()
       return {
         width,
@@ -282,6 +296,10 @@ async function observeProjectRow({ page, expect, long, short, shortRow, screensh
         background: css.backgroundColor,
         hovered: node.matches(':hover'),
         fontSize: css.fontSize,
+        buttonColor: button && getComputedStyle(button).color,
+        labelColor: label && getComputedStyle(label).color,
+        labelOpacity: label && getComputedStyle(label).opacity,
+        folderColor: folder && getComputedStyle(folder).color,
         rootFontSize: getComputedStyle(document.documentElement).fontSize,
         superellipseSupported: CSS.supports('corner-shape', 'superellipse(1.5)'),
         pixelRatio: window.devicePixelRatio,

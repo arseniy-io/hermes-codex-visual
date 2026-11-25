@@ -46,13 +46,78 @@ function gitApi(scope, cwd, route, body) {
     : { ...base, path: path + '?' + new URLSearchParams({ path: cwd }) })
 }
 
-export async function readWorkspaceRepository(cwd, scope) {
-  if (!cwd) return null
-  const native = localOwner(scope) ? window.hermesDesktop?.git : null
-  const repo = await native?.repoStatus?.(cwd).catch(() => null)
-  if (repo) return { repo, native: true }
-  const fallback = await gitApi(scope, cwd, 'status').catch(() => null)
-  return fallback && { repo: fallback, native: false }
+export async function readWorkspaceChanges(scope, cwd, detail = {}) {
+  const { file, previousPath, untracked, base, files } = detail
+  const query = new URLSearchParams({ path: cwd })
+  if (files) query.set('files', 'true')
+  if (file) {
+    query.set('base', base)
+    query.set('file', file)
+    if (previousPath) query.set('previous', previousPath)
+    if (untracked) query.set('untracked', 'true')
+  }
+  return window.hermesDesktop.api({
+    connectionId: scope.connectionId, profile: scope.profile, method: 'GET', timeoutMs: 15000,
+    path: '/api/plugins/hermes-codex-visual/workspace-changes' + (file ? '/diff' : '') + '?' + query,
+  })
+}
+
+const pendingRepositories = new Map()
+
+export function incompleteDiffStats(repo) {
+  if (repo.workspaceDiff) return repo.incomplete === true
+  return repo.hcvRootUnknown || !Array.isArray(repo.files) || repo.changed > repo.files.length ||
+    repo.files.some(file => file.untracked && /[/\\]$/.test(file.path || ''))
+}
+
+export function changesSelectionCwd(choice, key, snapshot) {
+  const selected = choice?.key === key ? choice : null
+  // The primary selection is immediately usable while the same session is
+  // being reloaded; a confirmed new cwd (e.g. after a move) takes precedence.
+  if (selected?.primary) return snapshot?.cwd || selected.cwd
+  return selected?.cwd || snapshot?.cwd || ''
+}
+
+export async function readWorkspaceRepositoryRoot(cwd, scope) {
+  const desktop = window.hermesDesktop
+  if (localOwner(scope) && typeof desktop.gitRoot === 'function') return desktop.gitRoot(cwd).catch(() => null)
+  const result = await desktop.api({
+    connectionId: scope.connectionId, profile: scope.profile,
+    path: '/api/fs/git-root?' + new URLSearchParams({ path: cwd }), timeoutMs: 8000,
+  }).catch(() => null)
+  return result?.root
+}
+
+export function readWorkspaceRepository(cwd, scope) {
+  if (!cwd) return Promise.resolve(null)
+  // The card, a tool-completion event and a focus change can all request the
+  // same working tree at once. Share that read instead of starting more Git
+  // processes, but never share it across connections or profiles.
+  const key = JSON.stringify([scope?.connectionId, scope?.profile, workspacePathKey(cwd)])
+  const pending = pendingRepositories.get(key)
+  if (pending) return pending
+  const request = (async () => {
+    const native = localOwner(scope) ? window.hermesDesktop?.git : null
+    const result = await readWorkspaceChanges(scope, cwd).catch(() => null)
+    if (result && typeof result === 'object' && 'workspace' in result) {
+      const repo = result.workspace
+      return repo ? { repo: { ...repo, workspaceDiff: true }, root: repo.path, native: Boolean(native) } : null
+    }
+    // A standalone frontend can also connect to a gateway without the
+    // companion. Keep its native uncommitted review available.
+    // Git can report untracked paths relative to the repository root;
+    // probing a nested chat directory would otherwise count those paths from
+    // the wrong folder. Resolve the root on the connection owning the chat.
+    const root = await readWorkspaceRepositoryRoot(cwd, scope)
+    const repo = await native?.repoStatus?.(root || cwd).catch(() => null)
+    if (repo) return { repo: { ...repo, hcvRootUnknown: !root }, root, native: true }
+    const fallback = await gitApi(scope, root || cwd, 'status').catch(() => null)
+    return fallback && { repo: { ...fallback, hcvRootUnknown: !root }, root, native: false }
+  })()
+  pendingRepositories.set(key, request)
+  const forget = () => { if (pendingRepositories.get(key) === request) pendingRepositories.delete(key) }
+  void request.then(forget, forget)
+  return request
 }
 
 export async function readWorkspaceTrees(cwd, scope, native) {

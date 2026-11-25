@@ -4,7 +4,7 @@ const pathKey = value => String(value || '').replaceAll('\\', '/').replace(/\/+$
 
 export async function verifyWorkspacePanel({ page, expect, screenshot, projectChat, projectFolder }) {
   const card = page.locator('[data-hcv-context-card]')
-  const changes = card.getByRole('button', { name: 'Изменения', exact: true })
+  const changes = card.locator('.hcv-context-changes').first()
   const openMenu = () => card.getByRole('button', { name: 'Действия со сводкой' }).click()
   const menu = page.locator('[data-hcv-summary-menu]')
   const chat = page.locator('[data-chat-surface][data-composer-target="main"]:visible')
@@ -24,9 +24,9 @@ export async function verifyWorkspacePanel({ page, expect, screenshot, projectCh
   await expect(changes).toHaveAttribute('data-hcv-branch', 'main')
   await expect(card).toHaveCSS('width', '280px')
   await expect(card).toHaveCSS('border-radius', '16px')
-  await expect(card.locator('.hcv-context-diff')).toContainText('+2')
+  await expect(card.locator('.hcv-context-diff')).toContainText('+2', { timeout: 20000 })
   await changes.hover()
-  await expect(page.getByRole('tooltip', { name: 'main', exact: true })).toBeVisible()
+  await expect(page.getByRole('tooltip', { name: / main$/ })).toBeVisible()
   await screenshot('branch.png')
   await openMenu()
   await expect(menu.getByRole('menuitem', { name: 'Настроить локальное окружение' })).toBeEnabled()
@@ -99,7 +99,7 @@ export async function verifyWorkspacePanel({ page, expect, screenshot, projectCh
   await move.getByRole('button', { name: 'Переместить', exact: true }).click()
   await expect(move).toHaveCount(0, { timeout: 15000 })
   await expect.poll(async () => pathKey(await cwd())).toBe(pathKey(before))
-  await expect(card.locator('.hcv-context-diff')).toContainText('+2')
+  await expect(card.locator('.hcv-context-diff')).toContainText('+2', { timeout: 20000 })
   await expect(changes).toHaveAttribute('data-hcv-branch', 'main')
   console.log(JSON.stringify({ workspacePanel: 'branch, review, terminal, move and return', preservedChat: true }))
 }

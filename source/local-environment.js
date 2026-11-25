@@ -287,10 +287,10 @@ export function registerLocalEnvironment(ctx, active) {
     return enabled() && paths.every(Boolean) ? { cwd: paths[0], source: paths[1] } : null
   }
 
-  const startRun = ({ cwd, source, script, title, t }) => {
+  const startRun = ({ cwd, source, script, title, t, isCurrent }) => {
     result.set({ cwd, title, t, output: '', state: 'starting' })
     cancelRun = runLocalScript({
-      desktop: window.hermesDesktop, platform, cwd, source, script, stillLocal: local,
+      desktop: window.hermesDesktop, platform, cwd, source, script, stillLocal: () => local() && (!isCurrent || isCurrent()),
       update: patch => {
         if (!disposed && result.get()) result.set({ ...result.get(), ...patch })
       },
@@ -298,15 +298,17 @@ export function registerLocalEnvironment(ctx, active) {
   }
 
   async function save(target, config, setup) {
+    if (target.isCurrent && !target.isCurrent()) throw new Error('path')
     const scope = await scopeFor(target.cwd)
-    if (!scope || target !== model.get() || storageKey(scope) !== storageKey(target)) throw new Error('path')
+    if (!scope || target !== model.get() || (target.isCurrent && !target.isCurrent()) ||
+        storageKey(scope) !== storageKey(target)) throw new Error('path')
     if ((read(scope)?.revision || '') !== target.revision) throw new Error('conflict')
     const revision = crypto.randomUUID()
     ctx.storage.set(storageKey(scope), { revision, config })
     if (read(scope)?.revision !== revision) throw new Error('save')
     revisionSignal.set(revisionSignal.get() + 1)
     close()
-    if (setup) startRun({ ...scope, script: setup, title: target.t.setup, t: target.t })
+    if (setup) startRun({ ...scope, script: setup, title: target.t.setup, t: target.t, isCurrent: target.isCurrent })
     else notify(target.t.saved, 'success')
   }
 
@@ -333,16 +335,16 @@ export function registerLocalEnvironment(ctx, active) {
   })
   return {
     revision: revisionSignal,
-    async open({ cwd, projectName, trigger }) {
-      if (!idle()) return false
+    async open({ cwd, projectName, trigger, isCurrent }) {
+      if (!idle() || (isCurrent && !isCurrent())) return false
       const key = ++request
       const t = words()
       const scope = await scopeFor(cwd)
-      if (key !== request || !idle() || disposed) return false
+      if (key !== request || !idle() || disposed || (isCurrent && !isCurrent())) return false
       if (!scope) { notify(t.path); return false }
       const saved = read(scope)
       model.set({
-        ...scope, key, t, trigger, platform, revision: saved?.revision || '',
+        ...scope, key, t, trigger, platform, isCurrent, revision: saved?.revision || '',
         original: saved?.config || emptyEnvironment(projectName?.trim() || folderName(scope.source)),
         copyVariable: async name => { if (await ctx.os.writeClipboard(name)) notify(t.copied, 'success') },
       })

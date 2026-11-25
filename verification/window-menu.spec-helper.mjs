@@ -97,6 +97,15 @@ export async function verifyWindowMenu({ page, expect, screenshot, openThemeSett
   await file.click()
   await expect(popup).toHaveCount(0)
 
+  const draft = page.locator('[data-chat-surface][data-composer-target="main"] [data-slot="composer-rich-input"]:visible')
+  const sample = 'Проверка меню правки'
+  await draft.fill(sample)
+  await edit.click()
+  await item('Выделить текст ввода').click()
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe(sample)
+  await draft.press('Backspace')
+  await expect(draft).toHaveText('')
+
   await openThemeSettings()
   await page.getByText(/^(Светлая|Light)$/).first().click()
   await expect(page.locator('html')).toHaveAttribute('data-hermes-mode', 'light')

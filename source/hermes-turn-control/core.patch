@@ -1,0 +1,1001 @@
+--- a/tui_gateway/methods_session_interrupt.py
++++ b/tui_gateway/methods_session_interrupt.py
+@@ -67,6 +67,71 @@
+         resolve_gateway_approval(session["session_key"], "deny", resolve_all=True)
+ 
+ 
++
++def _tree_control_rpc(rid, params, operation):
++    session, err = _sess_nowait(params, rid)
++    if err:
++        return err
++    sid = str(params.get("session_id") or "")
++    timeout = max(0.0, min(float(params.get("timeout_ms", 15000)) / 1000, 60.0))
++    try:
++        if _session_uses_compute_host(session) and (session.get("_compute_host_active") or operation == "continue"):
++            supervisor = _get_compute_host_supervisor()
++            if operation == "stop" and params.get("checkpoint_id") is None:
++                # Purge this serving process's queue without an optimistic
++                # interrupt. The owning host validates any expected generation
++                # before the first actual cancellation signal.
++                with session["history_lock"]:
++                    session["_turn_cancel_requested"] = True
++                    session["queued_prompt"] = None
++                    session.pop("queued_prompts", None)
++                    session["_queued_prompt_generation"] = int(session.get("_queued_prompt_generation", 0)) + 1
++            if operation == "continue":
++                refusal = _ensure_active_session_slot(sid, session)
++                if refusal is not None:
++                    return _err(rid, 5000, str(refusal))
++            bootstrap = _compute_host_turn_frame(str(rid), sid, session, "") if operation == "continue" else None
++            ack = supervisor.tree_control(
++                sid, operation=operation, checkpoint_id=params.get("checkpoint_id"), timeout=timeout,
++                session_frame=bootstrap,
++                on_complete=lambda frame: _on_compute_host_turn_done(rid, sid, session, frame))
++            if ack.get("error"):
++                return _err(rid, 5000, str(ack["error"]))
++            result = ack.get("result")
++            if not isinstance(result, dict):
++                return _err(rid, 5000, "Tree control acknowledgement missing")
++            _apply_compute_host_metadata_mirror(session, ack)
++            with session["history_lock"]:
++                session["_compute_host_active"] = True
++                if operation == "continue" and result.get("state") == "resumed":
++                    session["running"] = bool(result.get("root_running")) and supervisor.has_pending_turn(sid)
++                    session["_turn_cancel_requested"] = False
++        else:
++            from tui_gateway import server
++            from tui_gateway.hcv_stop_tree import control
++            if operation == "continue" and session.get("agent") is None:
++                _start_agent_build(sid, session)
++                if build_error := _wait_agent(session, rid):
++                    return build_error
++                if session.get("agent") is None:
++                    return _err(rid, 5032, "Root agent could not be restored")
++            with _session_profile_runtime_scope(session, hydrate_secrets=False):
++                result = control(server, sid, operation, checkpoint_id=params.get("checkpoint_id"), timeout=timeout)
++        return _ok(rid, result)
++    except Exception as exc:
++        return _err(rid, 5000, "Tree control unconfirmed: " + str(exc))
++
++
++@method("session.tree_status")
++def _tree_status(rid, params):
++    return _tree_control_rpc(rid, params, "status")
++
++
++@method("session.continue_tree")
++def _tree_continue(rid, params):
++    return _tree_control_rpc(rid, params, "continue")
++
++
+ @method("session.interrupt")
+ def _(rid, params: dict) -> dict:
+     _tts_stream_stop()  # keypress barge-in also silences streaming TTS (voice is process-global)
+@@ -83,6 +148,8 @@
+                     return _ok(rid, {"status": "not_interrupted", "interrupted": False})
+         sid = str(params.get("session_id") or "")
+         _note_user_input(session)
++        if params.get("cascade") is True:
++            return _tree_control_rpc(rid, params, "stop")
+         if _session_uses_compute_host(session):
+             with session["history_lock"]:
+                 inflight_at_interrupt = session.get("inflight_turn")
+--- a/tui_gateway/host_supervisor.py
++++ b/tui_gateway/host_supervisor.py
+@@ -46,7 +46,7 @@
+ _LATE_CONTROL_MAX = 64
+ # Host frames whose ``request_id`` resolves a pending/late control waiter.
+ _CONTROL_REPLY_TYPES = frozenset({
+-    "control.ack", "control.error", "respond.ack", "respond.error", "interrupt.ack",
++    "control.ack", "control.error", "respond.ack", "respond.error", "interrupt.ack", "tree.ack",
+     "reload_mcp.ack", "shutdown.ack"})
+ 
+ 
+@@ -258,6 +258,23 @@
+         self._send_frame(
+             {"type": "interrupt", "sid": sid, "request_id": request_id or uuid.uuid4().hex})
+ 
++    def tree_control(self, sid, *, operation, checkpoint_id=None, timeout=15,
++                         session_frame=None, on_complete=None):
++        self.start()
++        request_id = uuid.uuid4().hex
++        frame = {"type": "tree.control", "sid": sid, "request_id": request_id,
++                 "operation": operation, "checkpoint_id": checkpoint_id, "timeout": timeout,
++                 "session_frame": session_frame}
++        turn_id = "tree-continue-" + str(checkpoint_id or "")
++        if operation == "continue":
++            with self._lock:
++                self._pending_turns[turn_id] = (sid, on_complete)
++        ack = self._await_reply(frame, request_id, max(35.0, timeout + 5.0))
++        if operation == "continue" and not (ack.get("result") or {}).get("root_running"):
++            with self._lock:
++                self._pending_turns.pop(turn_id, None)
++        return ack
++
+     def has_pending_turn(self, sid: str) -> bool:
+         """True when a host completion callback is still registered for ``sid``.
+ 
+--- a/tui_gateway/compute_host.py
++++ b/tui_gateway/compute_host.py
+@@ -63,7 +63,7 @@
+     _FRAME_HANDLERS: dict[str, str] = {
+         "turn.start": "_handle_turn_start", "interrupt": "_handle_interrupt",
+         "respond": "_handle_respond", "reload_mcp": "_handle_reload_mcp",
+-        "control": "_handle_control", "shutdown": "_handle_shutdown"}
++        "control": "_handle_control", "tree.control": "_handle_tree_control", "shutdown": "_handle_shutdown"}
+ 
+     def __init__(
+         self, *, stdout: Any = None, max_workers: int | None = None,
+@@ -203,6 +203,42 @@
+             server._interrupt_session_turn(sid, session)
+             self._reply("interrupt.ack", sid, request_id, applied=True, applied_ns=now_ns())
+         self._guarded(frame, "interrupt.ack", body, applied=False)
++
++    def _handle_tree_control(self, frame):
++        def body(server, sid, request_id):
++            try:
++                from tui_gateway.hcv_stop_tree import control
++                session = server._sessions.get(sid)
++                if session is None and frame.get("operation") == "continue":
++                    bootstrap = frame.get("session_frame")
++                    if not isinstance(bootstrap, dict) or bootstrap.get("sid") != sid:
++                        raise RuntimeError("Missing owner continuation session frame")
++                    session = self._ensure_server_session(server, bootstrap)
++                    server._install_borrowed_lease(sid, session, bootstrap)
++                if session is None:
++                    raise RuntimeError("Session not found on compute host")
++                with server._session_profile_runtime_scope(session, hydrate_secrets=False):
++                    result = control(server, sid, frame.get("operation"),
++                                     checkpoint_id=frame.get("checkpoint_id"), timeout=frame.get("timeout", 15))
++                with session["history_lock"]:
++                    result["root_running"] = bool(session.get("running"))
++                    meta = _history_meta(session)
++                self._reply("tree.ack", sid, request_id, result=result, **meta,
++                            session_info=server._session_info(session.get("agent"), session))
++                if frame.get("operation") == "continue" and result.get("root_resume", {}).get("accepted"):
++                    run_thread = session.get("_run_thread")
++                    if run_thread is not None:
++                        run_thread.join()
++                    with session["history_lock"]:
++                        meta = _history_meta(session)
++                    self._reply("turn.end", sid, "tree-continue-" + str(frame.get("checkpoint_id")),
++                                **meta, interrupted=bool(session.get("_turn_cancel_requested")),
++                                ended_ns=now_ns(), session_info=server._session_info(session.get("agent"), session),
++                                session_info_emitted=True)
++            except Exception as exc:
++                self._reply("tree.ack", sid, request_id, error=str(exc))
++        threading.Thread(target=self._guarded, args=(frame, "tree.ack", body),
++                         daemon=True, name="tree-control-" + str(frame.get("sid", ""))[:12]).start()
+ 
+     def _handle_respond(self, frame: dict[str, Any]) -> None:
+         """Resolve a server→client request this host owns: ``params.frame`` is the client's JSON-RPC response
+--- a/tui_gateway/prompt_turn.py
++++ b/tui_gateway/prompt_turn.py
+@@ -1137,6 +1137,12 @@
+     if admitted is None:
+         return False
+     images, agent = admitted
++    from tui_gateway import server as _tree_server
++    from tui_gateway.hcv_stop_tree import note_turn_started
++    if not note_turn_started(_tree_server, sid, session):
++        with session["history_lock"]:
++            session["running"] = False
++        return False
+     from gateway.warning_notifications import diagnostic_turn_muted
+     from agent.notification_presentation import notification_config_snapshot
+     with _session_profile_runtime_scope(session):
+--- a/tui_gateway/contracts/sessions.py
++++ b/tui_gateway/contracts/sessions.py
+@@ -604,7 +604,47 @@
+ # ── interrupt / steer / redirect ──────────────────────────────────────────────────────────────
+ 
+ 
++class SessionTreeFields(Result):
++    state: str | None = None
++    checkpoint_id: str | None = None
++    root_runtime_id: str | None = None
++    root_stored_id: str | None = None
++    checkpoint_root_stored_id: str | None = None
++    profile_home: str | None = None
++    remaining: list[dict[str, JsonValue]] | None = None
++    children_resumed: list[dict[str, JsonValue]] | None = None
++    root_resume: dict[str, JsonValue] | None = None
++    resume_error: str | None = None
++    stopped_at: float | None = None
++    root_running: bool | None = None
++
++
++class SessionTreeResult(SessionTreeFields):
++    state: str
++    root_runtime_id: str
++    root_stored_id: str
++    profile_home: str
++
++
++class SessionTreeStatusParams(SessionParams):
++    checkpoint_id: str | None = None
++
++
++class SessionTreeContinueParams(SessionParams):
++    checkpoint_id: str
++
++
++method("session.tree_status", params=SessionTreeStatusParams, result=SessionTreeResult,
++       doc="Read the current owner-scoped durable Stop checkpoint without starting a turn.")
++method("session.continue_tree", params=SessionTreeContinueParams, result=SessionTreeResult,
++       doc="Continue the exact stopped checkpoint and restore its native child completion tree.")
++
++
+ class SessionInterruptParams(SessionParams):
++    cascade: bool = False
++    checkpoint_id: str | None = None
++    request_id: str | None = None
++    timeout_ms: int = 15000
+     expected_hosted_task_id: str | None = None  # only interrupt if this hosted task is the running one
+ 
+ 
+@@ -613,7 +653,7 @@
+     not_interrupted = "not_interrupted"
+ 
+ 
+-class SessionInterruptResult(Result):
++class SessionInterruptResult(SessionTreeFields):
+     status: InterruptStatus
+     interrupted: bool | None = None
+     turn_isolation: bool | None = None
+--- a/tui_gateway/server.py
++++ b/tui_gateway/server.py
+@@ -184,6 +184,7 @@
+ # render (up to sessions.max_export_messages rows, ~0.8s at the default cap); onboarding.start = session
+ # creation + a prompt.submit; onboarding.state = a bounded wait on the boot-time due answer.
+ _LONG_HANDLERS = frozenset({
++    "session.interrupt", "session.tree_status", "session.continue_tree",
+     "session.foreign.list", "session.foreign.preview", "session.foreign.import",
+     "billing.state", "subscription.state", "subscription.preview", "subscription.change",
+     "subscription.resume", "subscription.upgrade", "usage.bars", "session.usage", "billing.step_up",
+--- a/tools/delegate_tool.py
++++ b/tools/delegate_tool.py
+@@ -123,7 +123,18 @@
+     return True
+ 
+ 
+-def _open_child_session_db(parent_agent) -> Any:
++def _restore_child_transcript(child, receipt):
++    from agent.runtime_session_store import RuntimeSessionStore
++    # Scoped worker construction already merges its allowed constructor fields
++    # at the owner. The SessionDB-only reserved merge would send those facts
++    # again through restricted session.sidecars and poison this worker's store.
++    child._session_db_reserved = not isinstance(child._session_db, RuntimeSessionStore)
++    child._hcv_resume_receipt = dict(receipt)
++    child._hcv_resume_history = child._session_db.get_messages_as_conversation(
++        child.session_id, include_ancestors=False, repair_alternation=True)
++
++
++def _open_child_session_db(parent_agent, resume_session_id=None) -> Any:
+     """DEDICATED SessionDB handle for the child, or None: the parent's handle can be closed by its own lifecycle while
+     a background child still flushes (transcript silently dropped). It MUST open the same db FILE as the parent's
+     handle (non-launch profiles), else lineage / session_search break; released by the child's close() via
+@@ -145,7 +156,7 @@
+         if not isinstance(parent_session_db, RuntimeSessionStore):
+             raise WorkerPersistenceError('worker_child_registration_required')
+         from agent.runtime_session_child import reserve_child_store
+-        return reserve_child_store(parent_session_db)
++        return reserve_child_store(parent_session_db, resume_session_id=resume_session_id)
+     if parent_session_db is None:
+         return None
+     with _quiet("subagent: failed to open dedicated SessionDB; child persistence disabled", exc_info=True):
+@@ -233,6 +244,7 @@
+     profile_home: Optional[Path] = None,
+     override_service_tier: Optional[str] = None,  # a route's checked speed tier (tools/delegate_tool_tuning.py)
+     task_name: Optional[str] = None,
++    resume_receipt: Optional[dict] = None,
+ ):
+     """Build (don't run) a child AIAgent on the main thread. override_* (from delegation config) replace parent
+     inheritance so children can run on a different provider:model pair. ``profile_home`` builds (and later runs,
+@@ -249,7 +261,11 @@
+ 
+     # One subagent_id shared by the progress callback, spawn_requested event and
+     # the live registry; parent_id is set when THIS parent is itself a subagent.
+-    subagent_id = f"sa-{task_index}-{_uuid.uuid4().hex[:8]}"
++    if resume_receipt:
++        stored = str(resume_receipt.get("stored_id") or "")
++        if not resume_receipt.get("subagent_id"):
++            raise ValueError("Stopped child has no exact subagent identity")
++    subagent_id = resume_receipt["subagent_id"] if resume_receipt else f"sa-{task_index}-{_uuid.uuid4().hex[:8]}"
+     parent_subagent_id = getattr(parent_agent, "_subagent_id", None)
+ 
+     # General delegation behavior (reasoning, compression, capabilities) stays
+@@ -267,7 +283,8 @@
+ 
+     # Shared ref: session_id once the child exists, delegation_id once
+     # delegate_task stamps it — both ride on every relayed event.
+-    child_session_ref: dict[str, Any] = _hcv_agent_names.make_identity(task_name, parent_agent)
++    child_session_ref = (_hcv_agent_names.identity_fields(resume_receipt) if resume_receipt
++                         else _hcv_agent_names.make_identity(task_name, parent_agent))
+     child_progress_cb = _build_child_progress_callback(
+         task_index, goal, parent_agent, task_count, subagent_id=subagent_id, parent_id=parent_subagent_id,
+         depth=max(0, child_depth - 1),  # 0 = first-level child for the UI
+@@ -290,7 +307,14 @@
+         else:
+             request_overrides = {} if override_provider else dict(getattr(parent_agent, "request_overrides", {}) or {})
+         parent_sid = getattr(parent_agent, "session_id", None)
+-        child_session_db = _open_child_session_db(parent_agent)
++        child_session_db = _open_child_session_db(parent_agent, resume_session_id=resume_receipt["stored_id"] if resume_receipt else None)
++        if resume_receipt:
++            from tools.delegate_tree_lineage import validate_resume_store
++            try:
++                resume_owner = validate_resume_store(child_session_db, resume_receipt["stored_id"], parent_sid)
++            except BaseException:
++                child_session_db.close()
++                raise
+         # Children run provider-less. Under compression.checkpoint_required the child arms the same gate
+         # (read inside the delegated profile scope, as the child reads it) and would die at its first
+         # compaction, so it inherits the provider, scoped as a fork. Cost: one initialize() per spawn.
+@@ -311,7 +335,7 @@
+                         if child_progress_cb else None
+                     ),
+                     session_db=child_session_db, parent_session_id=parent_sid, request_overrides=request_overrides,
+-                    session_id=getattr(child_session_db, "reserved_session_id", None),
++                    session_id=resume_receipt["stored_id"] if resume_receipt else getattr(child_session_db, "reserved_session_id", None),
+                     tool_progress_callback=child_progress_cb,
+                     iteration_budget=None,  # fresh budget per subagent
+                     # A profile route carries that profile's identity (its SOUL.md under the bound home).
+@@ -330,12 +354,17 @@
+             rt["provider"], None if profile_home is not None else parent_agent, rt["base_url"],
+             effective_requested_provider=rt.get("requested_provider"),
+         )
++        from hermes_constants import hermes_home_key
++        child._hcv_execution_profile_home = hermes_home_key()
+     child._print_fn = getattr(parent_agent, "_print_fn", None)
+     _apply_child_cache_ttl(child)
+     if child_session_db is not None:
+         child._owns_session_db = True  # released by the child's close(), never by the parent
+     _hcv_agent_names.attach_child_identity(child, child_session_ref)
+-    _reserve_child_transcript(child)
++    if resume_receipt:
++        _restore_child_transcript(child, resume_receipt)
++    else:
++        _reserve_child_transcript(child)
+     # Ownership transfer for the dedicated handle: the child's close() must release it (nothing else holds a
+     # reference), and no parent teardown can close it out from under a background child (#81267).
+     child_session_ref["session_id"] = getattr(child, "session_id", "") or ""
+@@ -345,6 +374,8 @@
+     from agent.prompt_cache_scope import conversation_id
+     child._inherited_conversation_id = conversation_id(parent_agent)
+     child._subagent_id, child._parent_subagent_id = subagent_id, parent_subagent_id
++    child._hcv_original_goal = goal
++    child._hcv_original_context = context
+     _apply_child_compression_cap(child, delegation_cfg)
+     # Ownership chain for action=list/steer/stop; weakref so a finished parent
+     # can be collected while a detached child record lingers in the registry.
+@@ -358,13 +389,17 @@
+     # has forgotten the child (``delegate_tool_sessions``).
+     if parent_sid and getattr(child, "_session_init_model_config", None) is not None:
+         from tools.delegate_tool_sessions import SUBAGENT_ID_KEY
+-        child._session_init_model_config["_delegate_from"] = parent_sid
++        child._session_init_model_config["_delegate_from"] = resume_owner["origin_parent_id"] if resume_receipt else parent_sid
+         child._session_init_model_config[SUBAGENT_ID_KEY] = subagent_id
+     child._delegate_profile_home = profile_home  # _ChildRun.await_child runs the conversation in this scope
+     if child_pool is not None:
+         child._credential_pool = child_pool
+ 
+-    _attach_child(parent_agent, child)  # interrupt propagation
++    try:
++        _attach_child(parent_agent, child)  # interrupt propagation
++    except BaseException:
++        _close_child(child, "Refused child admission into a stopped tree")
++        raise
+     # spawn_requested now — the child may queue for seconds when the pool is
+     # saturated — then the subagent_start lifecycle hook.
+     _safe_progress(child_progress_cb, "subagent.spawn_requested", preview=goal)
+@@ -395,6 +430,14 @@
+ 
+     * ``"completed"``       — normal finish. See #97655.
+     """
++    if getattr(child, "_interrupt_requested", False) is True:
++        entry = _fabricated_entry(task_index, "interrupted", "Stopped before subagent execution", child)
++        from tui_gateway.hcv_stop_tree import record_child_outcome
++        record_child_outcome(child, entry)
++        _safe_progress(getattr(child, "tool_progress_callback", None), "subagent.complete", status="interrupted", preview="Stopped before subagent execution")
++        _detach_child(parent_agent, child)
++        _close_child(child, "Stopped unstarted subagent")
++        return entry
+     child_progress_cb = getattr(child, "tool_progress_callback", None)
+     child_pool, leased_cred_id = _lease_child_credential(child)
+     # Heartbeat keeps the parent's _last_activity_ts moving so the gateway inactivity timeout doesn't fire while the
+--- a/agent/runtime_session_child.py
++++ b/agent/runtime_session_child.py
+@@ -41,11 +41,14 @@
+             super().close()
+ 
+ 
+-def reserve_child_store(parent):
++def reserve_child_store(parent, *, resume_session_id=None):
+     """A ``ChildSessionStore`` the owner reserved under ``parent``'s verified execution."""
+     secret = secrets.token_urlsafe(32)
+     # Reached from delegate_task's tool callback, which can run on Relay's loop (#139029).
+-    result = call_off_event_loop(parent._apply, 'child.reserve', {'secret': secret})
++    payload = {'secret': secret}
++    if resume_session_id is not None:
++        payload['resume_session_id'] = resume_session_id
++    result = call_off_event_loop(parent._apply, 'child.reserve', payload)
+     if 'refused' in result:
+         raise ValueError(_REFUSALS.get(result['refused'], 'the gateway owner refused a subagent: ' + result['refused']))
+     child = result['child']
+@@ -54,4 +57,6 @@
+     # Every child RPC hops off a running loop, not only this reservation: the child is built, run
+     # and closed inside delegate_task's callback, and its constructor already reads the store
+     # (ContextCompressor.bind_session_state), which WorkerRPC refuses on Relay's loop.
+-    return ChildSessionStore(partial(call_off_event_loop, parent.rpc), scope, outbox)
++    store = ChildSessionStore(partial(call_off_event_loop, parent.rpc), scope, outbox)
++    store._hcv_resume_context = result.get("resume_context")
++    return store
+--- a/gateway/session_worker_child.py
++++ b/gateway/session_worker_child.py
+@@ -45,7 +45,7 @@
+     from hermes_state_runtime import _secret_digest
+     from hermes_state_worker_lifecycle import insert_session_row_in_transaction
+     secret = payload.get('secret') if isinstance(payload, dict) else None
+-    if set(payload) != {'secret'} or not isinstance(secret, str) or not 16 <= len(secret) <= 256:
++    if set(payload) not in ({'secret'}, {'secret', 'resume_session_id'}) or not isinstance(secret, str) or not 16 <= len(secret) <= 256:
+         raise RuntimeStoreError('invalid_params')
+     max_children, max_depth = limits
+     prefix = execution_id + CHILD_SEPARATOR
+@@ -59,14 +59,34 @@
+     if refused is not None:
+         return {'refused': refused}
+     parent = conn.execute('SELECT profile_name FROM sessions WHERE id=?', (session_id,)).fetchone()
+-    child_sid, child_eid = new_session_id(), prefix + secrets.token_hex(8)
+-    insert_session_row_in_transaction(db, conn, child_sid, 'subagent', model_config={'_delegate_from': session_id},
+-                                      parent_session_id=session_id, profile_name=parent['profile_name'])
++    resume_sid = payload.get('resume_session_id')
++    if resume_sid is not None:
++        if not isinstance(resume_sid, str) or not resume_sid:
++            raise RuntimeStoreError('invalid_params')
++        from tools.delegate_tree_lineage import resolve_child_owner
++        try:
++            resume_context = resolve_child_owner(conn, resume_sid, session_id)
++        except ValueError as exc:
++            raise RuntimeStoreError('permission_denied') from exc
++        import json
++        active = conn.execute("SELECT 1 FROM worker_executions WHERE session_id IN (SELECT value FROM json_each(?)) AND status!='terminal' LIMIT 1", (json.dumps(resume_context['child_compression_ids']),)).fetchone()
++        if active is not None:
++            return {'refused': 'child_still_running'}
++        child_sid = resume_sid
++        conn.execute('UPDATE sessions SET ended_at=NULL,end_reason=NULL WHERE id=?', (child_sid,))
++    else:
++        child_sid = new_session_id()
++        insert_session_row_in_transaction(db, conn, child_sid, 'subagent', model_config={'_delegate_from': session_id},
++                                          parent_session_id=session_id, profile_name=parent['profile_name'])
++    child_eid = prefix + secrets.token_hex(8)
+     scope = dict(identity, session_id=child_sid, execution_id=child_eid, generation=0, secret=secret)
+     claim = admission_fingerprint(canonical_target=child_sid, payload=scope | {'principal': principal})
+     conn.execute("INSERT INTO worker_executions(execution_id,session_id,kind,owner_epoch,generation,status,adoption_digest) "
+                  "VALUES(?,?,'child',?,0,'running',?)", (child_eid, child_sid, epoch, _secret_digest(claim)))
+-    return {'child': {'session_id': child_sid, 'execution_id': child_eid, 'generation': 0}}
++    result = {'child': {'session_id': child_sid, 'execution_id': child_eid, 'generation': 0}}
++    if resume_sid is not None:
++        result['resume_context'] = resume_context
++    return result
+ 
+ 
+ async def worker_child_request(connection, ref, params):
+--- a/tools/delegate_tool_child_run.py
++++ b/tools/delegate_tool_child_run.py
+@@ -116,6 +116,8 @@
+ 
+ def _close_child(child: Any, log_message: str) -> None:
+     """Best-effort ``child.close()`` (tool sandboxes, browser daemons, httpx clients)."""
++    from tui_gateway.hcv_stop_tree import close_prepared_child
++    close_prepared_child(child)
+     with _quiet(log_message, exc_info=True):
+         close = getattr(child, "close", None)
+         if callable(close):
+@@ -137,6 +139,8 @@
+     landed (a fan-out still building its siblings, a turn that has not reached its iteration check yet)
+     would otherwise start with no signal and run to completion as an orphan. Mirror a pending stop here
+     so the whole spawn tree dies with its parent."""
++    from tui_gateway.hcv_stop_tree import track_prepared_child
++    track_prepared_child(child, parent_agent)
+     if hasattr(parent_agent, "_active_children"):
+         _with_children_lock(parent_agent, "append", child)
+     if getattr(parent_agent, "_interrupt_requested", False) is not True:
+@@ -448,6 +452,8 @@
+         "owner_transport": owner_transport,
+         "owner_session_record": owner_session_record,
+     })
++    from tui_gateway.hcv_stop_tree import forget_prepared_child
++    forget_prepared_child(child, started=True)
+     return _subagent_id
+ 
+ def _create_isolated_worktree(parent_agent: Any, parent_task_id: Any, subagent_id: Optional[str]):
+@@ -641,10 +647,18 @@
+         # text — and keep the placeholder as the error.
+         from agent.message_content import flatten_message_text
+         placeholders = {"", summary.strip(), "Operation interrupted."}
+-        partial = next((t for m in reversed(result.get("messages") or []) if m.get("role") == "assistant"
++        messages = result.get("messages") or []
++        start = result.get("current_turn_user_idx")
++        turn_messages = messages[start:] if type(start) is int and 0 <= start < len(messages) else messages
++        # The closer can append a typed failed-turn boundary. It is not the
++        # child's partial answer. A proven current-turn index also prevents an
++        # older answer from masquerading as progress after a resumed stop.
++        partial = next((t for m in reversed(turn_messages) if m.get("role") == "assistant"
++                        and m.get("display_kind") != "failed_turn"
+                         and (t := flatten_message_text(m.get("content")).strip()) not in placeholders), "")
+-        if partial:
+-            interrupt_note, summary = summary.strip(), partial
++        # A zero-output interruption has no model report. Keep the diagnostic
++        # as error metadata, never as a fabricated assistant summary.
++        interrupt_note, summary = summary.strip(), partial
+         if (stale_after := result.get("_stale_stop_seconds")) is not None:
+             # The heartbeat's stale verdict stopped it (``await_child``): a timeout, as when it never unwinds.
+             status = exit_reason = "timeout"
+@@ -845,7 +859,11 @@
+                 record_session_cwd(self.child_task_id, parent_cwd)
+             register_container_alias(self.child_task_id, self.parent_task_id)
+ 
+-        self.worktree_info = _create_isolated_worktree(self.parent_agent, self.parent_task_id, self.subagent_id)
++        receipt = getattr(self.child, "_hcv_resume_receipt", None)
++        if receipt and receipt.get("cwd"):
++            from tools.terminal_tool import record_session_cwd
++            record_session_cwd(self.child_task_id, receipt["cwd"])
++        self.worktree_info = None if receipt else _create_isolated_worktree(self.parent_agent, self.parent_task_id, self.subagent_id)
+         if self.worktree_info is not None:
+             with _quiet("worktree cwd seed failed: %s"), child_profile_scope(self.child):
+                 from tools.terminal_tool import record_session_cwd as _rsc
+@@ -867,6 +885,8 @@
+             duration_seconds=entry["duration_seconds"],
+             summary=redact_child_text(summary, force=False) if summary is not None else None,
+         )
++        from tui_gateway.hcv_stop_tree import record_child_outcome
++        record_child_outcome(self.child, entry)
+         _append_missed_steer(entry, late_steer)
+         return self.attach_worktree(entry)
+ 
+@@ -938,7 +958,8 @@
+         worker_thread_holder: dict[str, Optional[threading.Thread]] = {"t": None}
+         # Resolved after seed_workspace so a multimodal goal's text part carries the worktree note too.
+         _images = list(getattr(child, "_delegate_images", None) or [])
+-        user_message: Any = _build_child_goal_message(self.goal, _images, child) if _images else self.goal
++        _goal_message = child.__dict__.pop("_hcv_resume_prompt", None) or self.goal
++        user_message: Any = _build_child_goal_message(_goal_message, _images, child) if _images else _goal_message
+ 
+         def _run_with_thread_capture():
+             worker_thread_holder["t"] = threading.current_thread()
+@@ -946,8 +967,14 @@
+             from tools.delegate_tool_routes import child_profile_scope
+             # A profile-routed child converses as that profile (config, secrets, skills, terminal policy).
+             with child_profile_scope(child), delegated_child_context(str(getattr(child, "session_id", "") or "")):
++                before = child.__dict__.pop("_hcv_resume_before_run", None)
++                context = before() if callable(before) else ""
++                run_message = user_message
++                if context:
++                    run_message = user_message + "\n\n" + context if isinstance(user_message, str) else [*user_message, {"type": "text", "text": context}]
+                 return child.run_conversation(
+-                    user_message=user_message, task_id=self.child_task_id, stream_callback=self.relay_text,
++                    user_message=run_message, task_id=self.child_task_id, stream_callback=self.relay_text,
++                    conversation_history=child.__dict__.pop("_hcv_resume_history", None),
+                 )
+ 
+         future = executor.submit(contextvars.copy_context().run, _run_with_thread_capture)
+@@ -1105,6 +1132,8 @@
+     def emit_complete(self, result: dict[str, Any], entry: dict[str, Any], duration: float) -> None:
+         """Fire ``subagent.complete`` with the per-branch observability payload (tokens, cost, files touched,
+         tool-output tail); every field is optional and degrades gracefully on the client."""
++        from tui_gateway.hcv_stop_tree import record_child_outcome
++        record_child_outcome(self.child, entry)
+         if not self.child_progress_cb:
+             return
+         child = self.child
+--- a/hermes_state_worker_compression.py
++++ b/hermes_state_worker_compression.py
+@@ -455,7 +455,14 @@
+     return {'released': True}
+ 
+ 
++def worker_resume_lineage(db, conn, sid, payload):
++    _fields(payload, ())
++    from tools.delegate_tree_lineage import compression_ids
++    return {'ids': compression_ids(conn, sid)}
++
++
+ WORKER_COMPRESSION_HANDLERS = {
++    'compression.resume_lineage': worker_resume_lineage,
+     'turn.cleanup': worker_turn_cleanup,
+     'compression.append': worker_compression_append,
+     'compression.reopen': worker_reopen,
+--- a/tools/async_delegation.py
++++ b/tools/async_delegation.py
+@@ -849,7 +849,7 @@
+             for r in _records.values() if r.get("status") in {"running", "finalizing"})
+ 
+ 
+-def _session_records(statuses, session_key: str, origin_ui_session_id: str, parent_session_id: str) -> list:
++def _session_records(statuses, session_key: str, origin_ui_session_id: str, parent_session_id: str, *, profile_home=None) -> list:
+     """Records in ``statuses`` owned by a session: any non-empty selector claims the
+     record — ``origin_ui_session_id`` (TUI tab), ``session_key`` (routing key at
+     dispatch), or ``parent_session_id`` (spawner's durable id — the right one for
+@@ -861,12 +861,13 @@
+         return []
+     with _records_lock:
+         return [r for r in _records.values() if r.get("status") in statuses
++                and (profile_home is None or r.get("_profile_home") == hermes_home_key(profile_home))
+                 and any(str(r.get(field) or "") == wanted for field, wanted in selectors)]
+ 
+ 
+-def has_live_for_session(session_key: str = "", origin_ui_session_id: str = "", parent_session_id: str = "") -> bool:
++def has_live_for_session(session_key: str = "", origin_ui_session_id: str = "", parent_session_id: str = "", *, profile_home=None) -> bool:
+     """Whether a session still owns any live (running/stalling/finalizing) delegation."""
+-    return bool(_session_records(_LIVE_STATES, session_key, origin_ui_session_id, parent_session_id))
++    return bool(_session_records(_LIVE_STATES, session_key, origin_ui_session_id, parent_session_id, profile_home=profile_home))
+ 
+ 
+ def _new_delegation_id() -> str:
+@@ -960,11 +961,11 @@
+         **({"task_indexes": list(task_indexes)} if task_indexes is not None else {}),
+         # The one stale-monitor thread serves every profile and starts with an empty Context;
+         # a forced finalization runs under the dispatcher's so it settles the same state.db.
+-        "_context": contextvars.copy_context(),
++        "_context": contextvars.copy_context(), "_profile_home": hermes_home_key(),
+         # Stale-monitor bookkeeping (see _stale_monitor_loop).
+         "_progress_token": None, "_progress_ts": dispatched_at, "_interrupted_at": None}
+     with _records_lock:
+-        if any((field, record[field]) in _refused_by for field in _FENCED_FIELDS):
++        if any((field, record[field]) in _refused_by or (record["_profile_home"], field, record[field]) in _refused_by for field in _FENCED_FIELDS):
+             return {"status": "rejected", "error": "This session was closed (exit or /new): no new background work."}
+         active_slots = {r.get("slot_key") or r["delegation_id"] for r in _records.values() if r.get("status") in _ACTIVE_STATES}
+         if record["slot_key"] not in active_slots and len(active_slots) >= max_async_children:
+@@ -1428,20 +1429,22 @@
+ 
+ 
+ def interrupt_for_session(
+-    session_key: str = "", origin_ui_session_id: str = "", parent_session_id: str = "", reason: str = "session_end",
++    session_key: str = "", origin_ui_session_id: str = "", parent_session_id: str = "", reason: str = "session_end", *, profile_home=None,
+ ) -> int:
+     """Signal running async delegations owned by ONE ending session to stop (any
+     selector matches, see ``_session_records``). Returns how many."""
+-    targets = _session_records(_ACTIVE_STATES, session_key, origin_ui_session_id, parent_session_id)
++    targets = _session_records(_ACTIVE_STATES, session_key, origin_ui_session_id, parent_session_id, profile_home=profile_home)
+     return _interrupt_records(
+         targets, "interrupt_for_session", reason, "Interrupted %d async delegation(s) for ending session (%s)")
+ 
+ 
+-def refuse_for_session(token: Any, *, session_key: str = "", parent_session_ids=()) -> None:
++def refuse_for_session(token: Any, *, session_key: str = "", parent_session_ids=(), profile_home=None) -> None:
+     """Refuse new dispatches for ONE closing session (any selector matches) until ``allow_for_session``.
+     Set before ``interrupt_for_session``: a dispatch registered first is interrupted, a later one refused."""
+     fence = {("session_key", session_key)} if session_key else set()
+     fence.update(("parent_session_id", parent) for parent in parent_session_ids if parent)
++    if profile_home is not None:
++        fence = {(hermes_home_key(profile_home), field, value) for field, value in fence}
+     with _records_lock:
+         _unfence(token)
+         _refused[token] = frozenset(fence)
+--- a/tools/process_registry.py
++++ b/tools/process_registry.py
+@@ -550,6 +550,7 @@
+                                                 # may be collapsed by _resolve_container_task_id)
+     owner_task_id: str = ""                     # RAW spawning task id ("sa-..."); ownership
+                                                 # checks must use this, not task_id
++    profile_home: str = ""                      # authoritative home stamped at process admission
+     sandbox_key: str = ""                       # hosted agent whose sandbox it runs in ("" = local activity);
+                                                 # only that agent's scope can see it (sandbox_scope)
+     session_key: str = ""                       # Gateway session key (reset protection)
+@@ -659,7 +660,7 @@
+ # ``session_id``; ``command`` is redacted and ``owner_task_id`` defaulted on write).
+ _CHECKPOINT_FIELDS = (
+     "command", "pid", "pid_scope", "host_start_time", "systemd_unit", "wsl_chain", "cwd",
+-    "started_at", "task_id", "owner_task_id", "session_key",
++    "started_at", "task_id", "owner_task_id", "session_key", "profile_home",
+     *(f"watcher_{k}" for k in _WATCHER_ROUTE_KEYS), "watcher_interval",
+     "parent_session_id", "notify_on_complete", "completion_output_chars", "watch_patterns",
+     "heartbeat_seconds", "persist_on_release", "output_log")
+@@ -1098,6 +1099,7 @@
+             id=f"proc_{uuid.uuid4().hex[:12]}", command=command, task_id=task_id,
+             owner_task_id=owner_task_id, session_key=session_key, cwd=cwd, sandbox_key=current_sandbox_key(),
+             parent_session_id=get_session_env("HERMES_SESSION_ID", ""),
++            profile_home=__import__("hermes_constants").hermes_home_key(),
+             wsl_chain=_is_wsl_launcher_command(command),
+             started_at=time.time(), **extra)
+ 
+@@ -2358,7 +2360,7 @@
+         """O(1) running count for status-bar polling; dict ``len()`` is atomic, no lock."""
+         return len(self._running)
+ 
+-    def list_sessions(self, task_id: str | None = None, session_key: str | None = None, *, include_retained: bool = False) -> list:
++    def list_sessions(self, task_id: str | None = None, session_key: str | None = None, *, include_retained: bool = False, profile_home=None) -> list:
+         """Running and recently-finished processes for ``task_id`` and/or ``session_key``;
+         cross-task entries sharing the gateway session (a forgotten preview server
+         blocking session reset) are flagged ``"session_scoped": true``.
+@@ -2386,6 +2388,9 @@
+                 if (task_id and s.owner_task_id == task_id)
+                 or (session_key and s.session_key == session_key)
+             ]
++        if profile_home is not None:
++            from hermes_constants import hermes_home_key
++            all_sessions = [s for s in all_sessions if s.profile_home == hermes_home_key(profile_home)]
+         result = []
+         for s in all_sessions:
+             # List-only refreshes must observe child exit even while descendants
+--- a/agent/managed_worker.py
++++ b/agent/managed_worker.py
+@@ -108,7 +108,7 @@
+ 
+ 
+ def validate_bootstrap(frame):
+-    if set(frame) - {'attachments_v1'} != BOOTSTRAP_FIELDS or frame['version'] != 1:
++    if set(frame) - {'attachments_v1', 'hcv_tree_v1'} != BOOTSTRAP_FIELDS or frame['version'] != 1:
+         raise ValueError('invalid_managed_worker_bootstrap')
+     scope = frame['scope']
+     fields = {'profile_id', 'session_id', 'execution_id', 'generation', 'pid', 'birth', 'secret', 'epoch'}
+@@ -183,6 +183,8 @@
+         self.finish = threading.Event()
+         self.clarifications = {}
+         self.lock = threading.Lock()
++        from tools.hcv_managed_tree import init_controls
++        init_controls(self)
+         self.reader = threading.Thread(target=self.read, name='managed-controls', daemon=True)
+         self.reader.start()
+ 
+@@ -201,6 +203,10 @@
+         try:
+             while True:
+                 frame = read_frame(sys.stdin.buffer)
++                if frame.get('type') == 'tree.stop':
++                    from tools.hcv_managed_tree import begin_stop
++                    begin_stop(self, frame)
++                    continue
+                 if frame == {'type': 'stop'}:
+                     self.stop()
+                     continue
+@@ -387,6 +393,8 @@
+                 tool_complete_callback=lambda call_id, name, args, result: channel.send('tool.complete',
+                                                                                          **tool_frame(call_id, name, args, result)))
+             controls.agent = agent
++            from tools.hcv_managed_tree import prepare_root, finish_root
++            tree_admitted = prepare_root(controls, frame, store)
+             if controls.stopped.is_set():
+                 from agent.interrupt_compat import request_hard_interrupt
+                 request_hard_interrupt(agent)
+@@ -404,8 +412,11 @@
+             before = (getattr(agent, 'session_prompt_tokens', 0) or 0,
+                       getattr(agent, 'session_completion_tokens', 0) or 0)
+             # Most failed results name no provider or model; the owner's error card needs the agent's.
+-            result = {'provider': getattr(agent, 'provider', None), 'model': getattr(agent, 'model', None),
+-                      **run_worker_turns(agent, frame, history)}
++            try:
++                native_result = run_worker_turns(agent, frame, history) if tree_admitted else {'interrupted': True, 'completed': False, 'final_response': ''}
++                result = {'provider': getattr(agent, 'provider', None), 'model': getattr(agent, 'model', None), **native_result}
++            finally:
++                finish_root(controls)
+             result['_turn_input_tokens'] = max(0, (getattr(agent, 'session_prompt_tokens', 0) or 0) - before[0])
+             result['_turn_output_tokens'] = max(0, (getattr(agent, 'session_completion_tokens', 0) or 0) - before[1])
+             retire_agent(agent)
+--- a/gateway/session_managed_worker.py
++++ b/gateway/session_managed_worker.py
+@@ -80,7 +80,9 @@
+     config = _worker_config(authority, policy)
+     hydrated = replace(policy, config_json=json.dumps(config), request_json=json.dumps(request),
+                        terminal_json=json.dumps(terminal), credential_ref=None, config_secret_ref=None)
++    from gateway.hcv_tree_owner import managed_bootstrap
+     return {'version': 1, 'home': authority.profile_id, 'scope': scope,
++            'hcv_tree_v1': managed_bootstrap(authority, ref, row),
+             'policy': asdict(hydrated), 'api_key': route_launch_key(authority, policy, config),
+             'text': row['payload']['text'] if text is None else text, 'route': live.route,
+             **({'attachments_v1': row['payload']['attachments_v1']} if 'attachments_v1' in row['payload'] else {}),
+@@ -155,6 +157,8 @@
+         self.worker = None
+         self.write_lock = threading.Lock()
+         self.commands = queue.Queue(maxsize=16)
++        self.tree_waiters = {}
++        self.tree_lock = threading.Lock()
+         self.closed = threading.Event()
+         # Latched the moment Stop is admitted, before any pipe write: the owner's read loop
+         # supervises it even while the child has not yet said hello or read its bootstrap.
+@@ -278,6 +282,31 @@
+             stopper.cancel()
+             arrived.cancel()
+ 
++    async def tree_request(self, frame, *, timeout=20):
++        request_id = frame['request_id']
++        future = asyncio.get_running_loop().create_future()
++        with self.tree_lock:
++            if request_id in self.tree_waiters:
++                raise RuntimeStoreError('tree_request_conflict')
++            self.tree_waiters[request_id] = future
++        try:
++            self.control(frame)
++            return await asyncio.wait_for(asyncio.shield(future), timeout)
++        finally:
++            with self.tree_lock:
++                self.tree_waiters.pop(request_id, None)
++
++    def accept_tree_ack(self, frame):
++        if (set(frame) not in ({'type', 'request_id', 'result'}, {'type', 'request_id', 'error'})
++                or not isinstance(frame.get('request_id'), str)
++                or 'result' in frame and not isinstance(frame['result'], dict)
++                or 'error' in frame and not isinstance(frame['error'], str)):
++            raise RuntimeStoreError('invalid_worker_frame')
++        with self.tree_lock:
++            future = self.tree_waiters.get(frame['request_id'])
++        if future is not None and not future.done():
++            future.set_result(frame)
++
+     def interrupt(self):
+         self.control({'type': 'stop'})
+ 
+@@ -319,6 +348,15 @@
+ 
+     def close(self):
+         self.closed.set()
++        with self.tree_lock:
++            pending = list(self.tree_waiters.values())
++            self.tree_waiters.clear()
++        for future in pending:
++            def lost(future=future):
++                if not future.done():
++                    future.set_exception(RuntimeStoreError("managed_worker_lost"))
++            with suppress(RuntimeError):
++                future.get_loop().call_soon_threadsafe(lost)
+         self._demand.release()  # a reader parked between frames exits; one mid-read ends at EOF
+         if self.process.poll() is None:
+             self._signal_worker(kill=False)
+@@ -699,6 +737,9 @@
+             if frame == {'type': 'error', 'reason': 'managed_worker_failed'}:
+                 raise RuntimeStoreError('managed_worker_failed')
+             kind = frame.get('type')
++            if kind == 'tree.ack':
++                worker.accept_tree_ack(frame)
++                continue
+             if kind == 'ready' and set(frame) == {'type', 'pid'} and frame['pid'] == scope['pid']:
+                 continue
+             if kind == 'delta' and set(frame) == {'type', 'text'} and isinstance(frame['text'], str):
+--- a/gateway/run_turn_runner.py
++++ b/gateway/run_turn_runner.py
+@@ -554,6 +554,8 @@
+         # processes are outside this baseline and remain alive.
+         agent._gateway_turn_process_task_id, agent._gateway_turn_process_baseline = ctx.process_task_id, ctx.process_baseline
+         ctx.tools_holder[0] = getattr(agent, "tools", None)  # transcript logging
++        from tools.hcv_inproc_tree import prepare_inproc
++        self._hcv_tree_admitted = prepare_inproc(self, agent)
+ 
+     # ── blocking prompts from the agent thread (approval / clarify) ─────────────────────────
+ 
+@@ -1006,6 +1008,8 @@
+         from tools.approval import register_gateway_notify, unregister_gateway_notify
+         from tools.approval_context import reset_current_session_key, set_current_session_key
+         ctx = self._ctx
++        if getattr(self, "_hcv_tree_admitted", True) is False:
++            return {"interrupted": True, "completed": False, "final_response": "", "messages": agent_history}
+         session_key = ctx.session_key or ""
+         token = set_current_session_key(session_key)
+         register_gateway_notify(session_key, self._approval_notify_sync)
+@@ -1072,6 +1076,8 @@
+                 _settle_api_runtime_lock(agent, result, captured)
+             return result
+         finally:
++            from tools.hcv_inproc_tree import finish_inproc
++            finish_inproc(self)
+             unregister_gateway_notify(session_key)
+             # Cancel pending clarify entries so blocked agent threads don't hang past the end of the
+             # run (interrupt, completion, gateway shutdown). Idempotent.
+--- a/gateway/session_controls.py
++++ b/gateway/session_controls.py
+@@ -98,7 +98,7 @@
+ _PROFILE_IMPLICIT = frozenset({'session.create', 'session.list', 'session.info', 'session.resume', 'session.detach',
+                                'prompt.submit', 'prompt.receipt', 'prompt.cancel', 'prompt.resolve_unknown',
+                                'prompt.steer_queued', 'prompt.replace_queued',
+-                               'session.interrupt', 'session.events.since', 'session.mutate', 'session.stats',
++                               'session.interrupt', 'session.tree_status', 'session.continue_tree', 'session.events.since', 'session.mutate', 'session.stats',
+                                'approval.respond', 'clarify.respond'})
+ 
+ 
+@@ -285,6 +285,9 @@
+         handlers.update(onboarding_handlers(self))
+         from gateway.session_stored_reads import handlers as stored_read_handlers
+         handlers.update(stored_read_handlers(self))
++        from gateway.hcv_tree_owner import tree_status, continue_tree
++        handlers['session.tree_status'] = partial(tree_status, self)
++        handlers['session.continue_tree'] = partial(continue_tree, self)
+         return handlers
+ 
+     async def dispatch(self, request):
+@@ -798,8 +801,12 @@
+             self._record_voice_stop(ref, params)
+             return {'voice_stopped': True}
+         # The interactive WS is the one surface a restart's after-turn wait admits (#139041).
+-        receipt = await self.authority.submit(self.actor, self.submission(ref, params),
+-                                              queue_while_restarting=self._operator is True)
++        request = self.submission(ref, params)
++        from gateway.hcv_tree_owner import user_submission_scope
++        async with user_submission_scope(self, ref) as tree_submission:
++            receipt = await self.authority.submit(self.actor, request,
++                                                  queue_while_restarting=self._operator is True)
++            tree_submission['value'] = receipt
+         return asdict(receipt)
+ 
+     def _voice_stop_key(self, ref, params):
+@@ -944,6 +951,10 @@
+             self.actor, ref, params['admission_id'], params['execution_generation']))
+ 
+     async def interrupt(self, ref, params):
++        if params.get('cascade') is True:
++            from gateway.hcv_tree_owner import stop_tree
++            result = await stop_tree(self, ref, params)
++            return {**asdict(self.authority._handle(ref)), **result}
+         from gateway.session_managed_worker import interrupt_managed
+         if interrupt_managed(self.authority, self.actor, ref, params.get('execution_generation')):
+             return asdict(self.authority._handle(ref))
+--- a/tui_gateway/contracts/canonical_sessions.py
++++ b/tui_gateway/contracts/canonical_sessions.py
+@@ -9,7 +9,7 @@
+ from .base import JsonValue, Params, Result
+ from .common import ProfileParams, TranscriptMessage
+ from .connectors_operation import ConnectionRequestPayload
+-from .sessions import OpenRequestEntry, TodoState
++from .sessions import OpenRequestEntry, TodoState, SessionTreeFields, SessionTreeResult
+ from .canonical import (AdmissionStatus, CanonicalClientLabel, CanonicalSessionRef, PromptResponseResult,
+                         SessionInventoryFields)
+ from .registry import canonical_method
+@@ -354,11 +354,34 @@
+     open_requests: list[OpenRequestEntry] | None = None
+ 
+ 
++class CanonicalTreeInterruptParams(CanonicalControlParams):
++    cascade: bool = False
++    checkpoint_id: str | None = None
++    request_id: str | None = None
++    timeout_ms: int = 15000
++
++
++class CanonicalTreeInterruptResult(CanonicalSessionHandle, SessionTreeFields):
++    pass
++
++
++class CanonicalTreeStatusParams(CanonicalSessionParams):
++    checkpoint_id: str | None = None
++
++
++class CanonicalTreeContinueParams(CanonicalSessionParams):
++    checkpoint_id: str
++
++
++canonical_method('session.tree_status', params=CanonicalTreeStatusParams, result=SessionTreeResult)
++canonical_method('session.continue_tree', params=CanonicalTreeContinueParams, result=SessionTreeResult)
++
++
+ for _name, _params, _result in (
+     ('session.create', CanonicalCreateParams, CanonicalSnapshot),
+     ('session.resume', CanonicalResumeParams, CanonicalSnapshot),
+     ('session.list', CanonicalListParams, CanonicalListResult),
+-    ('session.interrupt', CanonicalControlParams, CanonicalSessionHandle),
++    ('session.interrupt', CanonicalTreeInterruptParams, CanonicalTreeInterruptResult),
+     ('session.steer', CanonicalCorrectionParams, CanonicalCorrectionResult),
+     ('session.redirect', CanonicalCorrectionParams, CanonicalCorrectionResult),
+     ('session.events.since', CanonicalEventsParams, CanonicalEventsResult),
+--- a/gateway/session_authority.py
++++ b/gateway/session_authority.py
+@@ -1222,6 +1222,9 @@
+         backoff, conflicted, refusing = 0.0, None, None
+         delegation_retry = {}
+         while True:
++            from gateway.hcv_tree_owner import claim_paused
++            if claim_paused(self, ref):
++                return None
+             # The refusal handling's own reads and writes share the claim's storage retry, which finishes
+             # that exact refusal first: once its cancellation commits, the claim no longer sees the row.
+             try:
+--- a/gateway/session_queued_controls.py
++++ b/gateway/session_queued_controls.py
+@@ -71,7 +71,8 @@
+         row = get_session_admission(authority.db, admission_id=admission_id)
+         if row is not None and row['status'] == 'terminal' and row['outcome'] == STEERING:
+             rows[admission_id] = row
+-    return sorted(rows.values(), key=lambda row: row['seq'])
++    from gateway.hcv_tree_owner import visible_pending
++    return visible_pending(authority, ref, sorted(rows.values(), key=lambda row: row['seq']))
+ 
+ 
+ async def _queued(connection, ref, admission_id):

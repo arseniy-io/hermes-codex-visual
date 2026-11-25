@@ -19,8 +19,10 @@ function menuButton(icon) {
   return button
 }
 
-function rowMenu(actions, ctx, queueing) {
+function rowMenu(actions, ctx) {
   const { t } = ctx.i18n
+  const entry = actions.parentElement
+  const dismiss = () => entry.querySelector('.status-row-dismiss .status-dismiss-button')
   const trigger = menuButton('queueMore')
   trigger.dataset.hcvQueueMore = ''
   trigger.setAttribute('aria-label', t('queueActions'))
@@ -45,8 +47,9 @@ function rowMenu(actions, ctx, queueing) {
     return button
   }
   const editItem = item('queueEdit', () => actions.querySelector(edit)?.click())
-  const sendItem = item('queueSteer', () => actions.querySelector(send)?.click())
-  const modeItem = item('queueFollowUp', () => ctx.storage.set(modeKey, !queueing()))
+  const removeItem = item('queueTrash', () => dismiss()?.click())
+  editItem.textContent = t('queueEdit')
+  removeItem.textContent = t('queueDelete')
   const items = () => Array.from(popup.querySelectorAll('button:not([hidden], :disabled)'))
 
   trigger.popoverTargetElement = popup
@@ -56,16 +59,12 @@ function rowMenu(actions, ctx, queueing) {
     if (!opening) return
 
     const editButton = actions.querySelector(edit)
-    const sendButton = actions.querySelector(send)
-    editItem.textContent = t('queueEdit')
+    const deleteButton = dismiss()
     editItem.disabled = !editButton || editButton.disabled
-    sendItem.textContent = t('queueNext')
-    sendItem.hidden = !sendButton || !actions.querySelector(steer)
-    sendItem.disabled = !sendButton || sendButton.disabled
-    modeItem.textContent = t(queueing() ? 'queueOff' : 'queueOn')
+    removeItem.disabled = !deleteButton || deleteButton.disabled
 
     const rect = trigger.getBoundingClientRect()
-    const maxHeight = 92
+    const maxHeight = 68
     popup.style.right = Math.max(8, window.innerWidth - rect.right) + 'px'
     const below = rect.bottom + maxHeight + 8 < window.innerHeight
     popup.style.top = below ? rect.bottom + 4 + 'px' : 'auto'
@@ -104,16 +103,60 @@ function rowMenu(actions, ctx, queueing) {
     event.preventDefault()
     buttons[index].focus()
   })
-  actions.append(trigger, popup)
-  return () => {
-    trigger.remove()
-    popup.remove()
+  const steerButton = menuButton('queueSteer')
+  steerButton.dataset.hcvQueueSteer = ''
+  steerButton.textContent = t('queueSteer')
+  steerButton.setAttribute('aria-label', steerButton.textContent)
+  const tip = document.createElement('div')
+  tip.popover = 'manual'
+  tip.dataset.hcvQueueTooltip = ''
+  tip.textContent = t('queueSteerTip')
+  steerButton.setAttribute('aria-description', tip.textContent)
+  let timer
+  const hideTip = () => { clearTimeout(timer); tip.hidePopover() }
+  const showTip = () => {
+    clearTimeout(timer)
+    timer = setTimeout(() => {
+      if (!steerButton.isConnected || steerButton.hidden || steerButton.disabled) return
+      const bounds = steerButton.getBoundingClientRect()
+      tip.style.left = `${bounds.left + bounds.width / 2}px`
+      tip.style.top = `${bounds.top - 2}px`
+      tip.showPopover()
+      const rect = tip.getBoundingClientRect()
+      if (rect.right > window.innerWidth - 8) tip.style.left = `${bounds.left + bounds.width / 2 - (rect.right - window.innerWidth + 8)}px`
+      if (rect.left < 8) tip.style.left = `${bounds.left + bounds.width / 2 + 8 - rect.left}px`
+    }, 500)
+  }
+  steerButton.addEventListener('pointerenter', showTip)
+  steerButton.addEventListener('pointerleave', hideTip)
+  steerButton.addEventListener('focus', () => { if (steerButton.matches(':focus-visible')) showTip() })
+  steerButton.addEventListener('blur', hideTip)
+  steerButton.addEventListener('keydown', event => { if (event.key === 'Escape') hideTip() })
+  steerButton.addEventListener('click', () => {
+    hideTip()
+    actions.querySelector(steer)?.click()
+  })
+  actions.append(steerButton, tip, trigger, popup)
+  return {
+    sync() {
+      const native = actions.querySelector(steer)
+      steerButton.toggleAttribute('hidden', !native)
+      steerButton.toggleAttribute('disabled', Boolean(native?.disabled))
+      if (steerButton.hidden || steerButton.disabled) hideTip()
+    },
+    dispose() {
+      hideTip()
+      steerButton.remove()
+      tip.remove()
+      trigger.remove()
+      popup.remove()
+    },
   }
 }
 
-function QueueSurface({ ctx, queueing }) {
+function QueueSurface({ ctx }) {
   const anchor = useRef(null)
-  const { locale, t: { composer: copy } } = useI18n()
+  const { locale } = useI18n()
 
   useLayoutEffect(() => {
     const dock = anchor.current?.closest('[data-slot="composer-dock"]')
@@ -124,7 +167,7 @@ function QueueSurface({ ctx, queueing }) {
     let expandedByPlugin = false
 
     const cleanSection = () => {
-      for (const dispose of menus.values()) dispose()
+      for (const menu of menus.values()) menu.dispose()
       menus.clear()
       ordering?.dispose()
       ordering = undefined
@@ -132,7 +175,6 @@ function QueueSurface({ ctx, queueing }) {
       current.removeAttribute('data-hcv-queue')
       current.removeAttribute('aria-label')
       current.removeAttribute('role')
-      current.style.removeProperty('--hcv-queue-steer-label')
       if (expandedByPlugin && current.isConnected) {
         current.querySelector('.status-section-trigger[aria-expanded="true"]')?.click()
       }
@@ -147,14 +189,13 @@ function QueueSurface({ ctx, queueing }) {
       if (panel !== current) {
         cleanSection()
         current = panel
-        if (panel) ordering = bindQueueOrder(dock, panel, ctx.i18n.t, copy)
+        if (panel) ordering = bindQueueOrder(dock, panel, ctx.i18n.t)
       }
       if (!panel) return
       if (!panel.hasAttribute('data-hcv-queue')) {
         panel.dataset.hcvQueue = ''
         panel.setAttribute('role', 'group')
         panel.setAttribute('aria-label', ctx.i18n.t('queueLabel'))
-        panel.style.setProperty('--hcv-queue-steer-label', JSON.stringify(ctx.i18n.t('queueSteer')))
       }
 
       const collapsed = panel.querySelector('.status-section-trigger[aria-expanded="false"]')
@@ -164,20 +205,21 @@ function QueueSurface({ ctx, queueing }) {
       }
 
       const live = new Set(panel.querySelectorAll('.status-section-body > ' + row + ' > .status-row-actions'))
-      for (const [actions, dispose] of menus) {
+      for (const [actions, menu] of menus) {
         if (!live.has(actions)) {
-          dispose()
+          menu.dispose()
           menus.delete(actions)
         }
       }
       for (const actions of live) {
-        if (menus.has(actions)) continue
-        const removeMenu = rowMenu(actions, ctx, queueing)
-        const removeGrip = ordering.add(actions)
-        menus.set(actions, () => {
-          removeMenu()
-          removeGrip()
-        })
+        let menu = menus.get(actions)
+        if (!menu) {
+          const controls = rowMenu(actions, ctx)
+          const removeGrip = ordering.add(actions)
+          menu = { sync: controls.sync, dispose: () => { controls.dispose(); removeGrip() } }
+          menus.set(actions, menu)
+        }
+        menu.sync()
       }
       ordering.sync()
     }
@@ -185,14 +227,14 @@ function QueueSurface({ ctx, queueing }) {
     const observer = new MutationObserver(sync)
     observer.observe(dock, {
       childList: true, subtree: true, attributes: true,
-      attributeFilter: ['aria-expanded', 'inert'],
+      attributeFilter: ['aria-expanded', 'inert', 'disabled'],
     })
     sync()
     return () => {
       observer.disconnect()
       cleanSection()
     }
-  }, [ctx, locale, copy, queueing])
+  }, [ctx, locale])
 
   return h('span', { ref: anchor, hidden: true })
 }
@@ -201,8 +243,12 @@ function queueStyles(active) {
   const panel = active + ' [data-hcv-queue]'
   const entry = panel + ' > .status-section-body > ' + row
   const soleQueue = '[data-slot="status-stack-content"] > :only-child > [data-hcv-queue]'
-  const onlyQueue = stack + ':has(' + soleQueue + ')'
-  const bareDock = active + ' [data-slot="composer-dock"]:has(' + stack + ' ' + soleQueue + '):not(:has(.coding-status-bar))'
+  const firstAgent = '[data-slot="status-stack-content"] > :first-child > [data-slot="composer-subagents"]'
+  const secondQueue = '[data-slot="status-stack-content"] > :last-child:nth-child(2) > [data-hcv-queue]'
+  // A hidden native agent roster must not change the queue-only geometry.
+  const visibleQueueOnly = ':is(:has(' + soleQueue + '), :has(' + firstAgent + '):has(' + secondQueue + '))'
+  const onlyQueue = stack + visibleQueueOnly
+  const bareDock = active + ' [data-slot="composer-dock"]:not(:has(.coding-status-bar))' + visibleQueueOnly
   const queueRows = ' > .status-section-body > ' + row
   const visibleQueue = '.status-drawer:not([data-collapsed]) [data-hcv-queue]' + queueRows
   const attached = active + ' [data-slot="composer-dock"]:not([data-popped-out]):has(> ' + visibleQueue + ')'
@@ -211,7 +257,10 @@ function queueStyles(active) {
   const popup = active + ' [data-hcv-queue-menu]'
   const more = entry + ' [data-hcv-queue-more]'
   const deleteButton = entry + ' .status-dismiss-button'
-  const primary = entry + ' .status-row-actions > :is(' + steer + ', ' + send + ')'
+  const steerButton = entry + ' [data-hcv-queue-steer]'
+  const sendButton = entry + ' .status-row-actions > ' + send
+  const primary = `:is(${steerButton}, ${sendButton})`
+  const tooltip = active + ' [data-hcv-queue-tooltip]'
   return `
     ${active}[data-hermes-mode="dark"] {
       --hcv-queue-text: #dfdfdf;
@@ -258,41 +307,48 @@ function queueStyles(active) {
     ${entry} {
       position: relative;
       display: grid;
-      grid-template-columns: 14px minmax(0, 1fr) auto 22px 22px;
+      grid-template-columns: 14px minmax(0, 1fr) auto 24px 24px;
       grid-template-areas: "icon text primary delete more";
       align-items: center;
-      min-block-size: 29px;
+      min-block-size: 32px;
       gap: 4px;
-      padding: 2px 9px;
+      padding: 2px 10px;
       background: transparent;
     }
     ${entry}:hover { background: transparent; }
     ${grip} {
       display: none;
       position: absolute;
-      inset-inline-start: 1px;
+      inset-inline-start: 0;
       inset-block-start: 50%;
       translate: 0 -50%;
       place-items: center;
-      inline-size: 11px;
-      block-size: 20px;
+      inline-size: 23px;
+      block-size: 24px;
       padding: 0;
       border: 0;
       border-radius: 3px;
       background: transparent;
       color: color-mix(in srgb, var(--hcv-queue-muted, var(--hcv-muted)) 70%, transparent);
-      opacity: 0;
+      touch-action: none;
       cursor: grab;
     }
     ${panel}[data-hcv-queue-reorder] > .status-section-body > ${row} > [data-hcv-queue-grip] { display: grid; }
     ${grip}::before {
       content: "";
+      position: absolute;
+      inset-inline-start: 0;
+      inset-block-start: 50%;
+      translate: 0 -50%;
       inline-size: 14px;
       block-size: 14px;
       background: currentColor;
       mask: ${codexMask('queueGrip')} center / contain no-repeat;
+      opacity: 0;
+      transition: opacity 150ms cubic-bezier(.4, 0, .2, 1);
+      pointer-events: none;
     }
-    ${entry}:is(:hover, :focus-within, [data-hcv-queue-dragging]) > [data-hcv-queue-grip] { opacity: 1; }
+    ${entry}:is(:hover, :focus-within, [data-hcv-queue-dragging]) > [data-hcv-queue-grip]::before { opacity: 1; }
     ${grip}:focus-visible { outline: 1px solid var(--hcv-focus); }
     ${entry}[data-hcv-queue-dragging] { opacity: .6; cursor: grabbing; }
     ${entry}[data-hcv-queue-drop]::after {
@@ -317,31 +373,40 @@ function queueStyles(active) {
     ${entry} > .status-row-icon > *,
     ${entry} :is(.status-dismiss-button, ${steer}, ${send}) > svg,
     ${deleteButton} > * { display: none; }
-    ${entry} > .status-row-content { grid-area: text; margin-inline-start: 2px; }
-    ${entry} > .status-row-content p { font: 400 13px/20px var(--hcv-ui-font); color: inherit; }
-    ${entry} .status-row-actions > ${edit},
-    ${entry}:has(> .status-row-actions > button > svg.tabler-icon-steering-wheel) .status-row-actions > ${send} { display: none; }
+    ${entry} > .status-row-content { grid-area: text; min-inline-size: 0; margin-inline-start: 4px; overflow: hidden; }
+    ${entry} > .status-row-content p {
+      display: block;
+      max-block-size: none;
+      font: 400 var(--hcv-queue-chat-size, 14px)/20px var(--hcv-ui-font);
+      color: inherit;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+    ${entry}:not(:has([data-slot="queue-lost-note"])) .status-row-content p + div { display: none; }
+
+    ${entry} [data-slot="queue-lost-discard"] { grid-area: primary; }
     ${primary}, ${deleteButton}, ${more} {
       display: inline-flex;
       align-items: center;
       justify-content: center;
       gap: 4px;
       block-size: 22px;
-      min-inline-size: 22px;
+      min-inline-size: 24px;
       margin: 0;
       border: 0;
-      border-radius: 8px;
+      border-radius: 10px;
       background: transparent;
       color: var(--hcv-queue-muted, var(--hcv-muted));
-      font: 400 12px/18px var(--hcv-ui-font);
+      font: 400 13px/18px var(--hcv-ui-font);
+      white-space: nowrap;
       cursor: pointer;
     }
-    ${primary} { grid-area: primary; inline-size: auto; padding-inline: 5px; }
-    ${primary}::after { content: attr(aria-label); }
-    ${entry} .status-row-actions > ${steer}::after { content: var(--hcv-queue-steer-label); }
-    ${deleteButton} { grid-area: delete; inline-size: 22px; }
-    ${more} { grid-area: more; inline-size: 22px; }
-    ${primary} { --hcv-queue-icon: ${codexMask('queueSteer')}; }
+    ${primary} { grid-area: primary; inline-size: auto; padding-inline: 8px; border-radius: 999px; }
+    ${sendButton}::after { content: attr(aria-label); }
+    ${deleteButton} { grid-area: delete; inline-size: 24px; block-size: 24px; }
+    ${more} { grid-area: more; inline-size: 24px; block-size: 24px; }
+    ${sendButton} { --hcv-queue-icon: ${codexMask('queueSteer')}; }
     ${deleteButton} { --hcv-queue-icon: ${codexMask('queueTrash')}; }
     ${primary}::before, ${deleteButton}::before, ${more}::before,
     ${popup} button::before {
@@ -353,11 +418,14 @@ function queueStyles(active) {
       background: currentColor;
       mask: var(--hcv-queue-icon) center / contain no-repeat;
     }
-    ${primary}:is(:hover, :focus-visible), ${deleteButton}:is(:hover, :focus-visible),
+    ${primary}:not(:disabled):is(:hover, :focus-visible), ${deleteButton}:is(:hover, :focus-visible),
     ${more}:is(:hover, :focus-visible, [aria-expanded="true"]) {
-      color: var(--hcv-queue-text, var(--hcv-text));
       background: var(--hcv-hover-menu);
     }
+    ${primary}:disabled { opacity: .5; cursor: default; }
+    ${entry} .status-row-actions > :is(${edit}, ${steer}, button[aria-expanded]:not([data-hcv-queue-more])),
+    ${steerButton}[hidden],
+    ${entry}:has(> .status-row-actions > button > svg.tabler-icon-steering-wheel) .status-row-actions > ${send} { display: none; }
     ${primary}:focus-visible, ${deleteButton}:focus-visible, ${more}:focus-visible {
       outline: 1px solid var(--hcv-focus);
       outline-offset: -1px;
@@ -395,24 +463,46 @@ function queueStyles(active) {
     }
     ${popup} button[hidden] { display: none; }
     ${popup} button:disabled { opacity: .45; cursor: default; }
+    ${tooltip} {
+      position: fixed;
+      inset: auto;
+      translate: -50% -100%;
+      box-sizing: border-box;
+      margin: 0;
+      max-inline-size: calc(100vw - 16px);
+      padding: 5px 12px;
+      border: 1px solid var(--hcv-dropdown-outline);
+      border-radius: 999px;
+      background: var(--hcv-menu);
+      color: var(--hcv-queue-text, var(--hcv-text));
+      font: 400 13px/18px var(--hcv-ui-font);
+      text-align: center;
+      pointer-events: none;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      ${grip}::before { transition: none; }
+    }
     @container (max-width: 350px) {
-      ${primary}::after { display: none; }
+      ${sendButton}::after { display: none; }
+      ${steerButton} { font-size: 0; padding-inline: 0; }
     }
   `
 }
 
-export function registerQueueAppearance(ctx, active, queueing) {
+export function registerQueueAppearance(ctx, active) {
   ctx.i18n.register({
     en: {
       queueLabel: 'Queued messages', queueActions: 'Queued message actions', queueSteer: 'Steer',
-      queueEdit: 'Edit message', queueNext: 'Send next',
-      queueOff: 'Turn off queueing', queueOn: 'Turn on queueing',
+      queueEdit: 'Edit message', queueDelete: 'Delete queued message',
+      queueSteerTip: 'Submit without interrupting the model',
+      queueMoveFailed: 'Could not confirm the new queue order',
       queueMove: 'Move queued message with Up or Down', queueMoved: (position, count) => `Position ${position} of ${count}`,
     },
     ru: {
       queueLabel: 'Очередь сообщений', queueActions: 'Действия с сообщением в очереди', queueSteer: 'Скорректировать',
-      queueEdit: 'Редактировать сообщение', queueNext: 'Отправить следующим',
-      queueOff: 'Выключить постановку в очередь', queueOn: 'Включить постановку в очередь',
+      queueEdit: 'Редактировать сообщение', queueDelete: 'Удалить сообщение из очереди',
+      queueSteerTip: 'Отправить, не прерывая работу модели',
+      queueMoveFailed: 'Не удалось подтвердить новый порядок очереди',
       queueMove: 'Переместить сообщение в очереди стрелками вверх или вниз',
       queueMoved: (position, count) => `Позиция ${position} из ${count}`,
     },
@@ -429,7 +519,7 @@ export function registerQueueAppearance(ctx, active, queueing) {
       remove ??= ctx.register({
         id: 'queue-appearance',
         area: 'composer.top',
-        render: () => h(QueueSurface, { ctx, queueing }),
+        render: () => h(QueueSurface, { ctx }),
       })
     } else if (remove) {
       remove()

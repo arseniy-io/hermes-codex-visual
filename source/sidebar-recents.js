@@ -196,7 +196,11 @@ export function NativeRecentRows({ rows }) {
     onToggleUnread: props.onToggleUnread,
     emptyState: props.forceEmptyState ? props.emptyState : h('div', { 'data-hcv-recent-empty': '' }, empty),
   })
-  // The loader exposes React without react-dom. This is the React 19 portal
-  // record, so the native rows keep their router, locale, and theme providers.
-  return { $$typeof: Symbol.for('react.portal'), key: null, children, containerInfo: container, implementation: null }
+  return nativeSidebarPortal(children, container)
+}
+
+export function nativeSidebarPortal(children, container, key = null) {
+  // The loader exposes React without react-dom. This portal keeps the native
+  // rows in Hermes' router, locale and theme providers.
+  return { $$typeof: Symbol.for('react.portal'), key, children, containerInfo: container, implementation: null }
 }

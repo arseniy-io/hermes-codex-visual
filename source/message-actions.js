@@ -59,7 +59,7 @@ function styles(active, transcript) {
   const replyBar = `${reply} ${replyActions}`
   const lane = replyActionLanes(replyBar)
   const replyButton = `${lane} > ${replyCopy}`
-  const tip = `${active} ${replyTip}`
+  const tip = `${active} :is(${replyTip}, [data-hcv-terminal-copy-tip])`
   return `
 @media (forced-colors: none) {
   /* Codex vHM0 and .bubble-vBnidZ (fce177e1b845.css). */
@@ -229,16 +229,16 @@ function styles(active, transcript) {
 `
 }
 
-function registerReplyCopyTip(ctx, active, transcript) {
+export function registerReplyCopyTip(ctx, active, transcript, options = {}) {
   const tip = document.createElement('div')
-  tip.dataset.hcvReplyCopyTip = ''
+  tip.setAttribute(options.marker || 'data-hcv-reply-copy-tip', '')
   tip.setAttribute('aria-hidden', 'true') // The native button carries its own accessible name.
   tip.hidden = true
   document.body.append(tip)
 
   const root = document.documentElement
   const contrast = matchMedia('(forced-colors: active)')
-  const selector = `${replyActionLanes(`${transcript} ${replyRoot} ${replyActions}`)} > ${replyCopy}`
+  const selector = options.selector || `${replyActionLanes(`${transcript} ${replyRoot} ${replyActions}`)} > ${replyCopy}`
   const capture = { capture: true }
   let pointerButton
   let button
@@ -246,25 +246,37 @@ function registerReplyCopyTip(ctx, active, transcript) {
   let triggerType
   let skipDelayUntil = 0
   const trigger = target => root.matches(active) && !contrast.matches && target instanceof Element
-    ? target.closest('button[data-size="icon"]')?.closest(selector)
+    ? target.closest(options.selector ? 'button' : 'button[data-size="icon"]')?.closest(selector)
     : null
 
   function paint() {
     if (!button?.isConnected || !button.checkVisibility({ opacityProperty: true, visibilityProperty: true })) return hide()
     const anchor = button.getBoundingClientRect()
-    const label = button.querySelector(copyIcon) ? ctx.i18n.t('copyResponse') : button.getAttribute('aria-label')
-    if (!label || anchor.top < 35 || anchor.bottom > innerHeight) return hide()
+    const label = options.label ? options.label(button)
+      : button.querySelector(copyIcon) ? ctx.i18n.t('copyResponse') : button.getAttribute('aria-label')
+    if (!label || (options.flip ? anchor.bottom < 0 || anchor.top > innerHeight : anchor.top < 35 || anchor.bottom > innerHeight)) return hide()
     if (tip.textContent !== label) tip.textContent = label
     tip.style.top = `${anchor.top - 5}px`
     tip.hidden = false
+    if (options.flip) {
+      const height = tip.offsetHeight
+      const below = anchor.top - height - 5 < 15 && innerHeight - anchor.bottom > height + 20
+      tip.dataset.side = below ? 'bottom' : 'top'
+      tip.style.transform = below ? 'translate(-50%, 0)' : 'translate(-50%, -100%)'
+      tip.style.top = (below ? anchor.bottom + 5 : Math.max(height + 15, anchor.top - 5)) + 'px'
+    }
     const half = tip.offsetWidth / 2
     tip.style.left = `${Math.min(innerWidth - half - 15, Math.max(half + 15, anchor.left + anchor.width / 2))}px`
   }
 
   const copyStatus = new MutationObserver(paint)
+  const triggerRemoval = new MutationObserver(() => {
+    if (button && !button.isConnected) hide()
+  })
   function hide() {
     clearTimeout(timer)
     copyStatus.disconnect()
+    triggerRemoval.disconnect()
     button = null
     if (!tip.hidden) skipDelayUntil = performance.now() + 300
     tip.hidden = true
@@ -276,7 +288,10 @@ function registerReplyCopyTip(ctx, active, transcript) {
     triggerType = type
     const open = () => {
       paint()
-      if (button) copyStatus.observe(button, { attributes: true, attributeFilter: ['aria-label'] })
+      if (button) {
+        copyStatus.observe(button, { attributes: true, attributeFilter: ['aria-label', 'data-hcv-terminal-copy-label'] })
+        if (options.watchRemoval) triggerRemoval.observe(document.body, { childList: true, subtree: true })
+      }
     }
     // Focus changes the toolbar's opacity in CSS. Wait until focus-in and the
     // browser's automatic scroll have settled before checking the anchor.

@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
+import { captureDisclosureMotion } from './disclosure-motion.spec-helper.mjs'
 
 const mark = '[data-hcv-activity-label]'
 const icon = '[data-hcv-activity-icon]'
 const motion = 'data-hcv-activity-motion'
 
-export async function installActivityReadinessFixture(page) {
+export async function installActivityReadinessFixture(page, intercept) {
   const replies = {
     'setup.status': { provider_configured: true, ready: true, free_tier_route: false },
     'setup.runtime_check': { ok: true, provider: 'custom', model: 'mock-model', free_tier_route: false },
@@ -17,7 +18,7 @@ export async function installActivityReadinessFixture(page) {
       const frame = JSON.parse(String(message))
       if (frame.id != null && Object.hasOwn(replies, frame.method)) {
         route.send(JSON.stringify({ jsonrpc: '2.0', id: frame.id, result: replies[frame.method] }))
-      } else upstream.send(message)
+      } else if (!intercept?.(frame, route)) upstream.send(message)
     })
   })
 }
@@ -27,21 +28,8 @@ function maskHash(value) {
   return body ? createHash('sha256').update(decodeURIComponent(body)).digest('hex') : null
 }
 
-async function sampleMotion(expect, panel, phase, duration = 300) {
-  await expect(panel).toHaveAttribute(motion, phase)
-  const result = await panel.evaluate(async node => {
-    const animation = node.getAnimations().find(item => item.effect.getKeyframes().some(frame => 'blockSize' in frame))
-    await animation.ready
-    animation.pause()
-    const { duration } = animation.effect.getTiming()
-    const frames = [0, duration / 4, duration].map(time => {
-      animation.currentTime = time
-      return { height: node.getBoundingClientRect().height, opacity: Number(getComputedStyle(node).opacity) }
-    })
-    const easing = animation.effect.getTiming().easing
-    animation.finish()
-    return { duration, easing, frames }
-  })
+async function sampleMotion(expect, page, scope, panel, phase, trigger, duration = 300) {
+  const result = await captureDisclosureMotion({ expect, page, scope, panel, phase, trigger })
   assert.equal(result.duration, duration)
   assert.equal(result.easing, duration === 300 ? 'cubic-bezier(0.19, 1, 0.22, 1)' : 'cubic-bezier(0.23, 1, 0.32, 1)')
   const [start, between, end] = phase === 'opening' ? result.frames : [...result.frames].reverse()
@@ -50,12 +38,17 @@ async function sampleMotion(expect, panel, phase, duration = 300) {
   return result
 }
 
-async function verifyTimeline({ page, expect, chat, screenshot, translationRequests }) {
+async function verifyTimeline({ app, page, expect, chat, screenshot, translationRequests }) {
   const history = chat.locator('[data-slot="aui_turn-pair"]').filter({ hasText: 'Лента проверки файлов готова.' })
   const steps = history.locator('button[data-hcv-turn-line]')
   if (await steps.getAttribute('aria-expanded') !== 'true') await steps.click()
   await page.emulateMedia({ reducedMotion: 'no-preference' })
-  const thought = history.getByRole('button', { name: 'Думал', exact: true })
+  const readGroup = history.locator('[data-hcv-activity-group="activityRead"] > button').first()
+  await expect(readGroup).toHaveAccessibleName('Прочитал файлы')
+  await expect(readGroup).toHaveAttribute('aria-expanded', 'false')
+  const readMember = history.locator('[data-hcv-activity-member][data-tool-group]').first()
+  const readOpening = await sampleMotion(expect, page, history, readMember, 'opening', () => readGroup.click())
+  const thought = history.locator('[data-slot="aui_thinking-disclosure"] > div:first-child > button').first()
   const caret = thought.locator(':scope > span:nth-child(2)')
   const body = history.locator('[data-slot="aui_thinking-body"]')
   await thought.scrollIntoViewIfNeeded()
@@ -68,9 +61,8 @@ async function verifyTimeline({ page, expect, chat, screenshot, translationReque
   await expect(caret.locator('.codicon-chevron-right')).toHaveCSS('width', '14px')
   await thought.hover()
   await expect(caret).toHaveCSS('opacity', '1')
-  await thought.click()
+  const thoughtOpening = await sampleMotion(expect, page, history, body, 'opening', () => thought.click())
   await expect(thought).toHaveAttribute('aria-expanded', 'true')
-  const thoughtOpening = await sampleMotion(expect, body, 'opening')
   await expect(caret).toHaveCSS('opacity', '1')
   await expect(body.locator('p').first()).toHaveText('Сохраняю исходный абзац.')
   await expect(body.locator('p').nth(1)).toHaveText('Второй абзац с inline code.')
@@ -108,17 +100,13 @@ async function verifyTimeline({ page, expect, chat, screenshot, translationReque
   await expect(body.locator('ol')).toHaveCSS('padding-inline-start', '32px')
   await expect(history.getByRole('button', { name: /Перевести на русский|Показать оригинал/ })).toHaveCount(0)
   await screenshot('reasoning-russian.png')
-  await thought.click()
-  const thoughtClosing = await sampleMotion(expect, body, 'closing')
+  const thoughtClosing = await sampleMotion(expect, page, history, body, 'closing', () => thought.click())
   await expect(body).toHaveCount(0)
 
-  const read = history.getByRole('button', { name: 'Прочитал файлы', exact: true })
-  await expect(read).toHaveAttribute('aria-expanded', 'false')
-  await read.click()
-  const details = history.locator('[data-tool-summary]:has(button[aria-expanded="true"]) + div').first()
-  const readOpening = await sampleMotion(expect, details, 'opening')
+  const details = readMember.locator(':scope > [data-tool-summary] + div')
   await expect(history.getByText('Прочитал fixture-note.md', { exact: true })).toBeVisible()
-  await expect(details).toHaveCSS('padding-inline-start', '24px')
+  await expect(readMember).toHaveCSS('padding-inline-start', '24px')
+  await expect(details).toHaveCSS('padding-inline-start', '0px')
   await expect(details).toHaveCSS('gap', '12px')
   const readFile = history.getByRole('button', { name: 'Прочитал fixture-note.md', exact: true })
   await readFile.click()
@@ -128,16 +116,15 @@ async function verifyTimeline({ page, expect, chat, screenshot, translationReque
   await screenshot('read-details.png')
   await readFile.click()
   await expect(file).toHaveCount(0)
-  await read.click()
-  const readClosing = await sampleMotion(expect, details, 'closing')
-  await expect(read).toHaveAttribute('aria-expanded', 'false')
+  const readClosing = await sampleMotion(expect, page, history, readMember, 'closing', () => readGroup.click())
+  await expect(readGroup).toHaveAttribute('aria-expanded', 'false')
 
   const sources = history.getByRole('button', {
-    name: /Прочитал скилл.*поиск по истории.*поиск в интернете.*прочитал страницы/i,
+    name: /Прочитал файлы.*поиск по истории.*поиск в интернете.*прочитал страницы/i,
   })
   await expect(sources).toBeVisible()
   const mixed = history.locator('[data-hcv-activity-group="activityEdit"]').getByRole('button')
-  await expect(mixed).toHaveAccessibleName('Отредактировал файл и выполнил команды')
+  await expect(mixed).toHaveAccessibleName('Отредактировал файл выполнил команды')
   await expect(mixed).toHaveAttribute('aria-expanded', 'false')
   const edit = history.locator('[data-hcv-activity-member][data-tool-row]').first()
   await expect(edit).toBeHidden()
@@ -145,7 +132,7 @@ async function verifyTimeline({ page, expect, chat, screenshot, translationReque
   await expect(mixed).toHaveAttribute('aria-expanded', 'true')
   await expect(edit).toBeVisible()
   await expect(edit).toHaveCSS('padding-inline-start', '24px')
-  const command = history.getByRole('button', { name: 'echo verify-file', exact: true })
+  const command = history.getByRole('button', { name: 'echo verify-file', exact: true }).and(history.locator('button'))
   await expect(command).toBeVisible()
   await expect(history.getByRole('button', { name: 'echo verify-again', exact: true })).toBeVisible()
   const commandRows = history.locator('[data-hcv-activity-member][data-tool-group] > [data-tool-summary] + div')
@@ -154,22 +141,46 @@ async function verifyTimeline({ page, expect, chat, screenshot, translationReque
   const fileX = (await edit.locator('button').first().boundingBox()).x
   const commandX = (await command.boundingBox()).x
   assert.equal(fileX, commandX)
+  await expect(edit).not.toHaveAttribute(motion)
+  await expect(edit).toHaveCSS('padding-block-start', '12px')
+  const fileGap = await history.evaluate(node => {
+    const rows = [...node.querySelectorAll('[data-hcv-activity-member][data-tool-row]')].slice(0, 2)
+    const [first, second] = rows.map(row => row.querySelector('button').getBoundingClientRect())
+    return second.top - first.bottom
+  })
+  assert.equal(fileGap, 12)
   await history.evaluate(turn => turn.scrollIntoView({ block: 'center' }))
   await page.mouse.move(280, 120)
   await screenshot('timeline.png')
+  const fileRow = edit.locator('[data-hcv-file-activity-label]')
+  await expect(fileRow).toHaveText('Редактирование fixture-note.md +1 −1')
+  await expect(fileRow.locator('[data-hcv-file-activity-name]')).toHaveCSS('text-decoration-style', 'dotted')
+  await expect(fileRow.locator('[data-hcv-file-activity-name]')).toHaveCSS('text-decoration-thickness', '0.5px')
+  await expect(fileRow.locator('[data-hcv-file-activity-name]')).toHaveCSS('text-underline-offset', '2px')
+  await expect(fileRow.locator('[role="link"], a, button')).toHaveCount(0)
+  await expect(fileRow.locator('[data-hcv-file-activity-counts]')).toHaveCSS('font-size', '13px')
+  await expect(fileRow.locator('[data-hcv-file-activity-counts]')).toHaveCSS('font-family', await fileRow.evaluate(node => getComputedStyle(node).fontFamily))
+  await expect(fileRow.locator('[data-hcv-file-activity-added]')).toHaveCSS('color', await fileRow.locator('[data-hcv-file-activity-removed]').evaluate(node => getComputedStyle(node).color))
+  await expect(fileRow.locator('[data-hcv-file-activity-marker]')).toHaveCount(0)
   const diff = edit.locator('button[aria-expanded]').first()
   await expect(diff).toHaveAttribute('aria-expanded', 'false')
   await diff.click()
   await expect(edit.getByText(/Исправленный файл/)).toBeVisible()
+  await expect(fileRow).toHaveText('Отредактированный файл')
+  await expect(fileRow.locator('[data-hcv-file-activity-counts]')).toHaveCount(0)
   await diff.click()
-  await command.click()
+  await expect(edit.getByText(/Исправленный файл/)).toHaveCount(0)
   const shell = history.locator('[data-hcv-terminal-details="shell"]')
-  const shellOpening = await sampleMotion(expect, shell, 'opening')
-  await expect(shell.getByText('Терминал', { exact: true })).toHaveCSS('font-size', '13px')
+  const shellOpening = await sampleMotion(expect, page, history, shell, 'opening', () => command.click())
+  await expect(shell.getByText('Shell', { exact: true })).toHaveCSS('font-size', '13px')
+  await expect(shell.getByText('Shell', { exact: true })).toHaveCSS('line-height', '18.5714px')
   await expect(shell.locator('pre')).toContainText('fixture verified')
   await expect(shell.locator('pre')).toHaveCSS('font-size', '13px')
   await expect(shell).toHaveCSS('border-top-width', '1px')
-  await expect(shell).toHaveCSS('background-color', 'rgb(42, 42, 42)')
+  await expect(shell).toHaveCSS('background-color', 'rgba(255, 255, 255, 0.08)')
+  await expect(shell).toHaveCSS('border-top-color', 'rgba(255, 255, 255, 0.16)')
+  const shellRadius = await shell.evaluate(() => CSS.supports('corner-shape', 'superellipse(1.5)'))
+  await expect(shell).toHaveCSS('border-top-left-radius', shellRadius ? '12.5px' : '10px')
   await expect(shell).toHaveCSS('margin-inline-start', '24px')
   await expect(shell).toHaveCSS('margin-block-start', '12px')
   await expect(shell.locator('[data-hcv-terminal-status]')).toHaveText('Успех')
@@ -181,9 +192,95 @@ async function verifyTimeline({ page, expect, chat, screenshot, translationReque
       scrollHeight: viewport.scrollHeight, width: viewport.clientWidth, scrollWidth: viewport.scrollWidth }
   })
   assert(terminalScroll.height === 144 && terminalScroll.scrollHeight > terminalScroll.clientHeight && terminalScroll.scrollWidth > terminalScroll.width)
+  const commandCode = shell.locator('[data-hcv-terminal-code]')
+  const copyCommand = shell.locator('button[data-hcv-terminal-copy="command"]')
+  const copyOutput = shell.locator('button[data-hcv-terminal-copy="output"]')
+  await expect(commandCode).toHaveAttribute('role', 'button')
+  await expect(commandCode).toHaveAttribute('tabindex', '0')
+  await expect(copyCommand).toHaveAttribute('data-hcv-terminal-copy-label', 'Копировать команду')
+  await expect(copyOutput).toHaveAttribute('data-hcv-terminal-copy-label', 'Копировать вывод')
+  await expect(copyCommand).not.toHaveAttribute('title')
+  await expect(copyOutput).not.toHaveAttribute('title')
+  await shell.scrollIntoViewIfNeeded()
+  await page.mouse.move(0, 0)
+  await copyCommand.hover()
+  const copyTip = page.locator('[data-hcv-terminal-copy-tip]')
+  await expect(copyTip).toHaveText('Копировать команду')
+  await expect(copyTip).toBeVisible()
+  await expect(copyTip).toHaveCSS('font-size', '13px')
+  await expect(copyTip).toHaveCSS('line-height', '18px')
+  await expect(copyTip).toHaveCSS('padding-inline-start', '12px')
+  await expect(copyTip).toHaveCSS('padding-block-start', '5px')
+  const copyTipGap = await copyTip.evaluate((tip, selector) => {
+    const button = document.querySelector(selector)
+    return button.getBoundingClientRect().top - tip.getBoundingClientRect().bottom
+  }, '[data-hcv-terminal-details="shell"] button[data-hcv-terminal-copy="command"]')
+  assert(Math.abs(copyTipGap - 5) < 1)
+  await expect(page.locator('[data-slot="tooltip-content"]:visible')).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(copyTip).toBeHidden()
+  await expect(copyCommand).toHaveCSS('width', '24px')
+  await expect(copyOutput).toHaveCSS('width', '24px')
+  await page.mouse.move(0, 0)
+  await expect(copyCommand).toHaveCSS('opacity', '0')
+  await commandCode.hover()
+  await expect(copyCommand).toHaveCSS('opacity', '1')
+  await expect(copyOutput).toHaveCSS('opacity', '0')
+  await shell.locator('[data-hcv-terminal-output]').hover()
+  await expect(copyOutput).toHaveCSS('opacity', '1')
+  // A long displayed command exercises the source two-line clamp and its
+  // keyboard expansion independently of the short stored command fixture.
+  const commandMarkup = await commandCode.innerHTML()
+  await commandCode.evaluate(code => code.append(document.createTextNode('\nsecond fixture line\nthird fixture line')))
+  await expect(commandCode).toHaveCSS('-webkit-line-clamp', '2')
+  const collapsedCommandHeight = await commandCode.evaluate(code => code.getBoundingClientRect().height)
+  await page.keyboard.down('Tab')
+  await commandCode.focus()
+  await page.keyboard.up('Tab')
+  await commandCode.press('Enter')
+  await expect(commandCode).toHaveAttribute('data-hcv-terminal-expanded')
+  assert((await commandCode.boundingBox()).height > collapsedCommandHeight)
+  await commandCode.evaluate((code, html) => {
+    code.innerHTML = html
+    code.removeAttribute('data-hcv-terminal-expanded')
+  }, commandMarkup)
+  // Copy uses the installed host SDK path. Only this isolated process's
+  // clipboard writer is replaced; the owner's operating-system clipboard
+  // is never changed by these checks.
+  await app.evaluate(({ clipboard }) => {
+    globalThis.hcvActivityClipboardWriter = clipboard.writeText
+    globalThis.hcvActivityClipboard = []
+    clipboard.writeText = text => { globalThis.hcvActivityClipboard.push(text) }
+  })
+  try {
+    await commandCode.hover()
+    await copyCommand.click()
+    await expect(copyCommand).toHaveAttribute('aria-label', 'Скопировано')
+    assert.equal((await app.evaluate(() => globalThis.hcvActivityClipboard)).at(-1), 'echo verify-file')
+    await shell.locator('[data-hcv-terminal-output]').hover()
+    await copyOutput.click()
+    await expect(copyOutput).toHaveAttribute('aria-label', 'Скопировано')
+    assert.match((await app.evaluate(() => globalThis.hcvActivityClipboard)).at(-1), /^fixture verified/)
+  } finally {
+    await app.evaluate(({ clipboard }) => {
+      clipboard.writeText = globalThis.hcvActivityClipboardWriter
+      delete globalThis.hcvActivityClipboardWriter
+    })
+  }
+  await page.emulateMedia({ contrast: 'more' })
+  await expect(shell).toHaveCSS('border-top-color', 'rgba(255, 255, 255, 0.16)')
+  const contrastScroll = await shell.evaluate(shell => {
+    const sample = document.createElement('div')
+    sample.style.scrollbarColor = 'CanvasText Canvas'
+    shell.append(sample)
+    const value = getComputedStyle(sample).scrollbarColor
+    sample.remove()
+    return value
+  })
+  await expect(shell.locator('[data-hcv-terminal-output]')).toHaveCSS('scrollbar-color', contrastScroll)
+  await page.emulateMedia({ contrast: 'no-preference' })
   await screenshot('shell-details.png')
-  await command.click()
-  const shellClosing = await sampleMotion(expect, shell, 'closing')
+  const shellClosing = await sampleMotion(expect, page, history, shell, 'closing', () => command.click())
   await expect(shell).toHaveCount(0)
   await mixed.click()
   await expect(command).toBeHidden()
@@ -191,8 +288,12 @@ async function verifyTimeline({ page, expect, chat, screenshot, translationReque
   await expect(command).toBeVisible()
   await mixed.click()
 
-  const receipt = chat.getByRole('button', { name: 'Субагент завершил работу · Проверка файлов', exact: true })
+  const receipt = chat.locator('[data-slot="aui_background-result"] button').filter({
+    has: page.locator('[data-hcv-activity-label][title="Проверка файлов"]'),
+  })
   await expect(receipt).toBeVisible()
+  await expect(receipt.locator('[data-hcv-activity-label]')).toHaveText('Субагент завершил(-и) работу')
+  await expect(receipt.locator('[data-hcv-activity-label]')).toHaveAttribute('title', 'Проверка файлов')
   await receipt.evaluate(button => button.scrollIntoView({ block: 'center' }))
   await receipt.click()
   await expect(receipt).toHaveAttribute('aria-expanded', 'true')
@@ -204,9 +305,13 @@ async function verifyTimeline({ page, expect, chat, screenshot, translationReque
   })
   const caretHash = maskHash(await caret.locator('.codicon-chevron-right').evaluate(glyph => getComputedStyle(glyph).maskImage))
   assert.equal(caretHash, 'ee88d4922f70be521afb12312993e412afe55f8bee71a33bc49c62a734fd2a73')
-  await steps.click()
   const turnPanel = history.locator(`[data-hcv-turn-step][${motion}]`).first()
-  const turnClosing = await sampleMotion(expect, turnPanel, 'closing', 150)
+  const turnClosing = await captureDisclosureMotion({ expect, page, scope: history, panel: turnPanel, phase: 'closing', trigger: () => steps.click() })
+  assert.equal(turnClosing.duration, 200)
+  const [closeStart, heightDelay, closeEnd] = turnClosing.frames
+  assert.equal(closeStart.height, heightDelay.height)
+  assert(closeStart.opacity > heightDelay.opacity && heightDelay.opacity > closeEnd.opacity)
+  assert(closeEnd.height < heightDelay.height)
   await expect(steps).toHaveAttribute('aria-expanded', 'false')
   // Hermes returns scripted focus to the composer unless it is handling a
   // keyboard-navigation gesture. Hold Tab while setting the starting focus.
@@ -214,10 +319,9 @@ async function verifyTimeline({ page, expect, chat, screenshot, translationReque
   await steps.focus()
   await page.keyboard.up('Tab')
   await expect(steps).toBeFocused()
-  await page.keyboard.press('Enter')
   let turnOpening
   try {
-    turnOpening = await sampleMotion(expect, turnPanel, 'opening')
+    turnOpening = await sampleMotion(expect, page, history, turnPanel, 'opening', () => page.keyboard.press('Enter'), 150)
   } catch (error) {
     console.log('Turn opening diagnostic:', JSON.stringify(await history.evaluate(node => ({
       expanded: node.querySelector('button[data-hcv-turn-line]')?.getAttribute('aria-expanded'),
@@ -228,6 +332,7 @@ async function verifyTimeline({ page, expect, chat, screenshot, translationReque
     throw error
   }
   await expect(steps).toHaveAttribute('aria-expanded', 'true')
+  await readGroup.click()
   await thought.click()
   await expect(body).toBeVisible()
   await thought.dblclick()
@@ -273,10 +378,28 @@ export async function verifyActivityParity({ page, app, expect, projectChat, scr
   await projectChat('Проверка каталога').click()
   const chat = page.locator('[data-chat-surface][data-session-anchor="workspace"]:visible')
   const turn = chat.locator('[data-slot="aui_turn-pair"]').filter({ hasText: 'Проверка оформления закончена.' })
+  // Native history can initially mount only its last page. Load the earlier
+  // fixture turns with the same action a reader uses before inspecting them.
+  const earlier = chat.getByRole('button', { name: /^(Показать ранние сообщения|Show earlier messages)$/ })
+  for (let pageIndex = 0; pageIndex < 8; pageIndex++) {
+    if (!(await earlier.isVisible())) break
+    const first = await chat.locator('[data-slot="aui_turn-pair"]').first().textContent()
+    await earlier.click()
+    await expect.poll(async () => !(await earlier.isVisible()) ||
+      await chat.locator('[data-slot="aui_turn-pair"]').first().textContent() !== first,
+    { timeout: 30000 }).toBe(true)
+  }
   await expect(turn).toBeVisible()
   const telemetry = chat.getByRole('button', { name: 'Нет, спасибо', exact: true })
   if (await telemetry.isVisible()) await telemetry.click()
   const steps = turn.locator('button[data-hcv-turn-line]')
+  if (!before) {
+    await expect(steps).toHaveAttribute('aria-expanded', 'false')
+    await expect(turn.getByText('Проверка оформления закончена.', { exact: true })).toBeVisible()
+    await expect(turn.getByText('Сначала проверяю подключения браузера.', { exact: true })).toBeHidden()
+    await expect(steps).toHaveCSS('font-variant-numeric', 'tabular-nums')
+    await screenshot('completed-turn-collapsed.png', { locator: turn })
+  }
   if (await steps.getAttribute('aria-expanded') !== 'true') await steps.click()
   const skill = turn.locator('[data-hcv-skill-link]').filter({ hasText: 'Мультролики с твоим героем' })
   const legacySkill = turn.locator('span[title$="/SKILL.md"]')
@@ -351,8 +474,8 @@ export async function verifyActivityParity({ page, app, expect, projectChat, scr
   const note = turn.getByRole('button', { name: 'Памятку', exact: true })
   await expect(note).toBeVisible()
   await expect(note).toHaveAttribute('title', /[\\/]fixture-note\.md$/)
-  await expect(turn.locator('[data-tool-row][data-hcv-activity-icon="chatSkill"]')).toBeVisible()
-  const browser = turn.locator(`${icon}[data-tool-summary]`).filter({ has: page.locator(mark).getByText('Использовал браузер и Chrome выполнил команды', { exact: true }) })
+  await expect(turn.getByText('Прочитал навык fixture-skill', { exact: true })).toBeVisible()
+  const browser = turn.locator(`${icon}[data-tool-summary]`).filter({ has: page.locator(mark).getByText('Использовал браузер и Chrome Devtools', { exact: true }) })
   await expect(browser).toBeVisible()
   const site = turn.locator(mark).getByText('Проверяю Threads в новой вкладке Chrome', { exact: true })
   await site.scrollIntoViewIfNeeded()
@@ -366,9 +489,43 @@ export async function verifyActivityParity({ page, app, expect, projectChat, scr
   const integration = turn.locator('[data-tool-row][data-hcv-activity-icon="activityIntegration"]').locator(mark)
   await expect(integration).toHaveText('Вызвал инструмент')
   assert.match(await integration.evaluate(label => getComputedStyle(label.parentElement, '::before').maskImage), /^url\(/)
-  const agent = turn.locator('[data-hcv-agent-activity="completed"]').filter({ hasText: 'Thread research завершил(-и) работу' })
+  const agent = turn.locator('[data-hcv-agent-activity="completed"]')
   await expect(agent).toBeVisible()
-  const failed = turn.locator('[data-tool-row]').filter({ has: page.locator('svg.text-destructive[aria-label]') })
+  await expect(agent).toHaveText('Субагент завершил(-и) работу')
+  await expect(agent.locator('[data-hcv-agent-name]')).toHaveText('Субагент')
+  await expect(agent.locator('img')).toHaveCount(0)
+  await expect(turn.locator('[data-hcv-agent-activity="started"]')).toHaveCount(0)
+  const spacingTurn = chat.locator('[data-slot="aui_turn-pair"]').filter({ hasText: 'Проверь интервалы уведомления агента.' })
+  const spacingSteps = spacingTurn.locator('button[data-hcv-turn-line]')
+  if (await spacingSteps.count() && await spacingSteps.getAttribute('aria-expanded') !== 'true') await spacingSteps.click()
+  const spacingReceipt = spacingTurn.locator('[data-slot="aui_background-result"]')
+  const spacingAgent = spacingTurn.locator('[data-hcv-agent-activity="dispatched"]')
+  await expect(spacingAgent).toHaveCount(0)
+  await expect(spacingTurn.locator('[data-hcv-agent-activity="started"]')).toHaveCount(0)
+  const spacingCompletion = spacingReceipt.locator('[data-hcv-agent-activity="completed"]')
+  await expect(spacingCompletion).toHaveCount(1)
+  await expect(spacingReceipt).toHaveAttribute('data-hcv-agent-receipt', '')
+  // This old record has no stored child id. No blank img or fabricated badge.
+  await expect(spacingCompletion.locator('img')).toHaveCount(0)
+  const spacingLabel = spacingCompletion.locator('[data-hcv-agent-name]')
+  await expect(spacingLabel).toHaveText('Субагент')
+  const spacing = await spacingTurn.evaluate(node => {
+    const rect = element => element.getBoundingClientRect()
+    const prose = text => [...node.querySelectorAll('.aui-md')].find(element => element.textContent.includes(text))
+    const receipt = node.querySelector('[data-slot="aui_background-result"] [data-hcv-agent-activity="completed"]')
+    const middle = prose('Текст перед уведомлением агента.')
+    const after = prose('Текст после уведомления агента.')
+    return {
+      beforeReceipt: rect(receipt).top - rect(middle).bottom,
+      afterReceipt: rect(after).top - rect(receipt).bottom,
+    }
+  })
+  console.log('Agent timeline spacing', JSON.stringify(spacing))
+  assert.deepEqual(spacing, { beforeReceipt: 16, afterReceipt: 16 })
+  await expect(spacingReceipt.locator('button[data-hcv-agent-name]')).toBeEnabled()
+  // This unsupported browser error remains native; known MCP errors are checked in activity-bundles.
+  const failed = turn.locator('[data-tool-row]:not([data-hcv-activity-failed])')
+    .filter({ has: page.locator('svg.text-destructive[aria-label]') })
   await expect(failed).toBeVisible()
   await expect(failed.locator(mark)).toHaveCount(0)
   await expect(failed.locator('[data-hcv-activity-favicon]')).toHaveCount(0)
@@ -389,21 +546,21 @@ export async function verifyActivityParity({ page, app, expect, projectChat, scr
   })
   const agentStyle = await agent.evaluate(row => ({
     gap: getComputedStyle(row).gap, lineHeight: getComputedStyle(row).lineHeight,
-    width: getComputedStyle(row.querySelector('img')).width, color: getComputedStyle(row).color,
+    images: row.querySelectorAll('img').length, color: getComputedStyle(row).color,
   }))
   assert.equal(skillStyle.color, 'rgb(153, 206, 255)')
   assert.equal(skillStyle.weight, '500')
   assert.equal(skillStyle.display, 'inline')
   assert.equal(skillStyle.width, '16px')
   assert.equal(skillStyle.iconGap, '3px')
-  assert.equal(rowStyle.color, 'rgb(139, 139, 139)')
+  assert.equal(rowStyle.color, 'rgba(255, 255, 255, 0.5)')
   assert.equal(rowStyle.size, '14px')
   assert.equal(rowStyle.lineHeight, '21px')
   assert.equal(rowStyle.weight, '430')
   assert.equal(rowStyle.gap, '8px')
   assert.equal(rowStyle.width, '16px')
   assert.equal(agentStyle.gap, '6px')
-  assert.equal(agentStyle.width, '16px')
+  assert.equal(agentStyle.images, 0)
   assert.equal(agentStyle.lineHeight, '20px')
   const maskSha256 = { skill: maskHash(skillStyle.mask), browser: maskHash(rowStyle.mask) }
   assert.equal(maskSha256.skill, 'cf5f6cd062f22cce9a3beeae612fbe72bab5c304fbd958a037925f78d19f8afb')
@@ -471,10 +628,21 @@ export async function verifyActivityParity({ page, app, expect, projectChat, scr
   }).first()
   await outputRow.locator('button[aria-expanded]').click()
   await expect(outputRow.getByText('fixture-output-one', { exact: true })).toBeVisible()
+  if (process.env.HERMES_VISUAL_TYPOGRAPHY) {
+    await expect(outputRow.locator('[data-hcv-terminal-details="shell"]')).toBeVisible()
+    await expect(outputRow.getByText('fixture-output-one', { exact: true })).toHaveCSS('font-size', '13px')
+    const outputFont = await outputRow.getByText('fixture-output-one', { exact: true }).evaluate(node => {
+      const css = getComputedStyle(node)
+      return { family: css.fontFamily, size: css.fontSize }
+    })
+    assert.match(outputFont.family, /^ui-monospace/)
+    assert.equal(outputFont.size, '13px')
+    await screenshot('terminal-output.png')
+  }
   await commandToggle.click()
   await expect(outputRow.getByText('fixture-output-one', { exact: true })).toBeHidden()
 
-  const timeline = await verifyTimeline({ page, expect, chat, screenshot, translationRequests })
+  const timeline = await verifyTimeline({ app, page, expect, chat, screenshot, translationRequests })
   await page.setViewportSize({ width: 760, height: 760 })
   await expect(skill).toBeVisible()
   await skill.scrollIntoViewIfNeeded()
@@ -494,6 +662,7 @@ export async function verifyActivityParity({ page, app, expect, projectChat, scr
   await expect(turn.locator(mark)).toHaveCount(0)
   await expect(chat.locator('[data-hcv-activity-group]')).toHaveCount(0)
   await expect(chat.locator('[data-hcv-activity-member]')).toHaveCount(0)
+  await expect(chat.locator('[data-hcv-activity-empty-owner]')).toHaveCount(0)
   await expect(legacySkill).not.toHaveCSS('display', 'none')
   return { skillStyle, rowStyle, agentStyle, maskSha256, proseStyle, liveBrowser: { opacity: liveBrowser.opacity, name: liveBrowser.name }, lightColor, requests, timeline,
     clickPreview: true, enterClosesPreview: true, terminalDetails: true, errorPreserved: true, themeScoped: true }

@@ -5,7 +5,7 @@ import { committedFiber } from './sidebar-recents.js'
 
 const nativeTable = [
   '[data-chat-surface]:not([data-hud-shell] *) [data-slot="aui_assistant-message-content"] .aui-md-table > table',
-  '[data-hcv-subagent-result] [data-hcv-subagent-table] > table',
+  '[data-hcv-subagent-result] .aui-md-table > table',
 ].join(', ')
 const tableMark = 'data-hcv-markdown-table'
 const wrapMark = 'data-hcv-table-scroll'
@@ -221,7 +221,7 @@ function tableCss(active) {
     border-radius: 6px;
     padding: 1px 6px;
     box-decoration-break: clone;
-    font-family: ui-monospace, "SFMono-Regular", "SF Mono", menlo, consolas, "Liberation Mono", monospace;
+    font-family: var(--hcv-mono-font);
     font-size: .92em;
     overflow-wrap: anywhere;
     word-break: break-word;
@@ -390,7 +390,7 @@ export function registerChatTables(ctx, active) {
   let tipButton
   const style = make('style', 'data-hcv-chat-tables-style')
   style.textContent = tableCss(active)
-  mountStyle(ctx, style, { surface: '.aui-md-table, [data-hcv-subagent-table], [data-hcv-table-dialog]', retainAcrossChatTabs: true })
+  mountStyle(ctx, style, { surface: '.aui-md-table, [data-hcv-table-dialog]', retainAcrossChatTabs: true })
   const tip = make('div', 'data-hcv-table-tip')
   tip.hidden = true
   tip.setAttribute('aria-hidden', 'true')

@@ -1,0 +1,10 @@
+{
+  "add": {
+    "item_diff": "first\nsecond\n",
+    "diff": "diff --git a/newfile.txt b/newfile.txt\nnew file mode 100644\nindex 0000000000000000000000000000000000000000..66a52ee7a1d803dc57859c3e95ac9dcdc87c0164\n--- /dev/null\n+++ b/newfile.txt\n@@ -0,0 +1,2 @@\n+first\n+second\n"
+  },
+  "update": {
+    "item_diff": "@@ -1,2 +1,2 @@\n-old\r\n+new\r\n keep\r\n",
+    "diff": "diff --git a/a.txt b/a.txt\nindex b70338427bcfe616324456501eba84052b8d8294..6e8e43cb5e67ed155798e8ab265e156d70e542c6\n--- a/a.txt\n+++ b/a.txt\n@@ -1,2 +1,2 @@\n-old\r\n+new\r\n keep\r\n"
+  }
+}

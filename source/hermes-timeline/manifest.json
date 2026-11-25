@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "scope": "Saved identity, producer turn timing and local write snapshots",
+  "files": {
+    "agent/turn_context.py": {
+      "baseline": "196c75c36cb775ef2da9b01de92f3846c3db678517a0a61a3ff96870511e45b2",
+      "candidate": "0ca2211adea40fccc17a3e163d5b42a7ce3b256c3b6d9e1e219ba29b41b2da0d"
+    },
+    "agent/stream_delivery.py": {
+      "baseline": "acdc41c213db188a8452cd7866f12bf8880096e02b0c71612598fcf9b9d3b8b8",
+      "candidate": "c49e06fca52a64666cc91065c7e690fa2f9dbd3880a8e9c637273d974267e9f4"
+    },
+    "agent/chat_completion_helpers.py": {
+      "baseline": "d96cb8a345b4b42535f8a5daf78a9277d1d77536089391d11ac9e10ad2f44ba0",
+      "candidate": "65799d17d20261617169b7d67a5abbfa1ed560f24db3de4eb4d2b06175d84458"
+    },
+    "agent/turn_final_response.py": {
+      "baseline": "53e6da97e386f24a40719d5c68008d1d7e1b15b6fd6a7dee6ea50615a1f6815b",
+      "candidate": "9bf883fd3663b15748d5229587ce350c1cdd96793fec487e1d7ef53930a3c8f9"
+    },
+    "agent/tool_executor.py": {
+      "baseline": "b9d14eb5fd362e3053476f6a240dbd5b2cdeb1489598443db0c30e58edf62c10",
+      "candidate": "6090aaf0ab88dc2757d674e5c19d0ddf5626fef12da102aa9f11f36a2dbeef40"
+    },
+    "agent/turn_finalizer.py": {
+      "baseline": "415d8cd0d1ae8988514fc5a68a726abfa1c78dce733bd88a9ef5f8971fd4f254",
+      "candidate": "2ba5a0e188b51bb54000a0c1ce2a6f234249fecebe3099d103d607bd57a0a97e"
+    },
+    "tools/file_tools.py": {
+      "baseline": "972ca3b2f92adcc8c4cefb4bb5f763e2b28c98417e2a339d9639b97827a98956",
+      "candidate": "e8b2295023fcf7873d6724d8deee4563bb38b0b472ef8c98c9c37f401f96225a"
+    },
+    "gateway/session_transcript_subagent.py": {
+      "baseline": "c7dd5723c3a989506ea697316d87a2590c71fe796a4e06b8b1bc41eee1093053",
+      "candidate": "8eec04d4403567eb5116c39df17d76c5b77c2f6008aa87c04ce153112c718612"
+    },
+    "tui_gateway/contracts/canonical_stored_reads.py": {
+      "baseline": "1f97c595d59064ff5ea04892565a6f171ff053347bf3352e72e47e87ae8f0a42",
+      "candidate": "edde0efebee059104610fe4b738dc8364133f2baece792ebc1ab18872e41d01c"
+    },
+    "apps/shared/src/gateway-contract.generated.ts": {
+      "baseline": "957384fa66f319a70ba2191bec9d743fa347b1b2ecf46bb007c3e76d837cad38",
+      "candidate": "345fa5f8ec8d07f3e793ea6ba3af5ea424e4ae6048c73eedeca42e116b634c2b"
+    },
+    "apps/shared/src/gateway-contract.openrpc.json": {
+      "baseline": "7fa9efb29d5d0d4e6f4dab1490ebb63475ac070fd0dc9adfd191b010745e9726",
+      "candidate": "01cf1627da80f45d3eba2df657ece59d963e30959b3ad5857e788df851eb2ad7"
+    }
+  },
+  "helpers": [
+    {
+      "source": "timing.py",
+      "target": "agent/hcv_timeline.py",
+      "candidate": "6c6146224e9b99000dd3b24eac68b7b9837629a0031b451975f313ae76f5f714"
+    },
+    {
+      "source": "file_capture.py",
+      "target": "tools/hcv_file_changes.py",
+      "baseline": "09d7d6f179d905109760299d7c8e98820febbe7eaa47961c49c289a8580d669e",
+      "candidate": "1cbca559b772afc09f4290b2991981b8d1546b66b8f634523d18dee902372f96"
+    }
+  ]
+}

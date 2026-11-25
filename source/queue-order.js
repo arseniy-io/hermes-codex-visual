@@ -1,10 +1,11 @@
 import { host } from '@hermes/plugin-sdk'
+import { composerQueuedEdit as editing } from './composer-native.js'
+import { committedFiber } from './sidebar-recents.js'
 
 const storageKey = 'hermes.desktop.composerQueue.v1'
 const dragType = 'application/x-hcv-queued-prompt'
 const rowSelector = '[data-slot="status-row"]'
 const gripSelector = '[data-hcv-queue-grip]'
-const editing = '[data-slot="composer-surface"] [class~="bg-accent/18"]:has(> div > button + button)'
 
 function queueIdentity(dock, panel) {
   const state = host.state
@@ -18,13 +19,17 @@ function queueIdentity(dock, panel) {
   if (!runtime || !focused || (!state.busy.get() && !parked) || dock.querySelector(editing)) return null
 
   const owner = state.focusedSessionOwner.get()
+  const connectionId = owner?.connectionId ?? state.connectionId.get()
+  const profile = owner?.profile ?? state.profile.get()
   return {
     keys: [...new Set([stored, runtime].filter(Boolean))],
-    scope: JSON.stringify([owner?.connectionId ?? state.connectionId.get(), owner?.profile ?? state.profile.get(), stored, runtime]),
+    scope: JSON.stringify([connectionId, profile, stored, runtime]),
+    route: connectionId === 'local' && profile ? { connectionId, profile, targetProfile: profile } : null,
+    runtime,
   }
 }
 
-function readQueue(dock, panel, copy) {
+function readQueue(dock, panel) {
   const identity = queueIdentity(dock, panel)
   const rows = Array.from(panel.querySelectorAll(`:scope > .status-section-body > ${rowSelector}`))
   if (!identity || rows.length < 2) return null
@@ -34,20 +39,18 @@ function readQueue(dock, panel, copy) {
     const queues = JSON.parse(raw)
     if (!queues || typeof queues !== 'object' || Array.isArray(queues)) return null
 
-    // Check both the native scope and the rendered queue before mapping a DOM
-    // position to an entry id. A stale or ambiguous view cannot sort a queue.
+    // The native QueuePanel uses each entry ID as the StatusRow's key.
+    // Captions can be identical or stale while a window receives a reorder.
+    const rowIds = rows.map(row => {
+      const fiber = committedFiber(row)?.return
+      return typeof fiber?.memoizedProps?.dismiss?.onDismiss === 'function' ? fiber.key : null
+    })
     const matching = identity.keys.filter(key => {
       if (!Object.hasOwn(queues, key)) return false
       const entries = queues[key]
       return Array.isArray(entries) && entries.length === rows.length && entries.every((entry, index) => {
         if (typeof entry?.id !== 'string' || typeof entry.text !== 'string' || !Array.isArray(entry.attachments)) return false
-        // Server-owned rows run in the gateway's FIFO. Changing the local
-        // snapshot cannot change that order and would mislead the user.
-        if (entry.serverStatus != null) return false
-        const caption = entry.displayKind === 'hidden'
-          ? copy.hiddenQueued
-          : (entry.displayText ?? entry.text).trim() || (entry.attachments.length ? copy.attachmentOnly : copy.emptyTurn)
-        return rows[index].querySelector('.status-row-content p')?.textContent === caption
+        return rowIds[index] === entry.id
       })
     })
     if (matching.length !== 1) return null
@@ -55,14 +58,17 @@ function readQueue(dock, panel, copy) {
     const entries = queues[key]
     const ids = entries.map(entry => entry.id)
     if (new Set(ids).size !== ids.length) return null
-    return { scope: identity.scope, key, entries, ids, rows, queues, raw }
+    const server = entries.every(entry => entry.serverStatus === 'queued' && entry.serverControls?.includes('reorder'))
+    const local = entries.every(entry => entry.serverStatus == null)
+    if (!local && !(server && identity.route && typeof host.requestProfile === 'function')) return null
+    return { ...identity, server, key, entries, ids, rows, queues, raw }
   } catch {
     return null
   }
 }
 
 function sameQueue(before, after) {
-  return after && before.scope === after.scope && before.key === after.key && before.ids.length === after.ids.length
+  return after && before.scope === after.scope && before.key === after.key && before.server === after.server && before.ids.length === after.ids.length
     && before.ids.every((id, index) => id === after.ids[index] && before.rows[index] === after.rows[index])
 }
 
@@ -84,7 +90,7 @@ function saveOrder(snapshot, from, to) {
   return true
 }
 
-export function bindQueueOrder(dock, panel, t, copy) {
+export function bindQueueOrder(dock, panel, t) {
   const events = new AbortController()
   const options = { signal: events.signal }
   const announcement = document.createElement('span')
@@ -93,9 +99,10 @@ export function bindQueueOrder(dock, panel, t, copy) {
   panel.append(announcement)
   let drag
   let marker
+  let awaitingOwner = false
 
   const sync = () => {
-    const snapshot = readQueue(dock, panel, copy)
+    const snapshot = readQueue(dock, panel)
     panel.toggleAttribute('data-hcv-queue-reorder', Boolean(snapshot))
     if (drag && !sameQueue(drag.snapshot, snapshot)) clearDrag()
   }
@@ -108,9 +115,28 @@ export function bindQueueOrder(dock, panel, t, copy) {
     drag?.element.removeAttribute('data-hcv-queue-dragging')
     drag = undefined
   }
-  const move = (before, from, to) => {
-    const current = readQueue(dock, panel, copy)
-    if (!sameQueue(before, current) || !saveOrder(current, from, to)) return false
+  const move = async (before, from, to) => {
+    const current = readQueue(dock, panel)
+    if (!sameQueue(before, current) || from === to || from < 0 || to < 0 || to >= current.ids.length) return false
+    if (current.server) {
+      if (awaitingOwner) return false
+      const desired = current.ids.slice()
+      desired.splice(to, 0, ...desired.splice(from, 1))
+      awaitingOwner = true
+      try {
+        const result = await host.requestProfile(current.route, 'prompt.reorder_queued', {
+          session_id: current.runtime, expected: current.ids, desired,
+        }, 5000)
+        if (!Array.isArray(result?.order) || result.order.length !== desired.length ||
+            desired.some((id, index) => result.order[index] !== id)) throw new Error('Unconfirmed order')
+      } catch {
+        if (!events.signal.aborted) host.notify?.({ kind: 'warning', message: t('queueMoveFailed') })
+        return false
+      } finally {
+        awaitingOwner = false
+      }
+      if (events.signal.aborted || queueIdentity(dock, panel)?.scope !== current.scope) return false
+    } else if (!saveOrder(current, from, to)) return false
     announcement.textContent = t('queueMoved', to + 1, current.ids.length)
     return true
   }
@@ -119,7 +145,7 @@ export function bindQueueOrder(dock, panel, t, copy) {
 
   panel.addEventListener('dragstart', event => {
     if (!gripOf(event) || !event.dataTransfer) return
-    const snapshot = readQueue(dock, panel, copy)
+    const snapshot = readQueue(dock, panel)
     const element = rowOf(event)
     const index = snapshot?.rows.indexOf(element) ?? -1
     if (index < 0) {
@@ -159,7 +185,7 @@ export function bindQueueOrder(dock, panel, t, copy) {
     if (at >= 0) {
       const box = target.getBoundingClientRect()
       const boundary = at + Number(event.clientY >= box.top + box.height / 2)
-      move(snapshot, index, boundary - Number(boundary > index))
+      void move(snapshot, index, boundary - Number(boundary > index))
     }
     clearDrag()
   }, options)
@@ -172,11 +198,13 @@ export function bindQueueOrder(dock, panel, t, copy) {
     if (!grip || !['ArrowUp', 'ArrowDown'].includes(event.key)) return
     event.preventDefault()
     event.stopPropagation()
-    const snapshot = readQueue(dock, panel, copy)
+    const snapshot = readQueue(dock, panel)
     const index = snapshot?.rows.indexOf(rowOf(event)) ?? -1
-    if (index < 0 || !move(snapshot, index, index + (event.key === 'ArrowUp' ? -1 : 1))) return
-    requestAnimationFrame(() => {
-      if (grip.isConnected && document.activeElement === document.body) grip.focus()
+    if (index < 0) return
+    void move(snapshot, index, index + (event.key === 'ArrowUp' ? -1 : 1)).then(changed => {
+      if (changed) requestAnimationFrame(() => {
+        if (grip.isConnected && document.activeElement === document.body) grip.focus()
+      })
     })
   }, options)
 

@@ -15,7 +15,6 @@ const effortLabels = new Set(['Off', 'Min', 'Low', 'Med', 'High', 'XHigh', 'Max'
 const items = ':is([data-slot^="dropdown-menu-"][role^="menuitem"], [data-slot^="context-menu-"][role^="menuitem"], [data-slot="select-item"])'
 const menuRows = `${menus} ${items}`
 const popover = '[data-slot="popover-content"]'
-const tip = '[data-slot="tooltip-content"]'
 const button = ':is(button, [role="button"], [data-slot="button"])'
 const quietIcon = '[data-variant="ghost"][data-size^="icon"]'
 const dialog = '[data-slot="dialog-content"]'
@@ -263,21 +262,7 @@ export function registerInterface(ctx, active) {
     text-decoration-line: none;
   }
   ${active} :where(${quietIcon}) { border-radius: ${codex.quietControl.radius}; }
-  ${active} ${tip} {
-    max-inline-size: min(300px, calc(100vw - 24px), var(--radix-tooltip-content-available-width, 300px));
-    padding: ${codex.compactTooltip.padding};
-    border: 0;
-    border-radius: ${codex.compactTooltip.radius};
-    background: var(--hcv-menu);
-    color: var(--hcv-text);
-    box-shadow: ${codex.compactTooltip.shadow};
-    font: 400 13px/18px var(--hcv-ui-font);
-    letter-spacing: -.15px;
-    transform-origin: var(--radix-tooltip-content-transform-origin);
-    animation: none;
-  }
-  ${active} ${tip} :is([data-slot="tooltip-arrow"], span:has(> [data-slot="tooltip-arrow"])) { display: none; }
-  ${active} ${notificationStack} :is([data-slot="card-stack-surface"], [data-slot="card-stack-edge"]) {
+    ${active} ${notificationStack} :is([data-slot="card-stack-surface"], [data-slot="card-stack-edge"]) {
     border-color: var(--hcv-hairline);
     border-radius: var(--hcv-menu-radius);
     background-color: var(--hcv-menu);
@@ -417,7 +402,6 @@ export function registerInterface(ctx, active) {
     color: var(--hcv-text);
     cursor: default;
   }
-  ${projectRow}:has([data-state="open"][aria-haspopup="menu"]) { background: var(--hcv-selected); }
   ${projectRow} [data-slot="row-button"] > span { text-decoration: none; }
   ${projectRow} [data-row-actions] button:focus-visible,
   ${projectRow}[data-hcv-preview-open] [data-row-actions] button,
@@ -470,10 +454,6 @@ export function registerInterface(ctx, active) {
     ${paneAdd}:hover { background-color: var(--hcv-hover); }
   }
   @media (prefers-reduced-motion: no-preference) {
-    ${active} ${tip}:is([data-state="delayed-open"], [data-state="instant-open"]) {
-      animation: hcv-menu-in ${codex.tooltip.duration} var(--hcv-enter) both;
-    }
-    ${active} ${tip}[data-state="closed"] { animation: hcv-tip-out ${codex.tooltip.duration} var(--hcv-enter) both; }
     ${active} ${toggle} {
       transition: background-color ${codex.switch.trackTime} linear ${codex.switch.trackDelay},
         border-color var(--hcv-enter-time) var(--hcv-ease);
@@ -486,7 +466,7 @@ export function registerInterface(ctx, active) {
       transition: background-color var(--hcv-enter-time) var(--hcv-ease),
         color var(--hcv-enter-time) var(--hcv-ease);
     }
-    ${tabs}, ${paneAdd}, ${card} button, ${projectRow}, ${projectRow} button {
+    ${tabs}, ${paneAdd}, ${card} button {
       transition: background-color var(--hcv-enter-time) var(--hcv-ease),
         color var(--hcv-enter-time) var(--hcv-ease),
         border-color var(--hcv-enter-time) var(--hcv-ease);
@@ -502,10 +482,6 @@ export function registerInterface(ctx, active) {
   @keyframes hcv-menu-out {
     from { opacity: 1; transform: scale(1); }
     to { opacity: 0; transform: scale(var(--hcv-menu-start-scale)); }
-  }
-  @keyframes hcv-tip-out {
-    from { opacity: 1; transform: scale(1); }
-    to { opacity: 0; transform: scale(${codex.tooltip.exitScale}); }
   }
   @keyframes hcv-surface-in {
     from { opacity: 0; }
@@ -612,13 +588,16 @@ ${active} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/lab
     font-family: var(--hcv-ui-font);
   }
   ${active} ${dialog} [data-slot="dialog-title"] {
-    font-weight: 600;
-    line-height: 1.35;
-    letter-spacing: -.012em;
+    /* DialogHeader mUDD.c7, default titleSize=dialog. */
+    font-size: 18px;
+    font-weight: 500;
+    line-height: 28px;
+    letter-spacing: normal;
   }
   ${active} ${dialog} [data-slot="dialog-description"] {
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1.5;
+    letter-spacing: normal;
   }
   ${active} :is(${dialog}, ${dialogOverlay})[data-state="closed"] { pointer-events: none; }
   ${active} ${menus} { padding: 4px; font-size: 13px; line-height: calc(1.25 / .875); }
@@ -684,7 +663,7 @@ ${active} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/lab
   }
   ${commandPaletteStyles(active)}
 }
-`, { surface: `:is(${menus}, ${popover}, ${dialog}, ${dialogOverlay}, ${items}, ${commandRoot})` })
+`, { screens: ['capabilities'], surface: `:is(${menus}, ${popover}, ${dialog}, ${dialogOverlay}, ${items}, ${commandRoot})` })
   mountCSS(ctx, 'data-hcv-interface-pages', `
 @media (forced-colors: none) {
   /* Shells share spacing but keep their own controls, labels and content. */
@@ -772,22 +751,23 @@ ${active} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/lab
   }
   ${catalogCard}:not([data-catalog-variant="hero"]) .catalog-card-title {
     font-size: 14px;
-    line-height: 20px;
-    font-weight: 600;
+    line-height: 21px;
+    font-weight: 500;
   }
-  ${catalogCard} .catalog-card-description { font-size: 13px; line-height: 18px; }
+  ${catalogCard} .catalog-card-description { font-size: 13px; line-height: 1.625; }
   ${catalogCard} button[aria-haspopup="dialog"]:focus-visible::after {
     outline: 2px solid var(--hcv-focus);
     outline-offset: -3px;
   }
   ${capabilities} .catalog-section-heading h2 {
     color: var(--hcv-text);
-    font-size: 18px;
+    font-size: 16px;
     line-height: 24px;
     font-weight: 500;
     letter-spacing: normal;
   }
-  ${capabilities} .catalog-section-heading p { font-size: 13px; line-height: 18px; }
+  ${capabilities} [data-catalog="skills"] .catalog-section-heading h2 { font-size: 14px; line-height: 21px; }
+  ${capabilities} .catalog-section-heading p { font-size: 13px; line-height: calc(1.25 / .875); }
   ${catalogDetail} {
     background: var(--hcv-chat);
     color: var(--hcv-text);
@@ -797,10 +777,11 @@ ${active} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/lab
     --conversation-caption-line-height: 20px;
   }
   ${catalogDetail} [data-slot="dialog-title"] {
-    font-size: 21px;
+    font-size: 18px;
     line-height: 28px;
     font-weight: 600;
   }
+  ${catalogDetail} [data-slot="dialog-description"] { font-size: 16px; line-height: 24px; }
   ${catalogDetail} button.row-hover {
     border-radius: 8px;
     border: 1px solid var(--hcv-hairline);

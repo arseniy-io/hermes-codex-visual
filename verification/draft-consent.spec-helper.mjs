@@ -36,7 +36,7 @@ export async function verifyDraftConsent({ page, expect, chat, screenshot }) {
       order: [...dock.children].map(node => node.matches('[data-hcv-draft-bar]') ? 'bar'
         : node.matches('.status-drawer') ? 'drawer' : node.getAttribute('data-slot') || 'other'),
       colors: [bar, card, surface].map(node => getComputedStyle(node).backgroundColor),
-      radii: [card, surface].map(node => getComputedStyle(node).borderTopLeftRadius),
+      radii: [bar, card, surface].map(node => getComputedStyle(node).borderTopLeftRadius),
       fits: buttons.every(node => {
         const rect = node.getBoundingClientRect()
         return rect.left >= b.left - 1 && rect.right <= b.right + 1 && rect.bottom <= b.bottom + 1
@@ -58,11 +58,14 @@ export async function verifyDraftConsent({ page, expect, chat, screenshot }) {
     assert(data.order.indexOf('bar') < data.order.indexOf('drawer'))
     assert(data.order.indexOf('drawer') < data.order.indexOf('composer-root'))
     assert(data.bar.top < data.card.top && data.card.top < data.surface.top)
+    assert(Math.abs(data.bar.left - data.card.left) < 1, 'Toolbar and consent card should have the same left edge')
+    assert(Math.abs(data.bar.right - data.card.right) < 1, 'Toolbar and consent card should have the same right edge')
+    assert(Math.abs(data.bar.bottom - data.card.top - 4) < 1, 'Toolbar should overlap the adjoining card without a gap')
     assert(Math.abs(data.card.bottom - data.surface.top) < 1, 'Consent card should meet the composer')
     assert(Math.abs(data.card.left - data.surface.left) < 1)
     assert(Math.abs(data.card.width - data.surface.width) < 1)
     assert.equal(data.colors[1], data.colors[2])
-    assert.equal(data.radii[1], '0px')
+    assert.deepEqual(data.radii, ['22px', '0px', '0px'])
     assert(data.fits, 'Consent actions must fit')
     assert(data.barButtonsAccessible, 'Project bar buttons must remain clickable')
   }
@@ -78,6 +81,7 @@ export async function verifyDraftConsent({ page, expect, chat, screenshot }) {
   await expect(project).toHaveText('Тестовый проект')
   await expect(consent).toBeVisible()
   await expect(input).toHaveText('Черновик при проверке плашки.')
+  await expect(surface.locator('.coding-status-bar')).toBeVisible({ timeout: 15000 })
   const withProject = await measure()
   check(withProject)
   await capture('draft-consent-project.png')
@@ -97,6 +101,13 @@ export async function verifyDraftConsent({ page, expect, chat, screenshot }) {
   await expect(consent).toBeHidden()
   await expect(bar).toBeVisible()
   await expect(input).toHaveText('Черновик при проверке плашки.')
+  await expect(surface).toHaveCSS('border-top-left-radius', '22px')
+  const collapsedGeometry = await bar.evaluate(node => {
+    const a = node.getBoundingClientRect()
+    const b = node.parentElement.querySelector('[data-slot="composer-surface"]').getBoundingClientRect()
+    return { left: a.left - b.left, right: b.right - a.right }
+  })
+  assert.deepEqual(collapsedGeometry, { left: 13, right: 13 })
   await capture('draft-consent-collapsed.png')
   await grip.click()
   await expect(grip).toHaveAttribute('aria-expanded', 'true')

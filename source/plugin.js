@@ -1,20 +1,31 @@
 import { mountCSS, mountStyle, registerStyleScope } from './style-scope.js'
 import { THEMES_AREA } from '@hermes/plugin-sdk'
 import { registerWorkspaceChrome } from './chrome.js'
+import { registerRightSidebarMirror } from './right-sidebar-toggle.js'
 import { registerWorkspaceCard } from './workspace-card.js'
 import { registerLocalEnvironment } from './local-environment.js'
 import { registerTurnExperience } from './turns.js'
+import { registerChatTurnHistory } from './chat-turn-history.js'
 import { registerChatDisplay } from './chat-display.js'
 import { registerChatResources, previewResourceCard } from './chat-resources.js'
 import { registerChatFileLinks } from './chat-file-links.js'
 import { registerChatActivity } from './chat-activity.js'
+import { registerChatApproval } from './chat-approval.js'
 import { registerChatTables } from './chat-tables.js'
 import { registerReviewProposals } from './review-proposals.js'
+import { registerActivityCenter } from './activity-center.js'
 import { registerSubagents } from './subagents.js'
 import { registerDraftSetup } from './draft-setup.js'
 import { codexMask, codexReference } from './codex-reference.js'
 import { registerInterface } from './interface.js'
+import { registerTooltips } from './tooltips.js'
 import { registerInterfaceCopy } from './interface-copy.js'
+import { registerMcpRussian } from './mcp-ru.js'
+import { registerMcpCatalogRussian } from './mcp-catalog-ru.js'
+import { registerMcpStyle } from './mcp-style.js'
+import { registerSystemStaticRussian } from './system-hardcoded-ru.js'
+import { registerSystemToastRussian } from './system-toast-ru.js'
+import { registerArchiveToast } from './archive-toast.js'
 import { registerDesktopPages } from './desktop-pages.js'
 import { registerDesktopCorners } from './desktop-corners.js'
 import { registerSettingsStyle } from './settings.js'
@@ -28,8 +39,17 @@ import { registerSessionTabs } from './session-tabs.js'
 import { sidebarSessionRow } from './sidebar-projects.js'
 import { registerContextMeter } from './context-meter.js'
 import { registerComposer } from './composer.js'
+import { registerModelSpeed } from './model-speed.js'
+import { registerTurnControl } from './turn-control.js'
+import { registerSystemTurnNotices } from './system-turn-notices.js'
 import { registerDictation } from './dictation.js'
 import { registerZoomBanner } from './zoom-banner.js'
+import { registerUsagePage } from './usage-page.js'
+import { registerUsageNavigation } from './usage-nav.js'
+import { registerUsageStyle } from './usage-style.js'
+import { registerUsageGroupSelectStyle } from './usage-group-select-style.js'
+import { registerUsageHistoryChartStyle } from './usage-history-chart-style.js'
+import { registerTypography } from './typography.js'
 
 const id = 'hermes-codex-visual'
 const marker = `data-${id}`
@@ -121,6 +141,12 @@ const theme = {
   description: 'Светлое и тёмное оформление Codex',
   colors: themeColors(light),
   darkColors: themeColors(dark),
+  typography: {
+    fontSans: codexReference.font,
+    fontMono: codexReference.fontMono,
+    lineHeight: '1.5',
+    letterSpacing: '0',
+  },
 }
 
 function paletteVariables({ error, errorInk, ...colors }) {
@@ -155,6 +181,7 @@ const fileHeader = `${fileSummary} > div:first-child`
 const fileList = `${fileSummary} > div:nth-child(2)`
 const fileRow = `${fileList} > button`
 const assistantRoot = `${chat} [data-slot="aui_assistant-message-root"]`
+const assistantMarkdown = `:is(${assistantRoot}, ${active} [data-hcv-agent-message="assistant"]) .aui-md.prose`
 const elapsedBar = `${chat} [data-hcv-turn-line]`
 const liveTurn = `${chat} :is([data-slot="aui_response-loading"], [data-slot="aui_turn-activity"][data-state="active"], [data-hcv-live-turn])`
 const thinkingLabel = `${liveTurn} > [data-hcv-thinking]`
@@ -377,22 +404,22 @@ const styles = `
     max-inline-size: calc(var(--composer-width) + 32px);
     padding-inline: 16px;
   }
-  ${assistantRoot} .aui-md.prose, ${chat} [data-slot="aui_user-inline-text"] {
-    color: var(--hcv-chat-prose, var(--hcv-text));
+  ${assistantMarkdown}, ${chat} [data-slot="aui_user-inline-text"] {
+    color: var(--hcv-chat-prose, var(--hcv-agent-prose, var(--hcv-text)));
     font-weight: 430;
   }
-  ${assistantRoot} .aui-md.prose {
-    --tw-prose-bold: var(--hcv-chat-prose, var(--hcv-text));
+  ${assistantMarkdown} {
+    --tw-prose-bold: var(--hcv-chat-prose, var(--hcv-agent-prose, var(--hcv-text)));
     /* Codex assistant Markdown uses 1.625 line height and one font size
        between adjacent prose paragraphs. */
     --dt-line-height: 1.625;
-    --paragraph-gap: var(--conversation-text-font-size);
+    --paragraph-gap: var(--conversation-text-font-size, 14px);
     line-height: 1.625;
   }
   /* Codex Desktop's InlineCode-Cddi3Y in 0cf36033c2f9.css. Keep this
      scoped to inline snippets so fenced code and the editor stay unchanged. */
-  ${assistantRoot} .aui-md.prose :not(pre) > code {
-    font-family: ui-monospace, 'SFMono-Regular', 'SF Mono', menlo, consolas, 'Liberation Mono', monospace;
+  ${assistantMarkdown} :not(pre) > code {
+    font-family: var(--hcv-mono-font);
     font-size: .92em;
     font-weight: 400;
     line-height: inherit;
@@ -405,12 +432,12 @@ const styles = `
     word-break: break-word;
   }
   /* Hermes already supplies the brand icon and the link's native actions. */
-  ${assistantRoot} .aui-md.prose a.ref:is([href^="http://"], [href^="https://"]) {
+  ${assistantMarkdown} a.ref:is([href^="http://"], [href^="https://"]) {
     color: light-dark(#0169cc, #99ceff);
     font-weight: 500;
     text-decoration: none;
   }
-  ${assistantRoot} .aui-md.prose a.ref:is([href^="http://"], [href^="https://"]) > svg {
+  ${assistantMarkdown} a.ref:is([href^="http://"], [href^="https://"]) > svg {
     display: inline-block;
     inline-size: 16px;
     block-size: 16px;
@@ -419,7 +446,7 @@ const styles = `
     vertical-align: middle;
     transform: translateY(calc(.5ex - .5cap));
   }
-  ${assistantRoot} .aui-md.prose a.ref:is([href^="http://"], [href^="https://"]):is(:hover, :focus-visible) {
+  ${assistantMarkdown} a.ref:is([href^="http://"], [href^="https://"]):is(:hover, :focus-visible) {
     text-decoration: underline dashed .5px;
     text-underline-offset: 2px;
   }
@@ -489,6 +516,12 @@ export default {
     ctx.register({ id: 'theme', area: THEMES_AREA, data: theme })
     const root = document.documentElement
     registerStyleScope(ctx, themeName)
+    registerMcpRussian(ctx)
+    registerMcpCatalogRussian(ctx)
+    registerMcpStyle(ctx, active)
+    registerSystemStaticRussian(ctx)
+    registerSystemToastRussian(ctx)
+    registerArchiveToast(ctx, active)
     const sheet = document.createElement('style')
     sheet.setAttribute(marker, '')
     sheet.textContent = styles
@@ -516,6 +549,7 @@ export default {
     background: transparent;
     color: light-dark(rgb(26 28 31 / .495), rgb(255 255 255 / .498));
     font: 430 var(--conversation-text-font-size)/1.5 ${codexReference.font};
+    font-variant-numeric: tabular-nums;
     text-align: start;
   }
   ${chat} [data-slot="aui_response-group"][data-hcv-turn-summary] {
@@ -534,6 +568,10 @@ export default {
   }
   ${chat} [data-hcv-turn-folded] [data-hcv-turn-step],
   ${chat} [data-hcv-turn-summary] [data-slot="aui_turn-duration"] { display: none !important; }
+  ${chat} [data-hcv-turn-deferred]:not(:focus-within, :has([aria-expanded="true"])) {
+    content-visibility: auto;
+    contain-intrinsic-block-size: auto 28px;
+  }
   ${chat} button[data-hcv-turn-line]::after {
     content: '';
     inline-size: 14px;
@@ -544,7 +582,9 @@ export default {
   }
   @media (prefers-reduced-motion: no-preference) {
     ${chat} button[data-hcv-turn-line]::after { transition: transform 150ms ease; }
+    ${elapsedBar}[data-hcv-turn-finish] { animation: hcv-turn-summary-in 150ms ease-out; }
   }
+  @keyframes hcv-turn-summary-in { from { opacity: 0; filter: blur(1px); } to { opacity: 1; filter: none; } }
   ${chat} button[data-hcv-turn-line][aria-expanded="true"]::after {
     transform: rotate(90deg);
   }
@@ -594,6 +634,7 @@ export default {
     0% { transform: translateX(50%); animation-timing-function: steps(48, end); }
     25%, 100% { transform: translateX(-125%); }
   }
+  ${liveTurn}:has(> [data-hcv-thinking]) > :is([data-hcv-live-time], [aria-hidden="true"]:not(.dither, [data-hcv-thinking])) { display: none; }
   ${liveTurn} > :is([data-hcv-live-time], [aria-hidden="true"]:not(.dither, [data-hcv-thinking])) {
     color: color-mix(in srgb, var(--hcv-text) 38.5%, transparent);
     font-size: var(--conversation-text-font-size);
@@ -609,14 +650,15 @@ export default {
   ${fileSummary} {
     --hcv-file-padding: 12px;
     --hcv-file-radius: 10px;
-    --hcv-file-stroke: light-dark(rgb(26 28 31 / 11.7%), rgb(255 255 255 / 15.6%));
-    --hcv-file-border: light-dark(rgb(26 28 31 / 7.8%), rgb(255 255 255 / 8.4%));
-    --hcv-file-hover: light-dark(rgb(26 28 31 / 5.35%), rgb(255 255 255 / 7.8%));
+    --hcv-file-stroke: light-dark(rgb(26 28 31 / 12%), rgb(255 255 255 / 16%));
+    --hcv-file-border: light-dark(rgb(26 28 31 / 8%), rgb(255 255 255 / 8%));
+    --hcv-file-hover: light-dark(rgb(26 28 31 / 5%), rgb(255 255 255 / 8%));
     --hcv-file-text: light-dark(#1a1c1f, #dfdfdf);
     --hcv-file-description: color-mix(in srgb, var(--hcv-file-text) 70%, transparent);
     --hcv-file-focus: #0285ff;
     border: 0;
     border-radius: var(--hcv-file-radius);
+    overflow: hidden;
     box-shadow: 0 0 0 .5px var(--hcv-file-stroke);
     background: light-dark(#fff, #222222);
     margin: 14px .5px 8px;
@@ -823,23 +865,31 @@ export default {
 `, { surface: '[data-hcv-turn-line], [data-slot="aui_turn-duration"], [data-slot="aui_response-loading"], [data-slot="aui_turn-activity"], [data-slot="aui_changed-files"]', retainAcrossChatTabs: true })
     root.setAttribute(marker, '')
     registerWorkspaceChrome(ctx, themeName)
-    const roster = registerSubagents(ctx, active)
+    registerRightSidebarMirror(ctx, themeName)
+    const turnHistory = registerChatTurnHistory(ctx, active)
+    registerSystemTurnNotices(ctx, active, turnHistory)
+    const roster = registerSubagents(ctx, active, turnHistory)
     const localEnvironment = registerLocalEnvironment(ctx, active)
     registerWorkspaceCard(ctx, themeName, roster, localEnvironment)
-    registerTurnExperience(ctx, active)
     registerChatDisplay(ctx, active)
     registerChatResources(ctx, active)
     registerChatFileLinks(ctx, active, previewResourceCard)
     registerChatActivity(ctx, active)
+    registerChatApproval(ctx, active)
     registerChatTables(ctx, active)
     registerReviewProposals(ctx, active)
+    registerActivityCenter(ctx, active)
     registerInterface(ctx, active)
-    registerInterfaceCopy(ctx, active)
     registerDesktopPages(ctx, active)
     registerDesktopCorners(ctx, active)
     registerSettingsStyle(ctx, active)
     registerSettingsProviders(ctx, active)
     registerSettingsSpecial(ctx, active)
+    registerUsagePage(ctx)
+    registerUsageNavigation(ctx, active)
+    registerUsageStyle(ctx, active)
+    registerUsageGroupSelectStyle(ctx, active)
+    registerUsageHistoryChartStyle(ctx, active)
     registerAppUpdatesStyle(ctx, active)
     registerInstallOverlayStyle(ctx, active)
     registerRemainingSurfaces(ctx, active)
@@ -847,9 +897,14 @@ export default {
     registerSessionTabs(ctx, active)
     registerContextMeter(ctx, active)
     registerComposer(ctx, active)
+    registerModelSpeed(ctx, active)
+    const stoppedTurns = registerTurnControl(ctx, active, turnHistory)
+    registerTurnExperience(ctx, active, stoppedTurns, turnHistory)
     registerDraftSetup(ctx, active, localEnvironment)
     registerDictation(ctx, active)
     registerZoomBanner(ctx, active, themeName)
+    registerTypography(ctx, active)
+    registerInterfaceCopy(ctx, active, registerTooltips(ctx, active))
     // Local installations record activation through the plugin's own data folder.
     if (typeof HCV_LOCAL_VERSION !== 'undefined' && HCV_LOCAL_VERSION && ctx.files) {
       void ctx.files.writeText(ctx.files.dataFolder, 'loaded-version.json', JSON.stringify({

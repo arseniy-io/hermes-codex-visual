@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "scope": "MCP display-only title snapshots",
+  "files": {
+    "tools/mcp_tool_registration.py": {
+      "baseline": "ee1ca1f86cef125e1da1c970c8d52008e86c939ee06a48007798533e5adaf04e",
+      "candidate": "685d89ff2ba68ff6514a5e43ceaa9c66fa1dfda5666ba1903991642ea72d24d2"
+    },
+    "tui_gateway/tool_progress.py": {
+      "baseline": "05a2fa25fdca3659d869fb82c6e2112609f8df44ed01dc80895b42372fb508e4",
+      "candidate": "101ea564c857307d57d1614bd8cd68c98763a953e74c12341e0ec5daadd1a3c6"
+    },
+    "tui_gateway/session_history.py": {
+      "baseline": "e343dee5af4567b638f22a45574437c010f673fc9191952c80a43f9fd0433bd6",
+      "candidate": "1ac36f8a17723f83483f246514f429686ae2b20033da232dca1f216986ee0332"
+    },
+    "hermes_cli/web_routers/sessions.py": {
+      "baseline": "90edd60d7b53a2d1347466488f2693efb43c80b1aa4c77332b5f5f2f2bea0ce8",
+      "candidate": "96e50e615b82b2e3957cdd906dea501a528e643231fa90ae5b0a59ee604c8247"
+    },
+    "tui_gateway/contracts/common.py": {
+      "baseline": "ae02eaf1a42d3646beae4d1577af07b2f85decf03f7414379a1c7383fae247ae",
+      "candidate": "ed2179ded1dea897d6075910242e65e36d56259b81e50dc278b212c54b0bc30a"
+    },
+    "apps/shared/src/gateway-contract.generated.ts": {
+      "baseline": "a9ee23040e2c441b649e9fe985a285a570f2a6567f171198687a92e0af229e61",
+      "candidate": "957384fa66f319a70ba2191bec9d743fa347b1b2ecf46bb007c3e76d837cad38",
+      "successors": [
+        "345fa5f8ec8d07f3e793ea6ba3af5ea424e4ae6048c73eedeca42e116b634c2b"
+      ]
+    },
+    "apps/shared/src/gateway-contract.openrpc.json": {
+      "baseline": "19a3b0a55e520fb9dae15eb2f3b127fa1da199616d9bb704db08f4a38314af93",
+      "candidate": "7fa9efb29d5d0d4e6f4dab1490ebb63475ac070fd0dc9adfd191b010745e9726",
+      "successors": [
+        "01cf1627da80f45d3eba2df657ece59d963e30959b3ad5857e788df851eb2ad7"
+      ]
+    }
+  },
+  "helper": {
+    "source": "data.py",
+    "target": "tools/hcv_tool_display.py",
+    "candidate": "3b86311d738e0092a226854b19b0ec5c89c0355b77b9a596a23783983b0f9c95"
+  }
+}

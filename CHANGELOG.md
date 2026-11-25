@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.15.135
+
+- Give chat tabs equal widths, remove folder icons and keep each close button in a fixed position within its tab. Reduce repeated work when switching chats.
+- Add quick archiving and a right-click chat menu. Expand additional chats within their project and improve Git summary counts and tooltips.
+- Reduce repeated work during typing, streaming and history loading. Keep the visible scroll position when opening a change card.
+- Show related skill proposals with their full details in Activity. Index activity history and improve the new-chat notice border.
+- Include the accumulated companion features, including Usage, saved chat and subagent history, file changes, turn controls, and model speed settings. Expand Russian coverage across the interface.
+
+Вкладки чатов теперь одной ширины и без значков папок. При переключении, вводе и подгрузке истории приложение делает меньше повторной работы. В этот выпуск также вошли быстрый архив, дополнительные чаты внутри проекта, уточнённая сводка Git, доработки «Активности», настройка скорости модели и обновления русского интерфейса.
+
+ZIP содержит интерфейсную и агентскую части одной версии. В комплект входят дополнения ядра для поддерживаемых версий Hermes. [Инструкция по установке](README.ru.md#установка) · [Контрольные суммы ZIP](downloads/SHA256SUMS.txt)
+
 ## v0.15.89
 
 - Use the installed workspace SVG set in both public and local builds: 138 interface icons, 28 subagent badge pairs, and 4 installer icons.

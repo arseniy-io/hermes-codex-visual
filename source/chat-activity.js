@@ -1,13 +1,16 @@
 import { mountStyle } from './style-scope.js'
+import { fileActivityData, fileActivityLabel, fileActivityStyles } from './chat-file-activity.js'
 import { codexIconRules, codexMask, codexReference as codex } from './codex-reference.js'
 import { committedFiber } from './sidebar-recents.js'
+import { agentDisplayName } from './agent-display-name.js'
 import { registerChatImages } from './chat-images.js'
 import { registerChatReasoning } from './chat-reasoning.js'
 import { registerChatSkills } from './chat-skills.js'
-import { activityPresentation } from './chat-activity-labels.js'
+import { activityPresentation, activityToolPart } from './chat-activity-labels.js'
 import { clearActivityDetails, registerActivityDetails, updateActivityDetails } from './chat-activity-details.js'
-import { activityGroup, activityGroups, activityMember } from './chat-activity-groups.js'
+import { activityGroup, activityGroups, activityMember, activityRepeatGroup, activityRepeatMember, emptyActivityOwner } from './chat-activity-groups.js'
 import { disclosureMotion, registerDisclosureMotion } from './chat-disclosure-motion.js'
+import { workMotionPanels } from './completed-turn-disclosure.js'
 
 const surface = '[data-chat-surface]:not([data-hud-shell] *)'
 const rowSelector = '[data-tool-row][data-slot="tool-block"]'
@@ -23,9 +26,11 @@ const nativeLabel = 'data-hcv-activity-native-label'
 const customLabel = 'data-hcv-activity-label'
 const editPrefix = 'data-hcv-activity-edit-prefix'
 const favicon = 'data-hcv-activity-favicon'
+const fallbackIcon = 'data-hcv-activity-fallback-icon'
+const failedHeader = 'data-hcv-activity-failed'
 const toolIcons = new Map([
   ['terminal', 'activityTerminal'], ['execute_code', 'activityTerminal'],
-  ['read_file', 'activityRead'], ['list_files', 'folder'],
+  ['read_file', 'activityRead'], ['list_files', 'activityList'], ['skill_view', 'activitySkill'],
   ['search_files', 'activitySearch'], ['web_search', 'activitySearch'], ['session_search_recall', 'activitySearch'],
   ['write_file', 'activityEdit'], ['edit_file', 'activityEdit'], ['patch', 'activityEdit'],
   ['vision_analyze', 'activityImage'], ['image_generate', 'activityImage'],
@@ -70,7 +75,10 @@ function runParts(summary) {
   return []
 }
 
-const rowProps = row => committedFiber(row)?.return?.memoizedProps
+const rowProps = row => {
+  const props = committedFiber(row)?.return?.memoizedProps
+  return props?.part ? { ...props, part: activityToolPart(props.part) } : props
+}
 const directSummary = ':scope > [data-tool-summary]'
 function partsForBlock(block) {
   if (block.matches(rowSelector)) {
@@ -79,7 +87,7 @@ function partsForBlock(block) {
   }
   if (!block.matches('[data-tool-group]')) return []
   const summary = block.querySelector(directSummary)
-  if (summary) return rowProps(summary)?.live ? [] : runParts(summary)
+  if (summary) return runParts(summary)
   const row = block.querySelector(`:scope > div > ${rowSelector}`)
   return row ? partsForBlock(row) : []
 }
@@ -97,9 +105,9 @@ function thoughtLabel(text) {
 }
 
 const receiptStatuses = new Map([
-  ['Completed', ['завершил работу', 'завершили работу']],
-  ['Finished with Issues', ['завершил работу с ошибками', 'завершили работу с ошибками']],
-  ['Failed', ['завершил работу с ошибкой', 'завершили работу с ошибками']],
+  ['Completed', ['завершил(-и) работу', 'завершил(-и) работу']],
+  ['Finished with Issues', ['завершил(-и) работу с ошибками', 'завершил(-и) работу с ошибками']],
+  ['Failed', ['завершил(-и) работу с ошибками', 'завершил(-и) работу с ошибками']],
   ['Incomplete', ['не завершил работу', 'не завершили работу']],
   ['Interrupted', ['прервал работу', 'прервали работу']],
   ['Cancelled', ['отменил задачу', 'отменили задачи']],
@@ -112,12 +120,12 @@ function receiptLabel(text) {
   if (!match) return ''
   const [, kind, outcome, goal] = match
   const plural = kind === 'Tasks'
-  const target = plural ? goal.replace(/ \((\d+) tasks\)$/, ' ($1)') : goal
-  if (outcome === 'Unknown') return (plural ? 'Статус субагентов' : 'Статус субагента') + ' неизвестен · ' + target
+  if (outcome === 'Unknown') return (plural ? 'Статус субагентов' : 'Статус субагента') + ' неизвестен'
   const status = receiptStatuses.get(outcome)?.[Number(plural)]
   if (!status) return ''
-  const subject = plural ? 'Субагенты' : 'Субагент'
-  return subject + ' ' + status + ' · ' + target
+  const goals = plural ? goal.replace(/ \(\d+ tasks\)$/, '').split('; ') : [goal]
+  const subject = new Intl.ListFormat('ru').format(goals.map(goal => agentDisplayName({ goal }, 'Субагент')))
+  return subject + ' ' + status
 }
 
 export function registerChatActivity(ctx, active) {
@@ -125,6 +133,13 @@ export function registerChatActivity(ctx, active) {
   const row = `${chat} ${rowSelector}`
   const summary = `${chat} ${summarySelector}`
   const group = `${chat} [data-tool-group][data-slot="tool-block"]`
+  const response = `${chat} [data-slot="aui_response-group"]`
+  const assistant = '[data-slot="aui_assistant-message-root"]'
+  const scaffold = ':is([data-slot="tool-block"], [data-slot="aui_thinking-disclosure"], [data-slot="aui_turn-activity"])'
+  // Hermes does not know about the plugin's own activity headers or agent
+  // rows. Count only visible, top-level items when assigning their spacing.
+  const flow = `:is(${scaffold}, .aui-md, [${activityGroup}], [data-hcv-agent-rows])` +
+    `:not([${activityMember}="closed"]):not([data-delegate-card])`
   const toggle = `:is(${row} > :first-child, ${summary}) > div > button`
   const title = `${toggle} > span:first-child > span:first-child`
   const glyph = `${title} > span:first-child:has(> :is(svg, .codicon, [role="status"]))`
@@ -132,33 +147,36 @@ export function registerChatActivity(ctx, active) {
   const receipt = `${chat} ${receiptSelector}`
   const thoughtToggle = `${thinking} > div:first-child > button`
   const receiptToggle = `${receipt} > [data-conversation-scaffold] > div > button`
-  const overall = `${chat} [${activityGroup}]`
+  const overall = `${chat} :is([${activityGroup}], [${activityRepeatGroup}])`
   const overallToggle = `${overall} > button`
   const turnToggle = `${chat} button[data-hcv-turn-line]`
   const controls = `:is(${toggle}, ${thoughtToggle}, ${receiptToggle}, ${overallToggle})`
   const caretBox = `${controls}[aria-expanded] > span:nth-child(2)`
   const caret = `:is(${caretBox} > .codicon-chevron-right, ${overallToggle} > span:nth-child(2))`
-  const motionPanel = `${chat} :not(button)[${disclosureMotion}]`
+  const childToggle = `${active} [data-hcv-subagents-pane] [data-hcv-agent-tool-toggle]`
+  const motionPanel = `:is(${chat} :not(button)[${disclosureMotion}], ${active} [data-hcv-subagents-pane] :not(button)[${disclosureMotion}])`
   const children = `${summary}:has(button[aria-expanded="true"]) + div:not([data-tool-ticker])`
   const clusterMember = `${chat} [${activityMember}]:not([${activityMember}="closed"])`
+  const repeatMember = `${chat} [${activityRepeatMember}]:not([${activityRepeatMember}="closed"])`
   const clusterChildren = `${clusterMember}[data-tool-group] > [data-tool-summary]:has(button[aria-expanded="true"]) + div:not([data-tool-ticker])`
   const output = `${row}[data-tool-open]:not([data-file-edit]) > :nth-child(2)`
   const preview = `${output} > div:has(> [data-slot="aui_markdown-image"])`
   const thumb = `${preview} [data-slot="aui_markdown-image"]:has(img)`
   const copy = `${output} > button[class~="group-hover/tool-block:opacity-100"]`
-  const icons = [...new Set([...toolIcons.values(), 'activityIntegration', 'activityBrowser', 'chatSkill'])]
+  const icons = [...new Set([...toolIcons.values(), 'activityIntegration', 'activityGithub', 'activityBrowser', 'chatSkill'])]
 
   const style = document.createElement('style')
   style.setAttribute('data-hcv-chat-activity-style', '')
   style.textContent = `
 @media (forced-colors: none) {
   ${chat} {
-    --hcv-activity-text: light-dark(#5d5d5d, #8b8b8b);
-    --hcv-activity-glyph: color-mix(in oklab, var(--hcv-text) 60%, transparent);
-    --hcv-activity-border: light-dark(#0d0d0d1a, #ffffff1f);
+    --hcv-activity-foreground: light-dark(#1a1c1f, #dfdfdf);
+    --hcv-activity-text: light-dark(rgb(26 28 31 / 50%), rgb(255 255 255 / 50%));
+    --hcv-activity-glyph: color-mix(in oklab, var(--hcv-activity-foreground) 60%, transparent);
+    --hcv-activity-border: light-dark(rgb(26 28 31 / 8%), rgb(255 255 255 / 8%));
     --hcv-activity-font: var(--codex-chat-font-size, 14px);
     --hcv-activity-line: calc(var(--hcv-activity-font) * 1.5);
-    --hcv-activity-mono: ui-monospace, "SFMono-Regular", "SF Mono", menlo, consolas, "Liberation Mono", monospace;
+    --hcv-activity-mono: var(--hcv-mono-font);
   }
   :is(${row}, ${summary}) {
     --conversation-tool-font-size: var(--hcv-activity-font);
@@ -174,24 +192,50 @@ export function registerChatActivity(ctx, active) {
     border: 0;
     border-radius: 0;
     background: transparent;
+  }
+  /* Direct file rows also belong to the outer 12px activity sequence.
+     Reset ordinary native padding without overriding that sequence. */
+  ${row}:not([data-file-edit]):not([${activityMember}]), ${row}:not([data-file-edit]) > :first-child {
     padding: 0;
   }
-  ${chat} ${messageContent} { --scaffold-block-gap: 12px; }
+  /* In Codex, separate conversation items use 16px. The smaller 4px gap is
+     for explicitly grouped items, not neighbouring agent/tool entries. */
+  ${chat} ${messageContent} { --turn-block-gap: 16px; --scaffold-block-gap: 16px; }
+  ${chat} ${messageContent} > ${flow} { margin-block-start: 16px; }
+  ${chat} ${messageContent} > ${flow}:nth-child(1 of ${flow}) { margin-block-start: 0; }
+  ${chat} ${messageContent} > .aui-md + .aui-md { margin-block-start: var(--paragraph-gap); }
+  ${response} { row-gap: 16px; }
+  ${response} > ${assistant}[${emptyActivityOwner}] { display: none; }
+  /* An interim response may retain Hermes's invisible footer while a later
+     activity root is still running. Restore it when that turn finishes. */
+  ${response}:has([data-message-streaming="true"], [data-slot="aui_response-loading"],
+    [data-slot="aui_turn-activity"][data-state="active"], [data-hcv-live-turn])
+    > ${assistant}:has(~ ${assistant} > ${messageContent} > ${scaffold})
+    > div:has(> div > [data-slot="aui_msg-actions"]) { display: none; }
   ${group} { --tool-row-gap: 0px; }
   ${children} {
     position: relative; gap: 12px;
     padding-block-start: 12px; padding-inline-start: 24px;
   }
-  ${children}::before, ${clusterMember}::before {
+  ${children}::before, ${clusterMember}::before, ${repeatMember}::before {
     content: ""; position: absolute; pointer-events: none;
     inset-block: 12px 0; inset-inline-start: 8px;
     border-inline-start: 1px solid var(--hcv-activity-border);
   }
   ${controls} { align-items: center; gap: 4px; padding: 0; border-radius: 6px; }
   ${controls}:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }
-  ${toggle}:not(:disabled):is(:hover, :focus-visible) { --conversation-scaffold-text: var(--hcv-text); }
+  /* ToolEntry's far-right dismiss action has no counterpart in Codex tool
+     rows. Hide only its action slot; keep the disclosure, time and output. */
+  ${row} > :first-child > div > span:has(> button > .codicon-close) { display: none; }
+  ${toggle}:not(:disabled):is(:hover, :focus-visible) { --conversation-scaffold-text: var(--hcv-activity-foreground); }
   ${title} { gap: 8px; }
   ${glyph} { inline-size: 16px; block-size: 16px; color: var(--hcv-activity-glyph); }
+  /* ConnectorTool's presentation caption can omit ToolGlyph altogether.
+     Use the same resolved Codex asset when there is no native glyph slot. */
+  ${row}[${iconAttribute}] [${fallbackIcon}]:not(:has(> img[${favicon}]))::before {
+    content: ""; inline-size: 16px; block-size: 16px; flex: none;
+    background: var(--hcv-activity-glyph); mask: var(--hcv-activity-icon) center / contain no-repeat;
+  }
   ${chat} [${nativeLabel}] { display: none; }
   ${title} > [${customLabel}] {
     display: block; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -214,6 +258,9 @@ export function registerChatActivity(ctx, active) {
     --conversation-scaffold-text: var(--hcv-chat-prose, var(--hcv-text)) !important;
   }
   ${receipt} { --conversation-scaffold-text: var(--hcv-activity-text); }
+  /* BackgroundResult adds 4px above and below its row. Subagent receipts
+     participate in the same 16px timeline spacing as the other items. */
+  ${receipt}:has([${customLabel}]) { padding-block: 0; }
   ${receipt} > [data-conversation-scaffold] { opacity: 1; }
   :is(${thoughtToggle}, ${receiptToggle}) [${customLabel}] {
     min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -248,9 +295,8 @@ export function registerChatActivity(ctx, active) {
   ${motionPanel} { box-sizing: border-box; min-block-size: 0; overflow: hidden; }
   ${motionPanel}[${disclosureMotion}="closing"] { pointer-events: none; }
   ${overall} { opacity: 1; color: var(--hcv-activity-text); }
-  ${overall}:not(:first-child) { margin-block-start: 12px; }
   ${overallToggle} { display: inline-flex; max-inline-size: 100%; text-align: start; cursor: pointer; }
-  ${overallToggle}:is(:hover, :focus-visible) { color: var(--hcv-text); }
+  ${overallToggle}:is(:hover, :focus-visible) { color: var(--hcv-activity-foreground); }
   ${overallToggle} > span:first-child {
     display: flex; align-items: center; gap: 8px; min-inline-size: 0; overflow: hidden;
   }
@@ -261,18 +307,37 @@ export function registerChatActivity(ctx, active) {
     content: ""; inline-size: 16px; block-size: 16px; flex: none;
     background: var(--hcv-activity-glyph); mask: var(--hcv-activity-icon) center / contain no-repeat;
   }
-  ${chat} [${activityMember}="closed"] { display: none; }
+  ${overallToggle} > span:first-child > img[${favicon}] {
+    inline-size: 16px; block-size: 16px; flex: none; border-radius: 4px; object-fit: contain;
+  }
+  ${overallToggle} > span:first-child:has(> img[${favicon}])::before { display: none; }
+  ${chat} :is([${activityMember}="closed"], [${activityRepeatMember}="closed"]) { display: none; }
   ${clusterMember} {
     position: relative; margin-block: 0 !important;
     padding-block: 12px 0; padding-inline: 24px 0 !important;
   }
   ${clusterMember}[${activityMember}="next"]::before { inset-block-start: 0; }
+  /* Native ToolRun already supplies the 12px row gap inside a repeat. */
+  ${repeatMember} {
+    position: relative; margin-block: 0 !important;
+    padding-block: 0 !important; padding-inline: 24px 0 !important;
+  }
+  ${repeatMember}::before { inset-block: 0; }
+  ${repeatMember}[${activityRepeatMember}="next"]::before { inset-block-start: -12px; }
   ${clusterMember} > [data-tool-summary]:has(button[aria-expanded="true"]) { display: none; }
   ${clusterChildren} { padding: 0; }
   ${clusterChildren}::before { content: none; }
+  ${fileActivityStyles(chat, toggle)}
   ${icons.map(icon => `
-    ${chat} :is([${iconAttribute}="${icon}"], [${activityGroup}="${icon}"]) { --hcv-activity-icon: ${codexMask(icon)}; }
+    ${chat} :is([${iconAttribute}="${icon}"], [${activityGroup}="${icon}"], [${activityRepeatGroup}="${icon}"]) { --hcv-activity-icon: ${codexMask(icon)}; }
   `).join('')}
+  /* gSvk server marks use text-tertiary; terminal and other default glyphs
+     retain pmt2's text/60 token. */
+  ${chat} :is([${iconAttribute}="activityIntegration"], [${iconAttribute}="activityGithub"],
+    [${activityGroup}="activityIntegration"], [${activityGroup}="activityGithub"],
+    [${activityRepeatGroup}="activityIntegration"], [${activityRepeatGroup}="activityGithub"]) {
+    --hcv-activity-glyph: var(--hcv-activity-text);
+  }
   ${glyph}:is(${row}[${iconAttribute}] *) > :is(svg[aria-hidden="true"], .codicon):not([aria-label]) {
     inline-size: 16px !important;
     block-size: 16px !important;
@@ -292,8 +357,20 @@ export function registerChatActivity(ctx, active) {
     background: var(--hcv-activity-glyph);
     mask: var(--hcv-activity-icon) center / contain no-repeat;
   }
+  /* Known failed MCP/command headers keep the category glyph in Codex.
+     Preserve the native accessible failure label and the error details. */
+  ${glyph}:is(${row}[${failedHeader}] *) > svg[aria-label] {
+    inline-size: 16px !important;
+    block-size: 16px !important;
+    color: var(--hcv-activity-glyph) !important;
+    background-color: currentColor;
+    mask: var(--hcv-activity-icon) center / contain no-repeat;
+  }
+  ${glyph}:is(${row}[${failedHeader}] *) > svg[aria-label] > * { visibility: hidden; }
   ${output} { margin-block-start: 4px; padding: 0; gap: 4px; }
-  ${output} :is(pre, code, .font-mono) { font-family: var(--hcv-activity-mono); font-size: 12px; line-height: 1.5; }
+  /* Source/config previews use code size. PuGl's shell transcript has its
+     separate chat-sm role in registerActivityDetails. */
+  ${output} :is(pre, code, .font-mono) { font-family: var(--hcv-activity-mono); font-size: ${codex.typography.code}px; line-height: 1.5; }
   ${output} pre, ${output} > .font-mono {
     border: 0;
     border-radius: 6px;
@@ -335,22 +412,19 @@ export function registerChatActivity(ctx, active) {
   @media (prefers-reduced-motion: reduce) { :is(${caret}, ${copy}) { transition: none; } }
 }
 `
-  mountStyle(ctx, style, { surface: `[data-slot="tool-block"], ${thinkingSelector}, ${receiptSelector}` })
+  mountStyle(ctx, style, { surface: `[data-slot="tool-block"], ${thinkingSelector}, ${receiptSelector}, [data-hcv-agent-rows]` })
 
   const pending = new Set()
-  const pendingMessages = new Set()
-  const groups = activityGroups(partsForBlock)
+  const pendingResponses = new Set()
+  const groups = activityGroups(partsForBlock, (...args) => setSite(...args))
   const siteEntries = new WeakMap()
   const siteIcons = new Map()
   const forcedColors = window.matchMedia('(forced-colors: active)')
   const enabled = () => document.documentElement.matches(active) && !forcedColors.matches
   registerDisclosureMotion(ctx, enabled, button => {
+    if (button.matches(childToggle)) return [...button.parentElement.children].slice(1)
     if (button.matches(overallToggle)) return groups.panels(button)
-    if (button.matches(turnToggle)) {
-      const response = button.parentElement
-      return [...response.querySelectorAll('[data-hcv-turn-step]')].filter(node =>
-        !node.parentElement.closest('[data-hcv-turn-step]'))
-    }
+    if (button.matches(turnToggle)) return workMotionPanels(button)
     if (!button.matches(`:is(${toggle}, ${thoughtToggle}, ${receiptToggle})`)) return null
     const header = button.closest(`:is(${rowSelector}, [data-tool-summary], ${thinkingSelector}, ${receiptSelector})`)
     if (header.matches('[data-tool-summary]')) {
@@ -366,6 +440,7 @@ export function registerChatActivity(ctx, active) {
     flush()
   })
   let frame = 0
+  let pruneNeeded = false
   let disposed = false
   let connected
   function clearLabel(title) {
@@ -383,9 +458,35 @@ export function registerChatActivity(ctx, active) {
     if (label.textContent !== value) label.textContent = value
     native.setAttribute(nativeLabel, '')
   }
-  function setToolLabel(title, view) {
+  function clearFileLabel(title) {
+    title?.querySelector(':scope > [data-hcv-file-activity-label]')?.remove()
+    title?.querySelector(':scope > [data-hcv-file-activity-native-stats]')?.removeAttribute('data-hcv-file-activity-native-stats')
+  }
+  function fileElement(tag, attributes, ...children) {
+    const node = document.createElement(tag)
+    for (const [name, value] of Object.entries(attributes)) node.setAttribute(name, String(value))
+    node.append(...children.filter(child => child != null && child !== false))
+    return node
+  }
+  function setToolLabel(title, view, file) {
     const native = title?.querySelector(':scope > span[class~="whitespace-nowrap"][class~="max-w-full"]')
-    if (native?.matches('.text-destructive, .text-amber-700')) return clearLabel(title)
+    if (native?.matches('.text-amber-700') || !view?.failed && native?.matches('.text-destructive')) { clearFileLabel(title); return clearLabel(title) }
+    if (file && native) {
+      title.querySelector(`:scope > [${customLabel}]`)?.remove()
+      native.removeAttribute(editPrefix)
+      native.setAttribute(nativeLabel, '')
+      const key = JSON.stringify(file)
+      const old = title.querySelector(':scope > [data-hcv-file-activity-label]')
+      if (old?.getAttribute('data-hcv-file-activity-key') !== key) {
+        const label = fileActivityLabel(file, fileElement)
+        label.setAttribute('data-hcv-file-activity-key', key)
+        if (old) old.replaceWith(label)
+        else native.after(label)
+      }
+      title.querySelector(':scope > span.font-mono')?.setAttribute('data-hcv-file-activity-native-stats', '')
+      return
+    }
+    clearFileLabel(title)
     if (view?.prefix) native?.setAttribute(editPrefix, view.prefix)
     else native?.removeAttribute(editPrefix)
     setLabel(title, native, view?.label)
@@ -437,12 +538,14 @@ export function registerChatActivity(ctx, active) {
       sites.observe(entry)
     }
   }
+  function queueResponse(response) {
+    if (response && (groups.has(response) || response.querySelector('[data-slot="tool-block"]'))) {
+      pendingResponses.add(response)
+    }
+  }
   function queue(entry) {
     pending.add(entry)
-    if (entry.matches(activitySelector)) {
-      const owner = entry.closest(messageContent)
-      if (owner) pendingMessages.add(owner)
-    }
+    queueResponse(entry.closest('[data-slot="aui_response-group"]'))
   }
   function collect(node) {
     if (!(node instanceof Element)) return
@@ -452,59 +555,84 @@ export function registerChatActivity(ctx, active) {
   }
   function flush() {
     frame = 0
+    pruneNeeded = false
     const russian = document.documentElement.lang.toLowerCase().startsWith('ru')
     groups.prune()
-    for (const message of pendingMessages) {
-      if (message.isConnected && message.closest(surface)) groups.sync(message, russian)
+    for (const response of pendingResponses) {
+      if (response.isConnected && response.closest(surface)) groups.sync(response, russian)
     }
-    pendingMessages.clear()
+    pendingResponses.clear()
     for (const entry of pending) {
       if (!entry.isConnected || !entry.closest(surface)) continue
       if (entry.matches(thinkingSelector) || entry.matches(receiptSelector)) {
         const thinking = entry.matches(thinkingSelector)
-        const title = (thinking ? entry : entry.firstElementChild)
+        const title = (thinking ? entry : entry.querySelector(':scope > [data-conversation-scaffold]'))
           ?.querySelector(':scope > div > button > span:first-child > span:first-child')
         const native = thinking ? title?.firstElementChild : title?.querySelector(':scope > span.truncate')
         const text = native?.textContent.trim()
         const localized = russian && text && (thinking ? thoughtLabel(text) : receiptLabel(text))
         setLabel(title, native, localized)
+        // Preserve the exact task on hover even when the timeline uses a
+        // short status; the original report is still opened by the button.
+        const label = title?.querySelector(`:scope > [${customLabel}]`)
+        if (!thinking && label && text) label.title = text.replace(/^Subagent (?:Task|Tasks) [^:]+: /, '')
         continue
       }
       const summary = entry.hasAttribute('data-tool-summary')
       const props = rowProps(entry)
       const part = props?.part
       if (!summary && part) updateActivityDetails(entry, part.toolName, russian)
-      const live = summary ? props?.live : Boolean(part && part.result === undefined && part.completedAt == null &&
-        entry.closest('[data-message-streaming="true"]'))
+      // Hermes marks streaming on a hidden child of the message root, not on
+      // an ancestor of each tool row. Keep the ancestor check for older builds.
+      const streaming = entry.closest('[data-message-streaming="true"]') ||
+        entry.closest(assistant)?.querySelector('[data-message-streaming="true"]')
+      const live = summary ? props?.live : Boolean(part && part.result === undefined && part.completedAt == null && streaming)
       const parts = summary ? runParts(entry) : part?.toolName ? [part] : []
       const view = activityPresentation(parts, live, russian, !summary &&
         (entry.closest(`[${activityMember}]`) || entry.closest('[data-tool-group]')?.querySelector(directSummary) ||
           ['write_file', 'edit_file', 'patch'].includes(part?.toolName)), summary)
+      entry.toggleAttribute(failedHeader, Boolean(view?.failed))
       const icon = view?.icon ?? nativeIcon(entry, part)
       if (icon) entry.setAttribute(iconAttribute, icon)
       else entry.removeAttribute(iconAttribute)
       const title = findTitle(entry, summary)
-      setToolLabel(title, view)
+      title?.toggleAttribute(fallbackIcon, Boolean(!summary && icon && !title.querySelector(':scope > span > :is(svg, .codicon, [role="status"])')))
+      // The outer live summary already names Chrome. Keep the native action
+      // name inside its disclosure (and in Hermes's native ticker).
+      const inGroup = entry.closest(`[${activityMember}]:not([${activityMember}="closed"])`)
+      const tickerView = view?.icon === 'activityBrowser' && (entry.closest('[data-tool-ticker]') || live && inGroup)
+        ? { ...view, label: '' } : view
+      setToolLabel(title, tickerView, !summary && fileActivityData(part, russian, entry.hasAttribute('data-tool-open')))
       setSite(entry, title, view?.site)
     }
     pending.clear()
   }
   const observer = new MutationObserver(records => {
-    for (const { target, addedNodes, removedNodes } of records) {
+    for (const { type, target, addedNodes, removedNodes } of records) {
       const element = target instanceof Element ? target : target.parentElement
-      if (!element || element.closest(thinkingBody)) continue
-      if (element.matches(messageContent)) pendingMessages.add(element)
+      if (!element || element.closest(thinkingBody) || element.closest(`[${activityGroup}], [${activityRepeatGroup}]`)) continue
+      if (type === 'attributes') {
+        queueResponse(element.closest('[data-slot="aui_response-group"]'))
+        continue
+      }
+      if (type === 'characterData' && element.closest('time, [class~="tabular-nums"], [role="status"]')) continue
+      if (element.matches(`:is(${messageContent}, ${assistant}, [data-slot="aui_response-group"])`)) {
+        queueResponse(element.closest('[data-slot="aui_response-group"]'))
+      }
       const entry = element.closest(labelSelector)
       if (entry) queue(entry)
       else for (const node of addedNodes) collect(node)
       // Do not let an observed, collapsed browser row keep an old chat alive.
       for (const node of removedNodes) {
         if (!(node instanceof Element) || node.isConnected) continue
+        if (node.matches('[data-slot="aui_response-group"]') || node.querySelector('[data-slot="aui_response-group"]')) {
+          pruneNeeded = true
+        }
         if (siteEntries.has(node)) setSite(node)
         for (const entry of node.querySelectorAll(activitySelector)) if (siteEntries.has(entry)) setSite(entry)
       }
     }
-    if ((pending.size || pendingMessages.size) && !frame) frame = requestAnimationFrame(flush)
+    if ((pruneNeeded || pending.size || pendingResponses.size) && !frame) frame = requestAnimationFrame(flush)
   })
   function clearActivity() {
     groups.clear()
@@ -512,9 +640,13 @@ export function registerChatActivity(ctx, active) {
     for (const entry of document.querySelectorAll(`[${iconAttribute}]`)) {
       siteEntries.delete(entry)
       entry.removeAttribute(iconAttribute)
+      entry.removeAttribute(failedHeader)
     }
     for (const node of document.querySelectorAll(`[${nativeLabel}]`)) node.removeAttribute(nativeLabel)
     for (const node of document.querySelectorAll(`[${editPrefix}]`)) node.removeAttribute(editPrefix)
+    for (const node of document.querySelectorAll('[data-hcv-file-activity-native-stats]')) node.removeAttribute('data-hcv-file-activity-native-stats')
+    for (const node of document.querySelectorAll('[data-hcv-file-activity-key]')) node.remove()
+    for (const node of document.querySelectorAll(`[${fallbackIcon}]`)) node.removeAttribute(fallbackIcon)
     for (const node of document.querySelectorAll(`[${customLabel}], img[${favicon}]`)) node.remove()
   }
   function sync() {
@@ -525,12 +657,14 @@ export function registerChatActivity(ctx, active) {
     sites.disconnect()
     cancelAnimationFrame(frame)
     frame = 0
+    pruneNeeded = false
     pending.clear()
-    pendingMessages.clear()
+    pendingResponses.clear()
     if (next) {
       collect(document.body)
       flush()
-      observer.observe(document.body, { childList: true, characterData: true, subtree: true })
+      observer.observe(document.body, { childList: true, characterData: true, subtree: true,
+        attributes: true, attributeFilter: ['data-message-streaming'] })
     } else clearActivity()
   }
   const theme = new MutationObserver(records => {
@@ -553,7 +687,7 @@ export function registerChatActivity(ctx, active) {
     style.remove()
   })
   registerChatImages(ctx, active)
-  registerActivityDetails(ctx, chat, output)
+  registerActivityDetails(ctx, chat, output, active)
   registerChatReasoning(ctx, active)
   registerChatSkills(ctx, active)
 }

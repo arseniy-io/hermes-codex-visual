@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "scope": "Codex account-scoped dynamic speed tiers and bounded single-patch live diff experiment",
+  "files": {
+    "agent/fast_mode.py": {
+      "baseline": "7ad547db41b45f978d748b31e353b35eb1ca32f7da35dfa0957a172dd7a2172c",
+      "candidate": "0917cacbde952714684b8625d6342a167c7d1c575d290bbadf4a2249eced0dec"
+    },
+    "agent/codex_service_tiers.py": {
+      "baseline": "da72518acd3a89f7fa28c06344d2dc4811ce546040783be825ca7de29d4c2637",
+      "candidate": "0952d372c72039d88b3bfd2a2bde9551b6b09f26eed6fd095091b15f8d1c9ffd"
+    },
+    "agent/transports/codex_app_server.py": {
+      "baseline": "6417884d48b0ceb2dcf7d25cff54538a0b2768466a7c387661885df68f4e6bcf",
+      "candidate": "c9bf84449a28216168ed294f9be4982171d20ab9c3c38325817ad87974d60941"
+    },
+    "agent/codex_runtime.py": {
+      "baseline": "50721ff3c0634a8825dd5396b3ed8aee4fd92b04cfc09a105a94420d61c3748f",
+      "candidate": "882cb24c591f7b1050a22a09f36142150766902720b7db62e46716ebdf82311e"
+    },
+    "hermes_cli/models.py": {
+      "baseline": "7d4fdab6ba6f16f7803539a787416467961473d3a07d8dac639eba4f369093b1",
+      "candidate": "e22953610ceef45be225681c1bb1f330b72284ddcd65c8975acc49e2f1ca5ed6"
+    },
+    "hermes_cli/inventory.py": {
+      "baseline": "e752a4a0f0f292878ab39c9791d12705dac5d6d7b6b08dd1bc5d47886b3b4235",
+      "candidate": "34df1d954d2a1b43f4d03d24218eab899c1dc2512bf3b53358e24488bee76187"
+    },
+    "gateway/session_config.py": {
+      "baseline": "67844b969799b1ce03267da7d03635a439b96bf0c60e3370820e3fa427f16cb7",
+      "candidate": "a66a3746df205cc0bb711be22f29fe11f30c75d4e417a621e68b25e61209657f"
+    },
+    "gateway/session_tui_config.py": {
+      "baseline": "1f35c899a8c719baa9777921c31dec9dcbc2ea39b8c03c44464f59d14f6970fd",
+      "candidate": "e21e852515868ed352da0ed4785390bc0994874a41b3e8d9524fe81830321470"
+    },
+    "gateway/session_local.py": {
+      "baseline": "cd7c5b2a2718c6b0fab56314f039f0d6bac8b1b80046b2100284e71cad1a2c2c",
+      "candidate": "bbe645d3b5e15c73feb44deeaea030c2a08448276906193e86f64f1c9d9b3f3a"
+    },
+    "tui_gateway/methods_config_set.py": {
+      "baseline": "e974b4da5ee26ab2a9610916acb115eb366057fcbe338f9e1080b68d174a8704",
+      "candidate": "e0344e447c9eb3aa91e4bac81a752c846477dc04ff6ac572334aa9a223cffe76"
+    },
+    "gateway/local_viewer_events.py": {
+      "baseline": "d9fa646e530ecb3f9919535db3af37a884fc47121f1e360dcf75bdb25c53885f",
+      "candidate": "5a14caee3623887fe187a90144c51096361079741d03d37ae3d4b26a518f0f17"
+    },
+    "gateway/session_mutations.py": {
+      "baseline": "457b503c9a4615de4c60ff81eb1db4eab1fae1b124ae2a1cac63f3d48f548caa",
+      "candidate": "bf33d1ead5b0a41cf7c5e32534fb688dfad75eea2986ced3455eeac108645cf8"
+    }
+  },
+  "helper": {
+    "source": "hcv_model_speed.py",
+    "target": "agent/hcv_model_speed.py",
+    "baseline": "036ffde58410df2b430b182e388eac65f42b0417cb241e1ccfc9029a35da206f",
+    "candidate": "40c5f551da916d2ef956a3a1d056d50bb82dfc81344b83e96f49f5dac5e02b22"
+  },
+  "additional_helpers": [
+    {
+      "source": "hcv_codex_diff_bridge.py",
+      "target": "agent/hcv_codex_diff_bridge.py",
+      "candidate": "a7031a614c4743890059b774cfcf6b95de4f69d32ff65145cbae3ef5e14d57bf"
+    }
+  ]
+}

@@ -203,7 +203,7 @@ export async function verifyPopupStyles({ page, expect, screenshot, openThemeSet
   const form = page.locator(dialog)
   await expect(form).toHaveCSS('border-radius', '24px')
   await expect(form.locator('[data-slot="dialog-close-button"]')).toHaveCSS('border-radius', '10px')
-  const editJson = form.getByRole('button', { name: 'Edit mcp.json', exact: true })
+  const editJson = form.getByRole('button', { name: 'Изменить mcp.json', exact: true })
   await expect(editJson).toHaveCSS('border-radius', '10px')
   const idleJson = (await state(editJson)).background
   await editJson.hover()
@@ -523,8 +523,8 @@ export async function runUiAudit({ page, expect, screenshot, themeCard, openThem
     if (menuMotion[1]) assert.equal(menuMotion[1].duration, '0.1s')
     assert.deepEqual(dialogMotion.map(frame => frame?.duration), ['0.15s', '0.1s'])
     assert.notEqual(selectedStyle.background, 'rgba(0, 0, 0, 0)')
-    assert.equal(tooltipStyle.radius, '8px')
-    assert.deepEqual([tooltipStyle.duration, tooltipExit?.duration], ['0.25s', '0.25s'])
+    assert.equal(tooltipStyle.radius, '20px')
+    assert.deepEqual([tooltipStyle.duration, tooltipExit?.duration], ['0.15s', '0.15s'])
     assert(verified.summaryExit.some(([property, duration]) => property === 'transform' && duration === 300))
   }
 }

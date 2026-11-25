@@ -9,6 +9,10 @@ const delegationPrompt = 'Проверка делегирования трем �
 const tilePrompt = 'Делегирование из соседнего чата.'
 const tileGoal = 'Проверка соседней вкладки'
 const goals = ['Карта источников', 'Проверка выводов', 'Вычитка примеров']
+const taskNames = ['source_map', 'results_review', 'example_review']
+const agentNames = ['Source map', 'Results review', 'Example review']
+const tileTaskName = 'tile_review'
+const tileAgentName = 'Tile review'
 const subagentReply = 'Проверка пройдена.'
 
 export async function verifyReplyActionsInteraction({ app, page, expect, openThemeSettings, closeSettings, themeCard }) {
@@ -113,7 +117,8 @@ export function makeChatFixture() {
         const sent = inTile ? 'Субагент получил задание.' : 'Субагенты получили задания.'
         const sending = inTile ? 'Передаю одно задание.' : 'Распределяю три задания.'
         send(returned ? sent : sending, returned ? [] : [
-          { name: 'delegate_task', args: { tasks: tasks.map(goal => ({ goal })) } },
+          { name: 'delegate_task', args: { tasks: tasks.map((goal, index) => ({ goal,
+            task_name: inTile ? tileTaskName : taskNames[index] })) } },
         ])
         return true
       }
@@ -121,7 +126,12 @@ export function makeChatFixture() {
       if (goal && !message.startsWith('[ASYNC DELEGATION')) {
         children.add(goal)
         await promise
-        send(subagentReply)
+        const completed = request.messages.slice(lastUserIndex + 1).some(({ role }) => role === 'tool')
+        // Only the isolated subagents-pane prompt runs a real harmless local
+        // command. Its raw persisted result must reach the custom child feed.
+        const command = process.env.HERMES_VISUAL_FOCUS === 'subagents-pane' && !completed
+        send(command ? 'Проверяю вывод команды.' : subagentReply, command
+          ? [{ name: 'terminal', args: { command: 'echo fixture-child-output' } }] : [])
         return true
       }
       return false
@@ -132,6 +142,8 @@ export function makeChatFixture() {
 
 export async function verifyDraftSetup({ page, expect, screenshot }) {
   const chat = page.locator('[data-chat-surface][data-composer-target="main"]:visible')
+  const { verifyDraftConsent } = await import('./draft-consent.spec-helper.mjs')
+  const draftConsent = await verifyDraftConsent({ page, expect, chat, screenshot })
   const bar = chat.locator('[data-hcv-draft-bar]')
   const input = chat.locator('[data-slot="composer-surface"] [contenteditable="true"]').first()
   await expect(bar).toBeVisible({ timeout: 15000 })
@@ -328,6 +340,7 @@ export async function verifyDraftSetup({ page, expect, screenshot }) {
   if (await confirmSwitch.isVisible()) await confirmSwitch.click()
   await expect(device).toHaveText('Этот компьютер', { timeout: 45000 })
   await expect(nativeSwitcher).toContainText('This device')
+  return { draftConsent, normalSetup: true, stripGeometry }
 }
 
 export async function verifyChatParity({
@@ -525,46 +538,68 @@ export async function verifySubagentsParity({ app, page, expect, projectChat, sc
     }) }))
     throw error
   }
-  const liveRow = viewport.locator('[data-hcv-agent-activity="started"]')
-  await expect(liveRow).toHaveCount(1)
-  await expect(liveRow).toContainText('начал(-и) работу')
-  await expect(liveRow.locator('img')).toHaveCount(3)
+  const delegationTurn = viewport.locator('[data-slot="aui_turn-pair"]').filter({ hasText: delegationPrompt }).last()
+  const liveRows = delegationTurn.locator('[data-hcv-agent-activity="started"]')
+  await expect(liveRows).toHaveCount(1)
+  await expect(liveRows.locator('[data-hcv-agent-name]')).toHaveText(agentNames, { timeout: 30000 })
+  await expect(liveRows).toHaveText('Source map, Results review и Example review начал(-и) работу')
+  await expect(liveRows.locator('img')).toHaveCount(3)
+  const liveIds = JSON.parse(await liveRows.getAttribute('data-hcv-agent-ids'))
+  assert.equal(new Set(liveIds).size, 3)
+  const observed = []
+  for (const [index, name] of agentNames.entries()) {
+    const link = liveRows.locator('[data-hcv-agent-name]').nth(index)
+    const id = await link.getAttribute('data-hcv-agent-link')
+    assert.equal(id, liveIds[index], 'Every name and avatar must keep its own child identity')
+    observed.push({ id, name, src: await liveRows.locator('img').nth(index).getAttribute('src') })
+  }
+  await expect(delegationTurn.locator('button[data-hcv-agent-rows][aria-controls]')).toHaveCount(0)
+  await expect(delegationTurn.locator('[data-delegate-card]:visible')).toHaveCount(0)
   const icons = async (target) => {
     const assets = await target.locator('img').evaluateAll(nodes => nodes.map(node => [node.getAttribute('src'), node.naturalWidth]))
     return assets.map(([src, width]) => [src.startsWith('data:image/svg+xml,'), width,
       createHash('sha256').update(src).digest('hex').slice(0, 16)])
   }
-  await expect.poll(async () => (await icons(liveRow)).every(([svg, width]) => svg && width === 16)).toBe(true)
-  const running = await icons(liveRow)
-  assert.deepEqual(await icons(summary.locator('[data-hcv-open-subagents]')), running)
+  await expect.poll(async () => (await icons(liveRows)).every(([svg, width]) => svg && width === 16)).toBe(true)
+  const running = await icons(liveRows)
+  const sortedIcons = values => values.toSorted((a, b) => a[2].localeCompare(b[2]))
+  assert.deepEqual(sortedIcons(await icons(summary.locator('[data-hcv-open-subagents]'))), sortedIcons(running))
   await screenshot('subagents-running.png')
   const selection = await verifyActiveSubagents({ page, expect, screenshot, summary })
+  for (const { id, name, src } of observed) {
+    const entry = selection.pane.locator(`[data-hcv-subagent-row="${id}"]`)
+    await expect(entry.locator('[data-hcv-subagent-name]')).toHaveText(name)
+    await expect(entry.locator('[data-hcv-subagent-avatar]')).toHaveAttribute('src', src)
+  }
 
   fixture.release()
-  const finished = viewport.locator('[data-hcv-agent-activity="completed"]')
-  await expect(finished).toHaveCount(1, { timeout: 40000 })
-  await expect(finished).toContainText('завершил(-и) работу')
-  await expect(liveRow).toHaveCount(0)
-  assert.deepEqual(await icons(finished), running)
-  const details = finished.locator('xpath=ancestor::button')
-  await details.click()
-  await expect(details).toHaveAttribute('aria-expanded', 'true')
-  await expect(viewport.locator('[data-delegate-card]')).toBeVisible()
-  const delegateRows = viewport.locator('[data-delegate-card] > div')
-  await expect(delegateRows).toHaveCount(3)
-  await expect(delegateRows.first()).toHaveCSS('border-top-width', '0px')
-  await expect(delegateRows.first().locator('[data-hcv-delegate-avatar]')).toHaveCSS('width', '16px')
-  await expect(delegateRows.first().locator('.codicon-agent')).toBeHidden()
-  if (process.env.HERMES_VISUAL_FOCUS === 'subagents-pane' && process.env.HERMES_VISUAL_ACTIVITY_RELEASE) {
-    await screenshot('subagents-expanded.png')
+  for (const { id, name, src } of observed) {
+    const completion = viewport.locator('[data-hcv-agent-activity="completed"]')
+      .filter({ has: page.locator(`[data-hcv-agent-name][data-hcv-agent-link="${id}"]`) })
+    await expect(completion).toHaveCount(1, { timeout: 40000 })
+    await expect(completion.locator(`[data-hcv-agent-name][data-hcv-agent-link="${id}"]`)).toHaveText(name)
+    const names = await completion.locator('[data-hcv-agent-name]').allTextContents()
+    await expect(completion).toHaveText(new Intl.ListFormat('ru', { type: 'conjunction' }).format(names) + ' завершил(-и) работу')
+    const ids = JSON.parse(await completion.getAttribute('data-hcv-agent-ids'))
+    await expect(completion.locator('img').nth(ids.indexOf(id))).toHaveAttribute('src', src)
+    await expect(liveRows.locator(`[data-hcv-agent-name][data-hcv-agent-link="${id}"]`)).toHaveText(name)
   }
-  await details.click()
+  const doneGroup = selection.pane.locator('[data-hcv-subagent-group="done"]')
+  await expect(doneGroup.locator('h2')).toHaveText('Готово · 3', { timeout: 40000 })
+  await expect(doneGroup.locator('[data-hcv-subagent-row][data-status="completed"]')).toHaveCount(3)
+  for (const { id, name, src } of observed) {
+    const entry = doneGroup.locator(`[data-hcv-subagent-row="${id}"]`)
+    await expect(entry.locator('[data-hcv-subagent-name]')).toHaveText(name)
+    await expect(entry.locator('[data-hcv-subagent-avatar]')).toHaveAttribute('src', src)
+  }
+  await expect(delegationTurn.locator('[data-delegate-card]:visible')).toHaveCount(0)
   await verifyFinishedSubagents({ app, page, expect, screenshot, selection, response: subagentReply })
 
   await selectChat('Ревью интерфейса')
   await expect(viewport.getByText('Тестовый чат готов к проверке.', { exact: true })).toBeVisible()
   await expect(summary).toHaveCount(0)
-  await verifySubagentsScopeChanged({ page, expect, prior: selection.title })
+  await verifySubagentsScopeChanged({ page, expect, prior: selection.goal })
+  if (process.env.HERMES_VISUAL_FOCUS === 'subagents-pane') return
   // Split an already stored chat. A fresh draft tile in this Hermes build
   // can send Enter to the main runtime while its own session is unbound.
   const storedChat = projectChat('Проверка каталога')
@@ -620,8 +655,11 @@ export async function verifySubagentsParity({ app, page, expect, projectChat, sc
   await expect(tile.getByText(tilePrompt, { exact: true })).toBeAttached()
   await expect(viewport.getByText(tilePrompt, { exact: true })).toHaveCount(0)
   await expect.poll(() => fixture.children.has(tileGoal), { timeout: 35000 }).toBe(true)
-  await expect(tile.getByRole('button', { name: 'Субагент завершил работу · ' + tileGoal, exact: true }))
-    .toBeAttached({ timeout: 40000 })
+  const tileReceipt = tile.locator('[data-hcv-agent-activity="completed"]')
+    .filter({ hasText: tileAgentName + ' завершил(-и) работу' })
+  await expect(tileReceipt).toBeAttached({ timeout: 40000 })
+  await expect(tileReceipt).toHaveText(tileAgentName + ' завершил(-и) работу')
+  await expect(tileReceipt.locator('[data-hcv-agent-name]')).toHaveAttribute('aria-label', 'Открыть субагента ' + tileAgentName)
   await expect(viewport.getByText('Тестовый чат готов к проверке.', { exact: true })).toBeVisible()
   await verifySubagentsScopeChanged({ page, expect, prior: tileGoal })
   await screenshot('subagents-pane-tile-isolation.png')

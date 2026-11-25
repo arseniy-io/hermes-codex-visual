@@ -2,8 +2,12 @@ import { chatStyles, mountStyle } from './style-scope.js'
 import { codexIconRules, codexMask } from './codex-reference.js'
 import { registerMessageActions } from './message-actions.js'
 import { committedFiber } from './sidebar-recents.js'
+import { registerProjectChatWelcome } from './chat-welcome.js'
+import { createComposerClearanceMetrics } from './composer-clearance.js'
 
 const viewportSelector = '[data-slot="aui_thread-viewport"]'
+const mainGroup = '[data-tree-group="grp-main"]'
+const suspendedTranscript = 'data-hcv-suspended-transcript'
 const promptSelector = '[data-slot="aui_user-message-root"][data-message-id]'
 // Editable Hermes messages have a labelled native button. Spectator messages,
 // system notices and the edit composer use different markup.
@@ -51,7 +55,26 @@ function displayStyles(active, chat) {
   const errorButton = `${errorActions} > .aui-error-action`
   const errorControls = `:is(${errorClose}, ${errorSummary}, ${errorButton})`
   const modernError = `${active} ${chat} [data-slot="aui_error-card"][role="alert"]`
+  const content = `${active} [data-tree-group] ${chat} ${viewportSelector} [data-slot="aui_thread-content"]`
+  const tileWelcome = `${active} [data-tree-group] ${chat}[data-composer-target^="tile:"] [data-hcv-project-welcome]`
   return `
+  /* Codex 26.1111.2228.0: the default thread inset is 8 × 4px. Hermes
+     otherwise resolves its titlebar-based inset to zero in a project tab. */
+  ${content}:has(> [data-slot="aui_message-group"]) {
+    padding-block-start: 32px;
+  }
+  /* Hermes adds 4px inside the user row; Codex's message row starts at the
+     thread inset, so do not count that padding again on the first row. */
+  ${content} > [data-slot="aui_message-group"]:first-of-type > [data-slot="aui_turn-pair"] > ${promptSelector} {
+    padding-block-start: 0;
+  }
+  ${content}[class*="--titlebar-height)+0.75rem"]:has(> [data-slot="aui_message-group"]) {
+    padding-block-start: max(32px, calc(var(--titlebar-height) + .75rem));
+  }
+  [data-hcv-project-welcome] { display: none; }
+  /* Let another owner's empty state, such as a bot's, take precedence. */
+  ${tileWelcome}:only-child { display: flex !important; }
+
 @media (forced-colors: none) {
   /* Current Hermes error surface. Adapt the same Codex panel and quiet
      controls used below without replacing native actions or diagnostics. */
@@ -208,6 +231,14 @@ function displayStyles(active, chat) {
   @media (prefers-contrast: more) {
     ${viewport}, ${viewport}:is(:hover, :active) { scrollbar-color: CanvasText Canvas; }
   }
+  /* Codex leaves the in-flow action row below the bubble, then 16px
+     between the user message and the response. Avoid counting Hermes's
+     additional bottom padding as a second conversation gap. */
+  ${viewport} [data-slot="aui_turn-pair"] { row-gap: 16px; }
+  ${viewport} [data-slot="aui_turn-pair"] > ${promptSelector} { padding-block-end: 0; }
+  ${active} ${mainGroup} [data-pane-hidden] ${viewportSelector}[${suspendedTranscript}] > [data-slot="aui_thread-content"] {
+    content-visibility: hidden;
+  }
   /* Codex scrolls the user turn with the transcript. Hermes's clip observer
      can still see the old overlap for a frame on theme changes. */
   ${viewport} [data-slot="aui_user-message-root"] {
@@ -217,11 +248,19 @@ function displayStyles(active, chat) {
   ${viewport} [data-sticky-prompt-clip] {
     clip-path: none;
   }
-  /* The viewport already excludes the height above the docked editor (queue,
-     status stack). Reserve the editor overlap once, plus 12px to its shell.
-     Keep the native clearance element and its scroll anchor. */
+  /* Codex Gjet.F (632620.21f2e5d141.js): 32px below the transcript,
+     followed by one measured-footer spacer. Recompute Hermes' viewport calc
+     on its owning surface: the :root definition has already substituted the
+     root fallback sizes before the native per-surface metrics are inherited.
+     Private exact metrics avoid the native 8px measurement buckets. */
   ${docked} [data-slot="aui_thread-content"] {
     --thread-last-message-clearance: calc(var(--composer-surface-measured-height) + 4px);
+  }
+  ${docked}:not([data-hud-shell] *) {
+    --thread-viewport-height: max(0px, calc(100% - var(--hcv-composer-dock-height, var(--composer-measured-height)) + var(--hcv-composer-surface-height, var(--composer-surface-measured-height))));
+  }
+  ${docked}:not([data-hud-shell] *) [data-slot="aui_thread-content"] {
+    --thread-last-message-clearance: calc(var(--hcv-composer-surface-height, var(--composer-surface-measured-height)) + 32px);
   }
   ${docked} [data-slot="aui_thread-content"] > [data-slot="aui_message-group"]:not(:has(~ [data-slot="aui_message-group"])) {
     padding-block-end: 0;
@@ -411,6 +450,7 @@ function keepToggleVisible(state) {
 }
 
 export function registerChatDisplay(ctx, active) {
+  registerProjectChatWelcome(ctx)
   const chat = '[data-chat-surface]:not([data-hud-shell] *)'
   const messageActions = registerMessageActions(ctx, active, `${chat} ${viewportSelector}`, promptSelector)
   const innerSelector = `${chat} ${viewportSelector} ${promptSelector} ${bubbleSelector} > ${clampSelector} > div`
@@ -420,8 +460,17 @@ export function registerChatDisplay(ctx, active) {
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)')
   const states = new Map()
   const editors = new Map()
+  const deferredMeasurements = new Set()
+  const hiddenPane = '[data-pane-hidden], [hidden]'
+  const lastFollowing = new WeakMap()
+  const readingViewports = new WeakSet()
+  let selectedViewport = null
+  let previousViewport = null
+  let suspendedViewport = null
+  const composerMetrics = createComposerClearanceMetrics()
   let nextId = 0
   let frame = 0
+  let transcriptChanged = false
   const stylesheet = document.createElement('style')
   stylesheet.setAttribute('data-hcv-chat-display', '')
   stylesheet.textContent = displayStyles(active, chat)
@@ -487,6 +536,12 @@ export function registerChatDisplay(ctx, active) {
   }
 
   function measure(state) {
+    // A cached pane still has layout boxes. Read them when it is shown again.
+    if (state.viewport.closest(hiddenPane)) {
+      deferredMeasurements.add(state)
+      return
+    }
+    deferredMeasurements.delete(state)
     if (!state.body.getClientRects().length || !state.viewport.clientHeight) return
     const lineHeight = Number.parseFloat(getComputedStyle(state.clamp).lineHeight)
     if (!Number.isFinite(lineHeight)) return
@@ -505,6 +560,7 @@ export function registerChatDisplay(ctx, active) {
   }
 
   const sizes = new ResizeObserver(entries => {
+    composerMetrics.resize(entries)
     for (const { target } of entries) {
       const state = states.get(target)
       if (state) measure(state)
@@ -512,6 +568,7 @@ export function registerChatDisplay(ctx, active) {
   })
 
   function detach(state) {
+    deferredMeasurements.delete(state)
     sizes.unobserve(state.body)
     removeDisclosure(state)
     states.delete(state.body)
@@ -567,10 +624,7 @@ export function registerChatDisplay(ctx, active) {
     return state
   }
 
-  function reconcile() {
-    frame = 0
-    const enabled = root.matches(active) && !forcedColors.matches
-    messageActions(enabled)
+  function reconcileTranscript(enabled) {
     const current = new Set(enabled ? document.querySelectorAll(innerSelector) : [])
     const currentEditors = new Set(enabled ? document.querySelectorAll(editorSelector) : [])
     for (const [container, state] of editors) {
@@ -601,10 +655,81 @@ export function registerChatDisplay(ctx, active) {
     }
   }
 
-  const schedule = () => { if (!frame) frame = requestAnimationFrame(reconcile) }
+  function rememberFollowing(viewport) {
+    if (!viewport.closest(hiddenPane)) lastFollowing.set(viewport, viewport.dataset.following === 'true')
+  }
+
+  function rememberReadingPosition(event) {
+    const viewport = selectedViewport
+    if (!viewport?.isConnected || viewport.closest(hiddenPane) || readingViewports.has(viewport)) return
+    // Native follow can briefly reset on focus changes. Save intentional
+    // reading activity or the current reading position before tab input.
+    if (event.type === 'wheel') {
+      if (event.deltaY < 0 && viewport.contains(event.target)) readingViewports.add(viewport)
+    } else if (viewport.dataset.following === 'false' &&
+      viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop > 1) {
+      readingViewports.add(viewport)
+    }
+  }
+
+  function suspendOlderTranscript(surfaces) {
+    const viewports = Array.from(surfaces, surface =>
+      surface.closest(mainGroup) && surface.querySelector(viewportSelector)).filter(Boolean)
+    if (!viewports.includes(selectedViewport)) selectedViewport = null
+    if (!viewports.includes(previousViewport)) previousViewport = null
+    const shown = viewports.find(viewport => !viewport.closest(hiddenPane))
+    if (shown) {
+      if (shown !== selectedViewport) {
+        previousViewport = selectedViewport?.isConnected ? selectedViewport : null
+        selectedViewport = shown
+      }
+      rememberFollowing(shown)
+    } else if (!viewports.length) {
+      selectedViewport = previousViewport = null
+    }
+    // Keep the preceding tab ready and preserve reading positions.
+    const next = viewports.find(viewport => viewport !== shown && viewport !== selectedViewport &&
+      viewport !== previousViewport && viewport.closest(hiddenPane) && lastFollowing.get(viewport) &&
+      !readingViewports.has(viewport))
+    if (next === suspendedViewport) return
+    suspendedViewport?.removeAttribute(suspendedTranscript)
+    suspendedViewport = next
+    suspendedViewport?.setAttribute(suspendedTranscript, '')
+  }
+
+  function reconcile() {
+    frame = 0
+    const enabled = root.matches(active) && !forcedColors.matches
+    const surfaces = enabled ? document.querySelectorAll(chat) : []
+    if (transcriptChanged) messageActions(enabled)
+    suspendOlderTranscript(surfaces)
+    composerMetrics.sync(surfaces, sizes)
+    if (transcriptChanged) reconcileTranscript(enabled)
+    transcriptChanged = false
+    if (enabled) for (const state of deferredMeasurements) measure(state)
+  }
+
+  const scheduleLayout = () => { if (!frame) frame = requestAnimationFrame(reconcile) }
+  const schedule = () => {
+    transcriptChanged = true
+    scheduleLayout()
+  }
   const observer = new MutationObserver(records => {
-    if (records.some(record => {
-      if (record.type === 'attributes') return record.target === root || record.target.matches(promptSelector)
+    for (const { target, attributeName } of records) {
+      if (attributeName === 'data-following' && target.matches(viewportSelector) && target.closest(mainGroup) &&
+          root.matches(active) && !forcedColors.matches) rememberFollowing(target)
+    }
+    let visibilityChanged = false
+    const structureChanged = records.some(record => {
+      if (record.type === 'attributes') {
+        const { target, attributeName } = record
+        if (target === root || target.matches(promptSelector) ||
+            (attributeName === 'data-popped-out' && target.matches('[data-slot="composer-dock"]'))) return true
+        if (!visibilityChanged && (attributeName === 'hidden' || attributeName === 'data-pane-hidden')) {
+          visibilityChanged = target.matches(chat) || Boolean(target.querySelector(chat))
+        }
+        return false
+      }
       if (!root.matches(active)) return false
       if (record.target.closest?.(editSelector)) {
         return record.target.matches(editFrame) || record.target.matches(editSelector)
@@ -612,17 +737,22 @@ export function registerChatDisplay(ctx, active) {
       if (record.target.closest?.(promptSelector) && !record.target.closest(toggleSelector)) return true
       return [...record.addedNodes, ...record.removedNodes].some(node =>
         node.nodeType === Node.ELEMENT_NODE &&
-        (node.matches(`${promptSelector}, ${viewportSelector}, ${editSelector}`) ||
-          node.querySelector(`${promptSelector}, ${viewportSelector}, ${editSelector}`)),
+        (node.matches(`${promptSelector}, ${viewportSelector}, ${editSelector}, ${chat}, [data-slot="composer-dock"], [data-slot="composer-surface"]`) ||
+          node.querySelector(`${promptSelector}, ${viewportSelector}, ${editSelector}, ${chat}, [data-slot="composer-dock"], [data-slot="composer-surface"]`)),
       )
-    })) schedule()
+    })
+    if (structureChanged) schedule()
+    else if (visibilityChanged) scheduleLayout()
   })
   observer.observe(root, {
     subtree: true,
     childList: true,
     attributes: true,
-    attributeFilter: ['data-hermes-theme', 'data-hermes-codex-visual', 'data-message-id'],
+    attributeFilter: ['data-hermes-theme', 'data-hermes-codex-visual', 'data-message-id', 'data-popped-out', 'hidden', 'data-pane-hidden', 'data-following'],
   })
+  ctx.addEventListener(document, 'wheel', rememberReadingPosition, { capture: true, passive: true })
+  ctx.addEventListener(document, 'pointerdown', rememberReadingPosition, true)
+  ctx.addEventListener(document, 'keydown', rememberReadingPosition, true)
   forcedColors.addEventListener('change', schedule)
   ctx.i18n.onLocaleChange(() => {
     for (const state of states.values()) label(state)
@@ -635,6 +765,8 @@ export function registerChatDisplay(ctx, active) {
     for (const state of states.values()) detach(state)
     for (const state of editors.values()) state.dispose()
     editors.clear()
+    composerMetrics.dispose(sizes)
+    suspendOlderTranscript([])
     sizes.disconnect()
     stylesheet.remove()
   })

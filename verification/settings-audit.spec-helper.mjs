@@ -49,7 +49,7 @@ async function verifySettingsSpacing({ page, expect, main, jump, screenshot, suf
       () => main.getByText('Горячая клавиша записи голоса', { exact: true }).locator('xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " @container ")][1]'),
     ]),
     ['nav-pview:keys', () => main.locator(':scope > section > div.h-full > button[data-slot="row-button"]')],
-    ['nav-pview:local', () => main.getByText('No automatic recommendation for this machine', { exact: true })
+    ['nav-pview:local', () => main.getByText(/^(No automatic recommendation for this machine|Для этого компьютера нет автоматической рекомендации)$/)
       .locator('xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " @container ")][1]')],
   ]
   for (const [id, first] of cases) {
@@ -271,7 +271,7 @@ export async function installSettingsAuditFixture(app, page, desktop) {
   })
 }
 
-export async function verifySettingsAudit({ page, expect, screenshot, openThemeSettings, closeSettings, themeCard, save }) {
+export async function verifySettingsAudit({ page, expect, screenshot, openThemeSettings, closeSettings, themeCard, save, inspectTypography }) {
   const before = process.env.HERMES_VISUAL_AUDIT_BASELINE === '1'
   const root = page.locator('html')
   const overlay = page.locator('[data-overlay-surface]:visible').last()
@@ -417,6 +417,7 @@ export async function verifySettingsAudit({ page, expect, screenshot, openThemeS
     }
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
     checked.push({ id, ...await inspect() })
+    await inspectTypography?.(id)
     if (process.env.HERMES_VISUAL_SETTINGS_ALL_SHOTS === '1' || captured.has(id)) await screenshot(`${slug(id)}.png`)
   }
   for (const id of groups) {
@@ -424,12 +425,29 @@ export async function verifySettingsAudit({ page, expect, screenshot, openThemeS
     await group.click()
     const childButtons = group.locator('xpath=../following-sibling::*[1][@id]').locator('button.row-hover')
     if (id === 'nav-billing') await expect(nav('nav-bview:plans')).toBeVisible()
-    const children = await childButtons.evaluateAll(nodes => nodes.map(node => node.dataset.tour).filter(Boolean))
+    const children = await childButtons.evaluateAll(nodes => nodes
+      // Some plugins replace their registered child with a public top-level
+      // rail entry. Follow the visible route once, not its hidden duplicate.
+      .filter(node => getComputedStyle(node).display !== 'none')
+      .map(node => node.dataset.tour).filter(Boolean))
     if (!children.length) {
       await expect(group).toHaveAttribute('aria-current', 'page')
       await inspectPage(id)
     }
     for (const child of children) {
+      // Plugin settings can add a nested navigation group. Expand its native
+      // disclosure before visiting its pages, rather than clicking hidden rows.
+      const hiddenGroups = await nav(child).evaluate(node => {
+        const ids = []
+        for (let parent = node.parentElement; parent; parent = parent.parentElement) {
+          if (parent.id && (parent.hidden || parent.classList.contains('hidden'))) ids.unshift(parent.id)
+        }
+        return ids
+      })
+      for (const groupId of hiddenGroups) {
+        const control = rail.locator(`button[aria-controls=${JSON.stringify(groupId)}]`)
+        if (await control.count() && await control.getAttribute('aria-expanded') === 'false') await control.click()
+      }
       await nav(child).click()
       await expect(nav(child)).toHaveAttribute('aria-current', 'page')
       await inspectPage(child)
@@ -473,6 +491,15 @@ export async function verifySettingsAudit({ page, expect, screenshot, openThemeS
   await nav('nav-config:appearance:general').click()
   await expect(heading).toBeVisible()
   await screenshot('light-appearance.png')
+  if (inspectTypography) {
+    // Repeat only font measurements in the second theme. Data-changing
+    // scenarios above have already checked the same controls once.
+    for (const entry of checked) {
+      await jump(entry.id)
+      await inspectTypography('light-' + entry.id)
+    }
+    await jump('nav-config:appearance:general')
+  }
   await page.setViewportSize({ width: 740, height: 700 })
   if (!before) {
     states.spacingLightNarrow = await verifySettingsSpacing({ page, expect, main, jump, screenshot, suffix: 'light-narrow' })

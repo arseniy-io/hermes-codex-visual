@@ -1,20 +1,21 @@
 import { mountStyle } from './style-scope.js'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, useI18n } from '@hermes/plugin-sdk'
-import { createElement as h, useRef, useState } from 'react'
+import { createElement as h, useId, useRef, useState } from 'react'
 import { codexIconStyle } from './codex-reference.js'
 import { SummarySection } from './summary-section.js'
 
 const labels = {
   ru: {
     title: 'Источники', outputs: 'Результаты', pullRequests: 'Запросы на включение изменений',
-    showAll: 'Показать все', add: 'Добавить источник',
+    showAll: 'Показать все', showMore: count => `Показать ещё ${count}`, showLess: 'Свернуть', add: 'Добавить источник',
     addHint: 'Прикрепить файлы или подключить приложения', attach: 'Прикрепить файлы или папки', plugins: 'Использовать плагины',
     connectors: 'Коннекторы', connector: 'Коннектор Hermes', image: 'Изображение', file: 'Файл', folder: 'Папка', link: 'Ссылка',
     attached: 'Прикреплено к разговору', provided: 'Предоставлено в разговоре', fromChat: 'Из разговора',
     empty: 'Нет активных источников', loading: 'Загрузка…', unavailable: 'Источники недоступны',
   },
   en: {
-    title: 'Sources', outputs: 'Outputs', pullRequests: 'Pull requests', showAll: 'View all', add: 'Add source',
+    title: 'Sources', outputs: 'Outputs', pullRequests: 'Pull requests', showAll: 'View all',
+    showMore: count => `Show ${count} more`, showLess: 'Show less', add: 'Add source',
     addHint: 'Attach files or connect apps', attach: 'Attach files or folders', plugins: 'Use plugins',
     connectors: 'Connectors', connector: 'Hermes connector', image: 'Image', file: 'File', folder: 'Folder', link: 'Link',
     attached: 'Attached to the conversation', provided: 'Provided in the conversation', fromChat: 'From the conversation',
@@ -119,9 +120,19 @@ export function CompactSources({ rows = [], connectors, loading, onExpand, onCon
 export function CompactSummaryItems({ kind, rows, onOpenSource, disclosure }) {
   const { locale } = useI18n()
   const copy = labels[locale] || labels.en
+  const [visibleCount, setVisibleCount] = useState(6)
+  const listId = useId()
   if (!rows.length) return null
+  const limited = kind === 'outputs'
+  const visibleRows = limited ? rows.slice(0, visibleCount) : rows
+  const remaining = rows.length - visibleRows.length
+  const expanded = remaining === 0
   return h(SummarySection, { ...disclosure, kind, title: copy[kind], 'data-hcv-summary-items': '' },
-    h('ul', { 'aria-label': copy[kind] }, sourceList(rows, { copy, onOpenSource })))
+    h('ul', { id: listId, 'aria-label': copy[kind] }, sourceList(visibleRows, { copy, onOpenSource })),
+    limited && rows.length > 6 && h('button', {
+      type: 'button', className: 'hcv-summary-more', 'aria-controls': listId, 'aria-expanded': expanded,
+      onClick: () => setVisibleCount(expanded ? 6 : Math.min(rows.length, visibleCount + 50)),
+    }, expanded ? copy.showLess : copy.showMore(Math.min(remaining, 50))))
 }
 
 export function SourcesPane({ rows = [], connectors, loading, onConnectors, onOpenSource }) {
@@ -175,6 +186,8 @@ export function registerSummarySources(ctx, active) {
       background: color-mix(in srgb, var(--hcv-text) 8%, transparent);
     }
     ${compact} .hcv-source-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    ${compact} .hcv-summary-more { min-block-size: 28px; padding: 0; color: color-mix(in srgb, var(--hcv-text) 40%, transparent); }
+    ${compact} .hcv-summary-more:hover { color: var(--hcv-muted); }
     ${compact} :is(.hcv-sources-all, .hcv-sources-empty) { color: color-mix(in srgb, var(--hcv-text) 40%, transparent); }
     ${compact} :is(.hcv-sources-all, .hcv-sources-empty):hover { color: var(--hcv-text); }
     ${compact} .hcv-sources-all-icon { inline-size: 20px; block-size: 20px; max-inline-size: none; }

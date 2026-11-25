@@ -1,0 +1,229 @@
+--- a/agent/turn_context.py
++++ b/agent/turn_context.py
+@@ -767,6 +767,11 @@
+     # recovery dedups via ``has_platform_message_id`` against this row.
+     if persist_user_platform_id is not None:
+         user_msg["platform_message_id"] = persist_user_platform_id
++    try:
++        from agent.hcv_timeline import begin_turn as _hcv_begin_turn
++        _hcv_begin_turn(agent, user_msg)
++    except Exception:
++        pass  # Display metadata never prevents accepting a real user turn.
+     return user_msg, pending_cli_message
+ 
+ 
+--- a/agent/stream_delivery.py
++++ b/agent/stream_delivery.py
+@@ -111,6 +111,11 @@
+         if ctx_scrubber is not None:
+             deliver(ctx_scrubber.flush())
+         self._current_streamed_assistant_text = ""
++        try:
++            from agent.hcv_timeline import reset_response as _hcv_reset_response
++            _hcv_reset_response(self)
++        except Exception:
++            pass
+ 
+     @property
+     def _current_streamed_assistant_text(self) -> str:
+@@ -131,6 +136,11 @@
+             if parts is None:
+                 parts = self._streamed_assistant_text_parts = []
+             parts.append(text)
++            try:
++                from agent.hcv_timeline import visible_text as _hcv_visible_text
++                _hcv_visible_text(self, text)
++            except Exception:
++                pass
+ 
+     @staticmethod
+     def _normalize_interim_visible_text(text: str) -> str:
+--- a/agent/chat_completion_helpers.py
++++ b/agent/chat_completion_helpers.py
+@@ -1720,6 +1720,11 @@
+ 
+     if assistant_tool_calls:
+         msg["tool_calls"] = [_assistant_tool_call_dict(agent, tc, i) for i, tc in enumerate(assistant_tool_calls)]
++    try:
++        from agent.hcv_timeline import response_message as _hcv_response_message
++        _hcv_response_message(agent, msg)
++    except Exception:
++        pass
+     return msg
+ 
+ 
+--- a/agent/turn_final_response.py
++++ b/agent/turn_final_response.py
+@@ -400,6 +400,11 @@
+         else:
+             final_msg["content"] = final_response
+     publish_held_final_row(agent, final_msg, final_response, _joined)
++    try:
++        from agent.hcv_timeline import final_message as _hcv_final_message
++        _hcv_final_message(agent, final_msg)
++    except Exception:
++        pass  # The model answer and delivery must not depend on display metadata.
+ 
+     append_message(messages, final_msg)
+     # Make the answer durable before leaving the loop (_DB_PERSISTED_MARKER keeps
+--- a/agent/tool_executor.py
++++ b/agent/tool_executor.py
+@@ -1102,6 +1102,7 @@
+     Returns ``(persisted_result, display_result, risk_metadata)`` (``display_result`` =
+     pre-persist content for UI previews) or ``None`` when the flush failed (stop the batch).
+     """
++    _hcv_file_result = function_result
+     function_name, function_args, tool_call_id, effective_task_id = ref.name, ref.args, ref.call_id, ref.task_id
+     from hermes_cli.observability.shared_metrics_harness import observe_tool_outcome
+ 
+@@ -1177,6 +1178,16 @@
+         except Exception as callback_error:
+             logging.debug("Tool result metadata callback error: %s", callback_error)
+     stamp_data_use(tool_message, sorted(data_use))
++    try:
++        from agent.hcv_timeline import tool_message as _hcv_tool_message
++        _hcv_tool_message(agent, tool_message)
++    except Exception:
++        pass
++    try:
++        from tools.hcv_file_changes import attach as _hcv_attach_file_changes
++        _hcv_attach_file_changes(tool_message, _hcv_file_result)
++    except Exception:
++        pass
+     messages.append(tool_message)
+     if not _flush_session_db_after_tool_progress(agent, messages, stage=f"tool result {function_name}"):
+         return None
+--- a/agent/turn_finalizer.py
++++ b/agent/turn_finalizer.py
+@@ -730,6 +730,14 @@
+             final_response, _, _ = apply_llm_output_transform(agent, final_response, turn_id=turn_id, logger=logger)
+             _store_rewrite_on_tail(agent, messages, _raw, final_response)
+         _close_transcript_tail(agent, messages, final_response, interrupted, _recovered_from_stream)
++        if not interrupted:
++            try:
++                from agent.hcv_timeline import recovered_final_tail as _hcv_recovered_final_tail
++                if _hcv_recovered_final_tail(agent, messages, final_response, recovered_from_stream=_recovered_from_stream):
++                    messages[-1].pop(_DB_PERSISTED_MARKER, None)
++                    agent._db_flush_scan_prefix = None
++            except Exception:
++                pass
+         if not interrupted and not failed and not vetoed:
+             _micro_compact_after_turn(agent, messages, final_response, logger, effective_task_id)
+         agent._persist_session(messages, conversation_history)
+--- a/tools/file_tools.py
++++ b/tools/file_tools.py
+@@ -935,7 +935,20 @@
+                 return json.dumps(_stale_write_refusal(path, blocker, _resolved), ensure_ascii=False)
+             warnings = _edit_warnings([path], path_to_resolved, task_id)
+             rewrite_hint = _whole_file_rewrite_hint(task_id, _resolved, content)
+-            result = _get_file_ops(task_id).write_file(_resolved or path, content)
++            _hcv_file_ops = _get_file_ops(task_id)
++            _hcv_before = None
++            try:
++                from tools import hcv_file_changes as _hcv_changes
++                _hcv_before = _hcv_changes.capture_before(_resolved, task_id, _hcv_file_ops)
++            except Exception:
++                pass
++            result = _hcv_file_ops.write_file(_resolved or path, content)
++            _hcv_snapshot = None
++            if _hcv_before is not None:
++                try:
++                    _hcv_snapshot = _hcv_changes.capture_after(_hcv_before, result)
++                except Exception:
++                    pass
+             result_dict = result.to_dict()
+             if warnings:
+                 result_dict["_warning"] = warnings[0]
+@@ -954,7 +967,13 @@
+                     # same-task writes stay unblocked (patch_tool carries it).
+                     _mark_full_write_baseline(_resolved, task_id, getattr(result, "_content_sha256", None))
+                 _note_edited(task_id, [path], path_to_resolved, session_id)
+-        return json.dumps(result_dict, ensure_ascii=False)
++        _hcv_json = json.dumps(result_dict, ensure_ascii=False)
++        if _hcv_snapshot is not None:
++            try:
++                return _hcv_changes.decorate_result(_hcv_json, _hcv_snapshot)
++            except Exception:
++                pass
++        return _hcv_json
+     except Exception as e:
+         if _is_expected_write_exception(e):
+             logger.debug("write_file expected denial: %s: %s", type(e).__name__, e)
+--- a/gateway/session_transcript_subagent.py
++++ b/gateway/session_transcript_subagent.py
+@@ -58,7 +58,19 @@
+         if child is None:
+             return unavailable(ref.session_id, subagent_id, running)
+         db = authority.db
++        # Ownership was proved by _child above; only this child's persisted
++        # producer identity may hydrate a historical name. Never use its goal.
++        import json
++        child_row = db.get_session(child)
++        config = child_row.get('model_config') if child_row else None
++        if isinstance(config, str):
++            try:
++                config = json.loads(config)
++            except ValueError:
++                config = None
++        identity = {key: config['_' + key] for key in ('task_name', 'agent_path')
++                    if isinstance(config, dict) and isinstance(config.get('_' + key), str) and config['_' + key]}
+         page = read_transcript(db, child, db.transcript_lineage_ids(child), binding, held, limit,
+                                profile_home=authority.profile_id, inline_images=inline_images)
+     return {'session_id': ref.session_id, **page, 'subagent_id': subagent_id, 'available': True,
+-            'running': running, 'child_session_id': child}
++            'running': running, 'child_session_id': child, **identity}
+--- a/tui_gateway/contracts/canonical_stored_reads.py
++++ b/tui_gateway/contracts/canonical_stored_reads.py
+@@ -56,6 +56,8 @@
+     available: bool | None = None
+     running: bool | None = None
+     child_session_id: str | None = None
++    task_name: str | None = None
++    agent_path: str | None = None
+ 
+ 
+ canonical_method('session.transcript', params=StoredTranscriptParams, result=StoredTranscriptResult,
+--- a/apps/shared/src/gateway-contract.generated.ts
++++ b/apps/shared/src/gateway-contract.generated.ts
+@@ -5565,6 +5565,8 @@
+   available?: boolean | null
+   running?: boolean | null
+   child_session_id?: string | null
++  task_name?: string | null
++  agent_path?: string | null
+ }
+ /** ``row_kind: 'message'`` is a ``session.resume`` ``display_messages`` row. ``row_kind: 'compaction'`` is a compaction handoff at its position: ``role: 'system'``, ``text`` the summary a reader sees (not the parts written for the model), ``compacted_messages``, ``timestamp`` and the stored ``row_id``. */
+ export interface StoredTranscriptRow {
+--- a/apps/shared/src/gateway-contract.openrpc.json
++++ b/apps/shared/src/gateway-contract.openrpc.json
+@@ -43894,6 +43894,30 @@
+             ],
+             "default": null,
+             "title": "Child Session Id"
++          },
++          "task_name": {
++            "anyOf": [
++              {
++                "type": "string"
++              },
++              {
++                "type": "null"
++              }
++            ],
++            "default": null,
++            "title": "Task Name"
++          },
++          "agent_path": {
++            "anyOf": [
++              {
++                "type": "string"
++              },
++              {
++                "type": "null"
++              }
++            ],
++            "default": null,
++            "title": "Agent Path"
+           }
+         },
+         "required": [

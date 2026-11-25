@@ -1,0 +1,5 @@
+name: hermes-codex-visual
+version: 0.15.135
+description: "Account usage and review proposals for Hermes Codex Visual"
+requires_auth:
+  - openai-codex

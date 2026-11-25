@@ -1,3 +1,10 @@
 * text=auto eol=lf
 *.png binary
 *.zip binary
+
+# Preserve the verified ZIP bytes and the model-speed helper's pinned hash.
+/plugin.yaml -text
+/source/usage-backend/plugin.yaml -text
+/scripts/stage-hermes-model-speed.py -text
+/source/hermes-model-speed/hcv_codex_diff_bridge.py -text
+/source/hermes-model-speed/manifest.json -text

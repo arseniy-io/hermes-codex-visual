@@ -1,18 +1,18 @@
+import { tooltipCopy } from './tooltips.js'
+
 const dialog = '[data-slot="dialog-content"]'
-const chat = '[data-chat-surface]:not([data-hud-shell] *)'
 const noticeCopy = [
   `${dialog} :is([data-slot="dialog-title"], [data-slot="dialog-description"])`,
   `${dialog} > .text-destructive > span`,
   '[data-slot="alert"] :is([data-slot="alert-title"], [data-slot="alert-description"])',
   '[data-slot="aui_error-card"] :is(.aui-error-card-title, .aui-error-card-body)',
 ].join(', ')
-const prose = [
-  `${chat} [data-slot="aui_assistant-message-content"] .aui-md.prose`,
-  `${chat} [data-slot="aui_user-message-text"]`,
-  '[data-hcv-subagent-result] .aui-md.prose',
+const literal = [
+  'pre, code, kbd, samp, svg, math, script, style, textarea',
+  '[contenteditable]:not([contenteditable="false"]), .cm-editor, [data-terminal], [data-ref], [data-hcv-file-reference]',
 ].join(', ')
-const surfaces = `${noticeCopy}, ${prose}`
-const literal = 'pre, code, kbd, samp, svg, math, a, script, style, textarea, [contenteditable]:not([contenteditable="false"]), [data-ref], [data-hcv-file-reference]'
+const tooltip = '[data-slot="tooltip-content"]'
+const dash = '\u2014'
 
 // Hermes composes these strings in model_selection_guards.py,
 // model_cost_guard.py, model_data_policy_guard.py and user_messages.py.
@@ -83,84 +83,109 @@ function translateNotice(value) {
   return translated === text ? value : translated
 }
 
-export function registerInterfaceCopy(ctx, active) {
+export function registerInterfaceCopy(ctx, active, decorateTooltip) {
   const root = document.documentElement
   const edits = new Map()
-  let watching = false
+  let enabled = false
+  let russian = false
+  let themed = false
 
   function restore(node, edit) {
-    if (node.data === edit.shown) node.data = edit.original
+    const current = edit.attribute ? node.getAttribute(edit.attribute) : node.data
+    if (current === edit.shown) {
+      if (edit.attribute) node.setAttribute(edit.attribute, edit.original)
+      else node.data = edit.original
+    }
     if (edit.tooltip?.title === edit.shown) edit.tooltip.title = edit.original
-    edits.delete(node)
   }
 
-  function update(node, notice) {
+  function updateText(node) {
+    const parent = node.parentElement
+    const tooltipContent = themed && parent.closest(tooltip)
+    if (tooltipContent && /^(?:Голосовая диктовка|Voice dictation)$/i.test(node.data)) decorateTooltip(tooltipContent)
     const original = node.data
     const previous = edits.get(node)
     if (previous?.shown === original) return
-    if (previous) restore(node, previous)
-    const shown = (notice ? translateNotice(original) : original).replaceAll('—', '-')
-    if (shown === original) return
-    const heading = node.parentElement
-    const tooltip = notice && heading?.matches('[data-slot="alert-title"]') && heading.title === original ? heading : null
-    edits.set(node, { original, shown, tooltip })
+    const notice = russian && parent.closest(noticeCopy)
+    if (!notice && !original.includes(dash) && !(themed && /[·•]/u.test(original))) {
+      if (previous) edits.delete(node)
+      return
+    }
+    const translated = notice ? translateNotice(original) : original
+    const shown = tooltipContent ? tooltipCopy(translated) : translated.replaceAll(dash, '-')
+    if (shown === original) { edits.delete(node); return }
+    const title = notice && parent.matches('[data-slot="alert-title"]') && parent.title === original ? parent : null
+    edits.set(node, { original, shown, tooltip: title })
     node.data = shown
-    if (tooltip) tooltip.title = shown
+    if (title) title.title = shown
   }
 
-  function visitText(element, notice) {
-    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, node => {
-      if (node.nodeType === Node.TEXT_NODE) return NodeFilter.FILTER_ACCEPT
-      return node.matches(literal) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_SKIP
-    })
-    for (let node = walker.nextNode(); node; node = walker.nextNode()) update(node, notice)
+  function updatePlaceholder(element) {
+    const attribute = 'placeholder'
+    const original = element.getAttribute(attribute)
+    if (!original?.includes(dash)) return
+    const shown = original.replaceAll(dash, '-')
+    edits.set(element, { attribute, original, shown })
+    element.setAttribute(attribute, shown)
   }
 
   function visit(node) {
     if (!node.isConnected) return
-    if (node.nodeType === Node.TEXT_NODE && !node.data.trim()) return
     const element = node instanceof Element ? node : node.parentElement
-    if (!element || element.closest(literal)) return
-    const surface = element.closest(surfaces)
-    if (node.nodeType === Node.TEXT_NODE) {
-      if (surface) update(node, surface.matches(noticeCopy))
-    } else if (node instanceof Element) {
-      if (surface) visitText(node, surface.matches(noticeCopy))
-      else for (const match of node.querySelectorAll(surfaces)) {
-        if (!match.closest(literal)) visitText(match, match.matches(noticeCopy))
-      }
+    if (!element) return
+    if (node instanceof Element) updatePlaceholder(node)
+    if (element.closest(literal)) return
+    if (node.nodeType === Node.TEXT_NODE) { updateText(node); return }
+    if (!(node instanceof Element)) return
+    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, child => {
+      if (child.nodeType === Node.TEXT_NODE) return NodeFilter.FILTER_ACCEPT
+      updatePlaceholder(child)
+      return child.matches(literal) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_SKIP
+    })
+    for (let child = walker.nextNode(); child; child = walker.nextNode()) updateText(child)
+  }
+
+  function restoreDetached(subtree) {
+    if (subtree.isConnected) return
+    if (edits.has(subtree)) {
+      restore(subtree, edits.get(subtree))
+      edits.delete(subtree)
     }
+    for (const child of subtree.childNodes) restoreDetached(child)
   }
 
   const content = new MutationObserver(records => {
-    let removed = false
     for (const record of records) {
       if (record.type === 'characterData') visit(record.target)
+      else if (record.type === 'attributes') updatePlaceholder(record.target)
       else {
-        removed ||= record.removedNodes.length > 0
+        for (const node of record.removedNodes) restoreDetached(node)
         for (const node of record.addedNodes) visit(node)
       }
-    }
-    if (removed) for (const [node, edit] of edits) {
-      if (!node.isConnected || !node.parentElement?.closest(surfaces) || node.parentElement.closest(literal)) restore(node, edit)
     }
   })
 
   function stop() {
     content.disconnect()
     for (const [node, edit] of edits) restore(node, edit)
+    edits.clear()
   }
 
   function sync() {
-    const enabled = /^ru(?:-|$)/i.test(root.lang) && root.matches(active)
-    if (enabled === watching) return
-    watching = enabled
+    const nextEnabled = root.hasAttribute('data-hermes-codex-visual')
+    const nextTheme = root.matches(active)
+    const nextRussian = nextTheme && /^ru(?:-|$)/i.test(root.lang)
+    if (nextEnabled === enabled && nextRussian === russian && nextTheme === themed) return
+    stop()
+    enabled = nextEnabled
+    russian = nextRussian
+    themed = nextTheme
     if (enabled) {
       visit(document.body)
-      // Only new or changed text is visited after startup, including streaming
-      // Markdown and dialog portals. Existing chat history is not rescanned.
-      content.observe(document.body, { childList: true, subtree: true, characterData: true })
-    } else stop()
+      // Streaming and portal content only visit changed text and added subtrees.
+      content.observe(document.body, { childList: true, subtree: true, characterData: true,
+        attributes: true, attributeFilter: ['placeholder'] })
+    }
   }
 
   const settings = new MutationObserver(sync)

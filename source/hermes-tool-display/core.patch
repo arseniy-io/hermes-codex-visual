@@ -1,0 +1,205 @@
+--- a/tools/mcp_tool_registration.py
++++ b/tools/mcp_tool_registration.py
+@@ -267,6 +267,7 @@
+     are dropped. Missing or non-dict ``annotations`` (older cache files) fail closed to write-capable."""
+     return [SimpleNamespace(name=raw["name"], description=raw.get("description") or "",
+                             inputSchema=raw["inputSchema"] if isinstance(raw.get("inputSchema"), dict) else {},
++                            title=raw.get("title"), meta=raw.get("_meta"),
+                             annotations=raw["annotations"] if isinstance(raw.get("annotations"), dict) else None)
+             for raw in raws if isinstance(raw, dict) and raw.get("name")]
+ 
+@@ -405,6 +406,7 @@
+         # Write-through (#56832): refresh the on-disk schema cache after a live connect so the next startup
+         # can lazily register this server without spawning it. Cache failures never break registration.
+         from tools.mcp_schema_cache import config_fingerprint, write_cache_entry
++        from tools.hcv_tool_display import cache_fields
+         tools_payload = []
+         for t in server._tools:
+             if not should_register(t.name):
+@@ -418,7 +420,7 @@
+             tools_payload.append({
+                 "name": t.name, "description": t.description or "",
+                 "inputSchema": schema_obj if isinstance(schema_obj, dict) else {},
+-                "annotations": {"readOnlyHint": _annotation_read_only_hint(t)},  # lazy path trust-gates identically
++                **cache_fields(t, {"readOnlyHint": _annotation_read_only_hint(t)}),
+             })
+         utility_payload = [{"schema": e["schema"], "handler_key": e["handler_key"]}
+                            for e in _select_utility_schemas(name, server, config)]
+--- a/tui_gateway/tool_progress.py
++++ b/tui_gateway/tool_progress.py
+@@ -280,6 +280,7 @@
+ 
+ 
+ def _on_tool_start(sid: str, tool_call_id: str, name: str, args: dict):
++    from tools import hcv_tool_display
+     if _connector_lifecycle_is_stale(sid, name, args):
+         return
+     session = _sessions.get(sid)
+@@ -294,11 +295,12 @@
+         # A preview prepared for an earlier call whose completion never fired (failed
+         # flush) must not attach to a provider that reuses the same call id.
+         session.setdefault("tool_result_metadata", {}).pop(tool_call_id, None)
++    display_snapshot = hcv_tool_display.begin(session, tool_call_id, name, args)
+     if (_tool_progress_enabled(sid) or _tool_lifecycle_required_for_ui(name)
+             or _connector_tool_lifecycle(name, args)):
+         payload: dict[str, object] = {"tool_id": tool_call_id, "name": name, "context": _tool_ctx(name, args)}
+         if (labels := _tool_labels(name, args)) is not None:
+-            payload["labels"] = labels
++            payload["labels"] = hcv_tool_display.labels_for(name, args, display_snapshot, labels)
+         # Full args (not just the 80-char `context` preview) so the desktop's expanded tool row is complete
+         # while the tool runs. args.todos may be a partial merge — tool.complete is the truth.
+         if args:
+@@ -317,6 +319,9 @@
+     session = _sessions.get(sid)
+     snapshot = session.setdefault("edit_snapshots", {}).pop(tool_call_id, None) if session is not None else None
+     metadata = {}
++    from tools import hcv_tool_display
++    if (display_snapshot := hcv_tool_display.finish(session, tool_call_id, name, args)) is not None:
++        metadata[hcv_tool_display.SAVED] = display_snapshot
+     with contextlib.suppress(Exception):
+         from agent.display import render_edit_diff_with_delta
+         rendered: list[str] = []
+@@ -328,6 +333,7 @@
+ 
+ 
+ def _on_tool_complete(sid: str, tool_call_id: str, name: str, args: dict, result: str):
++    from tools import hcv_tool_display
+     session = _sessions.get(sid)
+     prepared = session.setdefault("tool_result_metadata", {}) if session is not None else {}
+     # Consume the pre-flush preview even when this completion is dropped as stale.
+@@ -335,13 +341,13 @@
+     if _connector_lifecycle_is_stale(sid, name, args):
+         return
+     payload = {"tool_id": tool_call_id, "name": name, "args": args}
+-    if (labels := _tool_labels(name, args)) is not None:
+-        payload["labels"] = labels
+     if metadata is None:
+         # Native runtimes may emit lifecycle callbacks without the tool executor.
+         metadata = _prepare_tool_result_metadata(sid, tool_call_id, name, args, result).get("tool_result_metadata", {})
+         prepared.pop(tool_call_id, None)
+-    payload.update(metadata)
++    if (labels := _tool_labels(name, args)) is not None:
++        payload["labels"] = hcv_tool_display.labels_for(name, args, metadata.get(hcv_tool_display.SAVED), labels)
++    payload.update((key, value) for key, value in metadata.items() if key != hcv_tool_display.SAVED)
+     started_at = session.setdefault("tool_started_at", {}).pop(tool_call_id, None) if session is not None else None
+     duration_s = time.time() - started_at if started_at else None
+     if duration_s is not None:
+--- a/tui_gateway/session_history.py
++++ b/tui_gateway/session_history.py
+@@ -300,6 +300,8 @@
+     from agent.history_commentary import project_history_commentary
+     from agent.message_metadata import withheld_prompt_text
+ 
++    from tools import hcv_tool_display
++    history = hcv_tool_display.project_history(history)
+     messages = []
+     tool_call_args = {}
+     for m in history:
+@@ -335,12 +337,12 @@
+             name = tc_name or m.get("tool_name") or "tool"
+             args = tc_args or {}
+             # `context` is an 80-char preview; ship args so a full-call renderer isn't truncated.
+-            labels = _bridged_tool_labels(name, args)
++            labels = hcv_tool_display.labels_for(name, args, hcv_tool_display.from_message(m), _bridged_tool_labels(name, args))
+             messages.append({"role": "tool", "name": name, "context": _tool_ctx(name, args),
+                              # Edit cards need the original result; other tool outputs
+                              # remain omitted from this compact display projection.
+                              **({"content": m.get("content")} if name in {"write_file", "patch", "skill_manage"} else {}),
+-                             **{key: m[key] for key in ("tool_call_id", "timestamp", "display_metadata")
++                             **{key: m[key] for key in ("tool_call_id", "_tool_call_uid", "timestamp", "display_metadata")
+                                 if m.get(key) is not None},
+                              **({"args": args} if args else {}), **({"labels": labels} if labels else {})})
+             continue
+@@ -362,7 +364,7 @@
+         if invocation:
+             msg.update(text=invocation, display_kind="skill_invocation")
+         if role == "assistant":
+-            msg.update((key, m[key]) for key in _HISTORY_ASSISTANT_DETAIL_KEYS if m.get(key) is not None)
++            msg.update((key, m[key]) for key in (*_HISTORY_ASSISTANT_DETAIL_KEYS, "_tool_call_uids", "message_uid") if m.get(key) is not None)
+         # Display-only timeline metadata (model switches, delegation events).
+         display_kind = m.get("display_kind") or _legacy_display_kind(role, content_text)
+         if display_kind:
+--- a/hermes_cli/web_routers/sessions.py
++++ b/hermes_cli/web_routers/sessions.py
+@@ -625,7 +625,9 @@
+             args = json.loads(fn.get("arguments") or "{}")
+         except (TypeError, ValueError):
+             args = {}
+-        labels = [label.as_payload() for label in tool_labels_for_call(name, args if isinstance(args, dict) else {})]
++        saved = args.get("hermes_tool_labels") if isinstance(args, dict) else None
++        labels = saved if isinstance(saved, list) and any(isinstance(row, dict) and row.get("display") for row in saved) else [
++            label.as_payload() for label in tool_labels_for_call(name, args if isinstance(args, dict) else {})]
+         if labels:
+             out[call_id] = labels
+     return out
+@@ -700,6 +702,8 @@
+                 return {**message, "content": _coerce_message_text(message["content"], image_urls=False)}
+             return message
+ 
++    from tools import hcv_tool_display
++    messages = hcv_tool_display.project_history(messages)
+     projected_messages = []
+     for message in messages:
+         message = _with_tool_call_labels(message)
+@@ -767,9 +771,11 @@
+         # prefetch only shows the child continuation's messages after a
+         # compression rotation, hiding the pre-compaction transcript
+         # (#51058).
+-        return sid, _limit, db.get_messages(
++        from tools import hcv_tool_display
++        messages = db.get_messages(
+             sid, limit=_limit, offset=offset, latest=latest_page,
+             include_compacted=include_compacted, include_ancestors=True)
++        return sid, _limit, hcv_tool_display.project_history(messages, db=db)
+ 
+     result = await asyncio.to_thread(_with_db, profile, _read, read_only=True)
+     if result is None:
+@@ -842,6 +848,8 @@
+         page = read_around(db, sid, row_id, limit=limit)
+         if page is None:
+             raise HTTPException(status_code=404, detail="Prompt not found")
++        from tools import hcv_tool_display
++        page["messages"] = hcv_tool_display.project_history(page["messages"], db=db)
+         return {"session_id": sid, "profile": owner, **page}
+ 
+     result = await asyncio.to_thread(_with_db, profile, _read, read_only=True)
+--- a/tui_gateway/contracts/common.py
++++ b/tui_gateway/contracts/common.py
+@@ -163,6 +163,8 @@
+     text: str
+     name: str
+     preview: str = ""
++    # Producer-captured MCP title/invocation metadata, display-only and optional.
++    display: JsonValue | None = None
+ 
+ 
+ class TranscriptMessage(OpenModel):
+--- a/apps/shared/src/gateway-contract.generated.ts
++++ b/apps/shared/src/gateway-contract.generated.ts
+@@ -3252,6 +3252,7 @@
+   text: string
+   name: string
+   preview?: string
++  display?: unknown | null
+ }
+ /** Which surface one inner call of a bridged ``tool_call`` runs on. */
+ export type ToolLabelKind = 'connector' | 'mcp' | 'tool'
+--- a/apps/shared/src/gateway-contract.openrpc.json
++++ b/apps/shared/src/gateway-contract.openrpc.json
+@@ -46174,6 +46174,16 @@
+             "default": "",
+             "title": "Preview",
+             "type": "string"
++          },
++          "display": {
++            "anyOf": [
++              {},
++              {
++                "type": "null"
++              }
++            ],
++            "default": null,
++            "title": "Display"
+           }
+         },
+         "required": [
