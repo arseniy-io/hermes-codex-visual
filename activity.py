@@ -5,8 +5,10 @@ mounted behind Hermes's authenticated dashboard-plugin profile dependency.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import difflib
+from importlib.util import find_spec
 import json
 import math
 import os
@@ -16,12 +18,12 @@ import threading
 import time
 import uuid
 from collections import Counter
-from contextlib import contextmanager
+from contextlib import aclosing, contextmanager, suppress
 from contextvars import copy_context
 from functools import wraps
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 
 router = APIRouter()
 _KINDS = {"skills", "memory"}
@@ -33,6 +35,7 @@ _MAX_TOTAL = 4 * 1024 * 1024
 _MAX_FILES = 128
 _MAX_OPS = 64
 _MAX_DIFF_MATCHES = 2_000_000
+_WATCH_AVAILABLE = find_spec("watchfiles") is not None
 _ACTION_LOCK = threading.RLock()
 _SUMMARY_LOCK = threading.Lock()
 _SUMMARY_RUNNING = set()
@@ -431,25 +434,71 @@ def _detail(kind, pending_id):
         return result, rec, {}
 
 
-def _summary_path(kind, pending_id, version, signature):
-    return _safe_path(_home() / "plugin-data" / "hermes-codex-visual" / "activity-explanations" /
-                      (_hash(kind, pending_id, version, signature) + ".json"), _home())
+def _summary_paths(kind, pending_id, version, signature, intent):
+    home = _home()
+    folder = home / "plugin-data" / "hermes-codex-visual" / "activity-explanations"
+    path = _safe_path(folder / (_hash(kind, pending_id, version) + ".json"), home)
+    # Before the profile-wide cache, a late author note changed the filename.
+    # Read both older names so an explanation already shown can be reused.
+    previous = [_hash(signature, json.dumps(value, ensure_ascii=False, sort_keys=True)) for value in (intent, {})]
+    legacy = tuple(_safe_path(folder / (_hash(kind, pending_id, version, key) + ".json"), home)
+                   for key in dict.fromkeys(previous))
+    return path, legacy
 
 
-def _cached_summary(kind, pending_id, version, signature):
-    intent = _read_intent(kind, pending_id, version)
-    explanation_version = _hash(signature, json.dumps(intent, ensure_ascii=False, sort_keys=True))
-    path = _summary_path(kind, pending_id, version, explanation_version)
+def _read_summary(path, signature=None):
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if (isinstance(value, dict) and (signature is None or value.get("signature") == signature)
+            and value.get("status") in {"ready", "error"} and isinstance(value.get("text"), str)):
+        return {"status": value["status"], "text": value["text"]}
+    return None
+
+
+def _cached_explanation(path, legacy, signature):
+    saved = _read_summary(path, signature)
     with _SUMMARY_LOCK:
-        cached = _SUMMARY_OUTCOMES.get(str(path))
-    if cached is None:
+        local = _SUMMARY_OUTCOMES.get((path, signature))
+    cached = saved if saved and saved["status"] == "ready" else local or saved
+    if cached:
+        return cached, False
+    previous_error = None
+    for old in legacy:
+        value = _read_summary(old)
+        if value and value["status"] == "ready":
+            return value, True
+        previous_error = previous_error or value
+    return previous_error, previous_error is not None
+
+
+def _save_summary(path, signature, value):
+    from utils import atomic_json_write
+    key = (path, signature)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_json_write(_safe_path(path, _home()), {**value, "signature": signature})
+    except (OSError, ReviewUnavailable):
+        # Keep the result in this process if storage is temporarily unavailable.
+        with _SUMMARY_LOCK:
+            if len(_SUMMARY_OUTCOMES) >= 512:
+                _SUMMARY_OUTCOMES.pop(next(iter(_SUMMARY_OUTCOMES)))
+            _SUMMARY_OUTCOMES[key] = value
+    else:
+        with _SUMMARY_LOCK:
+            _SUMMARY_OUTCOMES.pop(key, None)
+
+
+def _clear_summary(path, legacy):
+    with _SUMMARY_LOCK:
+        for key in [key for key in _SUMMARY_OUTCOMES if key[0] == path]:
+            del _SUMMARY_OUTCOMES[key]
+    for saved in (path, *legacy):
         try:
-            cached = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return ""
-    if isinstance(cached, dict) and cached.get("status") == "ready" and isinstance(cached.get("text"), str):
-        return cached["text"][:450]
-    return ""
+            _safe_path(saved, _home()).unlink(missing_ok=True)
+        except (OSError, ReviewUnavailable):
+            pass
 
 
 def _intent_path(kind, pending_id, version):
@@ -554,7 +603,8 @@ def capture_foreground_intent(*, assistant_response=None, conversation_history=N
     return None
 
 
-def _summary_worker(path, key, changes, origin, intent):
+def _summary_worker(path, key, detail, intent):
+    changes, origin = detail["changes"], detail["origin"]
     try:
         # Send the changed material, never the surrounding complete files. A
         # partial input could hide an important change, so do not truncate it.
@@ -585,18 +635,18 @@ def _summary_worker(path, key, changes, origin, intent):
     except Exception:
         value = {"status": "error", "text": ""}
     try:
-        from utils import atomic_json_write
-        path.parent.mkdir(parents=True, exist_ok=True)
-        _safe_path(path, path.parents[3])
-        atomic_json_write(path, value)
-    except Exception:
-        # Do not retry a paid request in a loop when the cache cannot be saved.
-        value = {"status": "error", "text": ""}
+        with _pending_lock(detail["kind"], detail["id"]):
+            fresh, _, _ = _detail(detail["kind"], detail["id"])
+            signature = detail["signature"]
+            if fresh["applicable"] and fresh["signature"] == signature:
+                saved = _read_summary(path, signature)
+                if not saved or saved["status"] != "ready":
+                    _save_summary(path, signature, value)
+    except (HTTPException, OSError, ReviewUnavailable):
+        # The proposal may have been decided or replaced during generation.
+        pass
     finally:
         with _SUMMARY_LOCK:
-            if len(_SUMMARY_OUTCOMES) >= 512:
-                _SUMMARY_OUTCOMES.pop(next(iter(_SUMMARY_OUTCOMES)))
-            _SUMMARY_OUTCOMES[key] = value
             _SUMMARY_RUNNING.discard(key)
 
 
@@ -605,27 +655,27 @@ def _explanation(detail, *, retry=False):
     if (not detail.get("changes") or not detail.get("applicable")
             or any(change.get("fragments_unavailable") for change in detail["changes"])):
         return {"status": "unavailable", "text": ""}
-    intent = _read_intent(detail["kind"], detail["id"], detail["version"])
-    explanation_version = _hash(detail["signature"], json.dumps(intent, ensure_ascii=False, sort_keys=True))
-    path = _summary_path(detail["kind"], detail["id"], detail["version"], explanation_version)
-    key = str(path)
-    with _SUMMARY_LOCK:
-        if key in _SUMMARY_RUNNING:
-            return {"status": "pending", "text": ""}
-        if not retry and key in _SUMMARY_OUTCOMES:
-            return _SUMMARY_OUTCOMES[key]
-        if path.is_file() and not retry:
-            try:
-                saved = json.loads(path.read_text(encoding="utf-8"))
-                if saved.get("status") in {"ready", "error"} and isinstance(saved.get("text"), str):
-                    return saved
-            except (OSError, ValueError, AttributeError):
-                pass
-        _SUMMARY_RUNNING.add(key)
+    kind, pending_id, version, signature = (detail[name] for name in ("kind", "id", "version", "signature"))
+    intent = _read_intent(kind, pending_id, version)
+    path, legacy = _summary_paths(kind, pending_id, version, signature, intent)
+    key = (path, signature)
+    with _pending_lock(kind, pending_id):
+        if _record(kind, pending_id)[1] != version or _claim_path(kind, pending_id, version).exists():
+            return {"status": "unavailable", "text": ""}
+        with _SUMMARY_LOCK:
+            if key in _SUMMARY_RUNNING:
+                return {"status": "pending", "text": ""}
+        saved, migrate = _cached_explanation(path, legacy, signature)
+        if saved and (saved["status"] == "ready" or not retry):
+            if migrate:
+                _save_summary(path, signature, saved)
+            return saved
+        with _SUMMARY_LOCK:
+            _SUMMARY_RUNNING.add(key)
     context = copy_context()
     try:
         threading.Thread(target=context.run,
-                         args=(_summary_worker, path, key, detail["changes"], detail["origin"], intent),
+                         args=(_summary_worker, path, key, detail, intent),
                          name="hcv-activity-explanation", daemon=True).start()
     except Exception:
         with _SUMMARY_LOCK:
@@ -882,7 +932,7 @@ def _install_review_observer(ctx):
 
 
 @router.get("/activity")
-def list_activity():
+def list_activity(request: Request = None):
     items, invalid = [], 0
     try:
         for kind in sorted(_KINDS):
@@ -908,9 +958,86 @@ def list_activity():
         except (OSError, sqlite3.Error, ReviewUnavailable):
             running, recent, history_available = [], [], False
         return {"schema": 1, "scope": _scope(), "items": items, "invalid_count": invalid,
-                "running": running, "recent": recent, "history_available": history_available}
+                "running": running, "recent": recent, "history_available": history_available,
+                # Hermes's separate profile plugin host supports buffered HTTP only.
+                "change_feed": _WATCH_AVAILABLE and request is not None and
+                "hosted_http_authenticated" not in request.scope.get("state", {})}
     except (OSError, ReviewUnavailable):
         raise HTTPException(503, "Не удалось прочитать очередь предложений") from None
+
+
+@router.websocket("/activity/events")
+async def activity_events(ws: WebSocket):
+    # This is the same authenticated, profile-scoped plugin router as /activity.
+    from hermes_cli.web_server_chat import _ws_auth_ok
+    if not _ws_auth_ok(ws):
+        await ws.close(code=1008)
+        return
+    try:
+        from watchfiles import awatch
+        home = _home()
+        pending = tuple(_safe_path(home / "pending" / kind, home) for kind in sorted(_KINDS))
+        data = _safe_path(home / "plugin-data" / "hermes-codex-visual", home)
+        locks = _safe_path(data / "activity-running", home)
+        folders = (*pending, data, locks)
+        for folder in folders:
+            folder.mkdir(parents=True, exist_ok=True)
+
+        def directory_identity():
+            stats = (_safe_path(folder, home).stat() for folder in folders)
+            return tuple((stat.st_dev, stat.st_ino) for stat in stats)
+
+        identities = directory_identity()
+    except (ImportError, OSError, ReviewUnavailable):
+        await ws.close(code=1011)
+        return
+
+    await ws.accept()
+    stop = asyncio.Event()
+
+    async def receive_until_disconnect():
+        try:
+            while (await ws.receive())["type"] != "websocket.disconnect":
+                pass
+        finally:
+            stop.set()
+
+    receiver = asyncio.create_task(receive_until_disconnect())
+    heartbeat = 3
+    last_sent, live_locks = None, None
+    try:
+        updates = awatch(*folders, watch_filter=None, recursive=False, force_polling=False,
+                         debounce=200, step=50, rust_timeout=heartbeat * 1000,
+                         yield_on_timeout=True, stop_event=stop)
+        async with aclosing(updates):
+            async for changes in updates:
+                if stop.is_set():
+                    break
+                now = time.monotonic()
+                relevant = False
+                for _, filename in changes:
+                    path = Path(filename)
+                    relevant |= (path.parent in pending and os.path.normcase(path.suffix) == ".json" or
+                                 path.parent == data and path.name in {"activity-history.sqlite3",
+                                     "activity-history.sqlite3-wal", "activity-history.sqlite3-journal"} or
+                                 path.parent == locks and path.suffix == ".lock")
+                if last_sent is not None and not relevant and now - last_sent < heartbeat:
+                    continue
+                if identities != directory_identity():
+                    break  # Retry with new OS watches if a watched directory was replaced.
+                # A dead reviewer releases its lock without changing the file on disk.
+                current_locks = {item.stem for item in locks.glob("*.lock") if _is_live(item.stem) is True}
+                kind = "ready" if last_sent is None else "changed" if relevant or live_locks != current_locks else "heartbeat"
+                await ws.send_json({"schema": 1, "kind": kind})
+                last_sent, live_locks = now, current_locks
+    except (OSError, ReviewUnavailable, RuntimeError, WebSocketDisconnect):
+        pass  # The client resumes its HTTP fallback when the feed becomes unavailable.
+    finally:
+        stop.set()
+        receiver.cancel()
+        await asyncio.gather(receiver, return_exceptions=True)
+        with suppress(OSError, RuntimeError):
+            await ws.close()
 
 
 @router.get("/activity/{kind}/{pending_id}")
@@ -1028,12 +1155,17 @@ def decide_activity(kind: str, pending_id: str, action: str, body: dict):
             metadata = _metadata(kind, pending_id, rec, version)
             names = metadata["names"]
             journal_name = ", ".join(names)[:260]
-            journal_description = _cached_summary(kind, pending_id, version, body["signature"])
+            signature = body["signature"]
+            intent = _read_intent(kind, pending_id, version)
+            summary_path, legacy_paths = _summary_paths(kind, pending_id, version, signature, intent)
+            saved, _ = _cached_explanation(summary_path, legacy_paths, signature)
+            journal_description = saved["text"][:450] if saved and saved["status"] == "ready" else ""
             if not journal_description and metadata["summary"]:
                 journal_description = "Фрагмент: " + metadata["summary"]
             if action == "reject":
                 event_id = _journal_start("decision", [kind], journal_name, description=journal_description)
                 _discard_current(kind, pending_id, version)
+                _clear_summary(summary_path, legacy_paths)
                 _journal_finish(event_id, "rejected")
                 return {"scope": _scope(), "status": "rejected"}
             if rec is None:
@@ -1070,6 +1202,7 @@ def decide_activity(kind: str, pending_id: str, action: str, body: dict):
                 raise HTTPException(422, "Hermes не подтвердил применение. Проверьте результат и очередь перед новым действием")
             _journal_finish(event_id, "approved")
             _discard_current(kind, pending_id, version)
+            _clear_summary(summary_path, legacy_paths)
             return {"scope": _scope(), "status": "approved"}
     except HTTPException:
         raise

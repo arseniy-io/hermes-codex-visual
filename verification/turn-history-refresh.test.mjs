@@ -11,6 +11,8 @@ const file = fs.readFileSync(turnFile, 'utf8')
 const source = file.slice(file.indexOf('const response ='))
   .replace('export function registerTurnExperience', 'function registerTurnExperience')
   .replace(/^import .*$/gm, '')
+const textObservation = fs.readFileSync(new URL('../source/chat-text-observation.js', import.meta.url), 'utf8')
+  .replace('export function', 'function')
 
 const response = '[data-slot="aui_response-group"]'
 const native = ':is([data-slot="aui_response-loading"], [data-slot="aui_turn-activity"][data-state="active"])'
@@ -43,6 +45,28 @@ function sample() {
   const { window } = dom
   const { document } = window
   window.matchMedia = () => ({ matches: true, addEventListener() {}, removeEventListener() {} })
+  const clockRows = new Set()
+  const clockTimers = new Map()
+  let clockEntries
+  let timerId = 0
+  window.IntersectionObserver = class {
+    constructor(callback) { clockEntries = callback }
+    observe(row) { clockRows.add(row) }
+    unobserve(row) { clockRows.delete(row) }
+    disconnect() { clockRows.clear() }
+  }
+  window.setTimeout = callback => { clockTimers.set(++timerId, callback); return timerId }
+  window.clearTimeout = id => clockTimers.delete(id)
+  const textRecords = []
+  const NativeMutationObserver = window.MutationObserver
+  window.MutationObserver = class extends NativeMutationObserver {
+    constructor(callback) {
+      super(records => {
+        textRecords.push(...records.filter(record => record.type === 'characterData'))
+        callback(records)
+      })
+    }
+  }
   const historyListeners = new Set()
   const stopListeners = new Set()
   const disposers = []
@@ -57,6 +81,7 @@ function sample() {
   window.mountCSS = () => {}
   window.chatStyles = {}
   window.committedFiber = () => null
+  window.completedWorkSteps = () => []
   window.syncWorkSteps = (_group, state, steps) => { state.steps = new Set(steps) }
   window.nativeRenderedMessageRecord = node => ({
     rowId: Number(node.dataset.row), storedId: node.closest('[data-session]').dataset.session, sourceRowIds: [],
@@ -65,7 +90,7 @@ function sample() {
   window.savedTimelineMetadata = row => row?.timing
   window.requestAnimationFrame = callback => { frames.set(++frameId, callback); return frameId }
   window.cancelAnimationFrame = id => frames.delete(id)
-  window.eval(source + '\nglobalThis.registerFixture = registerTurnExperience')
+  window.eval(textObservation + '\n' + source + '\nglobalThis.registerFixture = registerTurnExperience')
 
   const subscribe = listeners => listener => { listeners.add(listener); return () => listeners.delete(listener) }
   const ctx = { onEvent() {}, onDispose: dispose => disposers.push(dispose) }
@@ -92,7 +117,8 @@ function sample() {
 
   window.registerFixture(ctx, '[data-theme="fixture"]', stopHistory, turnTimeline)
   return {
-    document, deliveries, paint, requestedStops,
+    document, deliveries, paint, requestedStops, clockRows, clockTimers, textRecords,
+    showClock(target, isIntersecting) { clockEntries([{ target, isIntersecting }]) },
     update(session, rows) {
       snapshots.set(session, { requestedSessionId: session, rows })
       for (const listener of historyListeners) listener()
@@ -138,6 +164,59 @@ test('a timeline refresh supplies the stop time without replaying the other answ
     assert.equal(fixture.document.querySelector('#tile-last [data-hcv-turn-stop-line] time').dateTime, 'PT9S')
     assert.equal(fixture.document.querySelector('#main-live [data-hcv-live-turn]'), live)
     assert.deepEqual(fixture.deliveries.sort(), ['main-live', 'tile-last'])
+  } finally {
+    fixture.close()
+  }
+})
+
+test('a visible live row owns one clock and leaving the viewport cancels it', async () => {
+  const fixture = sample()
+  try {
+    await fixture.paint()
+    const row = fixture.document.querySelector('#main-live [data-hcv-live-turn]')
+    assert.deepEqual([...fixture.clockRows], [row])
+    assert.equal(fixture.clockTimers.size, 0)
+    fixture.showClock(row, true)
+    assert.equal(fixture.clockTimers.size, 1)
+    fixture.showClock(row, true)
+    assert.equal(fixture.clockTimers.size, 1)
+    fixture.showClock(row, false)
+    assert.equal(fixture.clockTimers.size, 0)
+    fixture.showClock(row, true)
+    const stream = fixture.document.querySelector('#main-live [data-message-streaming]')
+    stream.removeAttribute('data-message-streaming')
+    await fixture.paint()
+    assert.equal(fixture.clockRows.size, 0)
+    assert.equal(fixture.clockTimers.size, 0)
+  } finally {
+    fixture.close()
+  }
+})
+
+test('native duration text still refreshes its own row while streamed prose delivers no text record', async () => {
+  const fixture = sample()
+  try {
+    const prior = fixture.document.querySelector('#main-before [data-slot="aui_assistant-message-root"]')
+    const footer = fixture.document.createElement('div')
+    footer.innerHTML = '<span data-slot="aui_msg-actions"></span><span data-slot="aui_turn-duration">4s</span>'
+    prior.append(footer)
+    await fixture.paint()
+    const heading = fixture.document.querySelector('#main-before [data-hcv-turn-line]')
+    assert.equal(heading.textContent, 'Worked for 4s')
+    const liveText = fixture.document.querySelector('#main-live p').firstChild
+    fixture.textRecords.length = 0
+    fixture.deliveries.length = 0
+    liveText.data = 'Current answer, more words'
+    await fixture.paint()
+    assert.deepEqual(fixture.textRecords, [])
+    assert.deepEqual(fixture.deliveries, [])
+
+    const elapsed = footer.lastElementChild.firstChild
+    elapsed.data = '12s'
+    await fixture.paint()
+    assert.deepEqual(fixture.textRecords.map(record => record.target), [elapsed])
+    assert.deepEqual(fixture.deliveries, ['main-before'])
+    assert.equal(heading.textContent, 'Worked for 12s')
   } finally {
     fixture.close()
   }

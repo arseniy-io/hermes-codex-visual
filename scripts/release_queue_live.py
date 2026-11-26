@@ -5,12 +5,14 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+from runpy import run_path
 from secrets import token_hex
 import subprocess
 import time
 from uuid import uuid4
 
 import release_lock as shared
+import release_queue_build as builder
 import release_queue_install as installer
 import release_queue_live_fence as fence
 import release_queue_live_plan as plans
@@ -21,6 +23,10 @@ from release_queue_store import QueueError
 DESKTOP = "hermes-agent/apps/desktop/release/win-unpacked/Hermes.exe"
 PLUGIN_ID = "hermes-codex-visual"
 ROOT = "hermes"
+MANAGED_WORKER = "agent/managed_worker.py"
+TURN_CONTROL_STAGE = "scripts/stage-hermes-turn-control.py"
+TURN_CONTROL_MANIFEST = "source/hermes-turn-control/manifest.json"
+TURN_CONTROL_PATCH = "source/hermes-turn-control/queue-controls.patch"
 
 
 class LiveError(QueueError):
@@ -205,8 +211,9 @@ class Maintenance:
 
     def validate_targets(self, intent_id, targets):
         desktop, agent = installed_package_roots(self.root)
+        worker = self.root / "hermes-agent" / MANAGED_WORKER
         for target in targets:
-            if not (target == desktop / "plugin.js" or target.is_relative_to(agent)
+            if not (target == desktop / "plugin.js" or target == worker or target.is_relative_to(agent)
                     or target.is_relative_to(self.project)):
                 raise LiveError(f"Release tried to replace a file outside its registered scope: {target.name}")
 
@@ -266,9 +273,13 @@ class Maintenance:
         fence.verify_gate_files(self.root)
         if not self.marker_owner(intent_id):
             raise LiveError("Hermes startup barrier disappeared before activation")
-        self._verify_core(self.store.current_base())
         intent = self.store.pending_install()
         base = self.store.current_base()
+        pins = dict(base["core_files"])
+        worker = self.root / "hermes-agent" / MANAGED_WORKER
+        if version == "new" and worker in expected:
+            pins[MANAGED_WORKER] = expected[worker]
+        self._verify_core({"core_files": pins})
         if version == "new":
             record = self.store.candidate(intent["selection"]["key"]) if intent else None
             if not record or record["state"] != "ready":
@@ -299,8 +310,10 @@ class Maintenance:
         if not isinstance(evidence, dict) or any(evidence.get(key) is not True for key in (
                 "desktop_loaded", "gateway_ready", "installed_components_verified")):
             raise LiveError("The guarded isolated activation did not confirm both components")
+        if MANAGED_WORKER in pins and evidence.get("managed_worker_sha256") != pins[MANAGED_WORKER]:
+            raise LiveError("The isolated process did not import the verified managed worker")
         return {"intent_id": intent_id, "version": version, "evidence": {
-            **evidence, "release_version": desktop_version, "archive_sha256": checksum}}
+            **evidence, "release_version": desktop_version, "archive_sha256": checksum, "core_files": pins}}
 
     def leave(self, intent_id):
         fence.verify_gate_files(self.root)
@@ -310,6 +323,41 @@ class Maintenance:
             self.marker.unlink()
 
 
+def stage_worker_update(project, core, old_parts, new_parts, pins):
+    required = {TURN_CONTROL_STAGE, TURN_CONTROL_MANIFEST, TURN_CONTROL_PATCH}
+    if not required <= old_parts.keys() & new_parts.keys():
+        raise LiveError("The turn-control update is missing reviewed package files")
+    changed = {name for name in old_parts.keys() | new_parts.keys() if old_parts.get(name) != new_parts.get(name)}
+    if changed != {TURN_CONTROL_MANIFEST, TURN_CONTROL_PATCH}:
+        raise LiveError("This core change needs a separately reviewed transition")
+    before_manifest = json.loads(old_parts[TURN_CONTROL_MANIFEST])
+    after_manifest = json.loads(new_parts[TURN_CONTROL_MANIFEST])
+    previous_worker = before_manifest["files"].pop(MANAGED_WORKER, None)
+    worker = after_manifest["files"].pop(MANAGED_WORKER, None)
+    if (before_manifest != after_manifest or not isinstance(previous_worker, dict) or not isinstance(worker, dict)
+            or worker.get("baseline") != previous_worker.get("baseline")
+            or worker.get("previous_candidate") != pins.get(MANAGED_WORKER)):
+        raise LiveError("The turn-control update does not match the installed worker pin")
+    stage = workflow.plain(project / TURN_CONTROL_STAGE)
+    if workflow.regular(stage) != new_parts[TURN_CONTROL_STAGE]:
+        raise LiveError("The reviewed turn-control staging script changed")
+    stager = run_path(str(stage))
+    before_patch, after_patch = (stager["patches"](parts[TURN_CONTROL_PATCH].decode("utf-8").replace("\r\n", "\n"))
+                                 for parts in (old_parts, new_parts))
+    before_patch.pop(MANAGED_WORKER, None)
+    hunks = after_patch.pop(MANAGED_WORKER, None)
+    if before_patch != after_patch or not hunks:
+        raise LiveError("The turn-control patch changes more than the reviewed managed worker")
+    original = workflow.regular(workflow.plain(core / MANAGED_WORKER))
+    if workflow.digest(original) != pins[MANAGED_WORKER]:
+        raise LiveError("The installed managed worker differs from its recorded bytes")
+    updated = stager["apply"](original, hunks, MANAGED_WORKER)
+    if workflow.digest(updated) != worker.get("candidate"):
+        raise LiveError("The staged managed worker differs from the declared candidate")
+    compile(updated, MANAGED_WORKER, "exec")
+    return {MANAGED_WORKER: updated}
+
+
 def file_plan(project, state, root, base):
     desktop, agent = installed_package_roots(root)
     core = root / "hermes-agent"
@@ -317,11 +365,20 @@ def file_plan(project, state, root, base):
     def create(old, new, files, receipt):
         workspace = workflow.plain(Path(receipt["workspace"]))
         _, _, agents, _ = workflow.read_archive(workspace, Path(receipt["archive"]), receipt["archive_sha256"])
+        old_tree = builder.load_base(state / "bases", old["id"])
+        previous = plans._old_archive(old_tree, old, plans._base_archive(project, state, old, None))
+        old_digest, _ = plans.describe_core(previous.members, previous.agents)
         new_digest, _ = plans.describe_core(files, agents)
-        evidence = plans.ActiveCore(new_digest, new_digest, dict(old["core_files"]))
+        pins = dict(old["core_files"])
+        replacements = {}
+        if old_digest != new_digest:
+            replacements = stage_worker_update(project, core, plans.core_parts(previous.members, previous.agents),
+                                               plans.core_parts(files, agents), pins)
+        evidence = plans.ActiveCore(old_digest, new_digest, pins, replacements)
         verified = plans.make_plan(project, state, desktop, agent, core, active_core=evidence)(
             old, new, files, receipt)
-        return [item for item in verified if not item["target"].is_relative_to(core)]
+        return [item for item in verified if not item["target"].is_relative_to(core)
+                or item["target"].relative_to(core).as_posix() in replacements]
 
     return create
 
@@ -361,6 +418,7 @@ def probe_isolated(project, archive, desktop_version, agent_version, *, token, s
         raise LiveError("Activation proof does not match the exact release or did not stop cleanly")
     return {"desktop_loaded": True, "gateway_ready": True, "installed_components_verified": True,
             "desktop_version": observed, "agent_version": agent_version, "scope": "isolated",
+            "managed_worker_sha256": evidence["gateway"].get("managed_worker_sha256"),
             "evidence": str(evidence_path), "evidence_sha256": workflow.digest(workflow.regular(evidence_path))}
 
 
@@ -431,6 +489,7 @@ def install(project, state, store, request_install, *, request=None):
             subprocess.Popen([str(exe)], cwd=exe.parent, stdin=subprocess.DEVNULL,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             observed = verify_working_launch(host, expected, began, old_ids)
+            maintenance._verify_core(expected)
         except (OSError, LiveError) as error:
             return {**result, "status": "activation_pending", "version": expected["version"],
                     "reason": str(error)}

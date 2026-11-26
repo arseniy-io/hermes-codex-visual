@@ -169,7 +169,7 @@ export async function verifyNewChatWelcome({ page, expect, screenshot, projectCh
       await closeSettings()
       await expect(chat.locator('[data-hcv-project-welcome]')).toHaveCount(0)
       await openThemeSettings()
-      await themeCard('Codex').click()
+      await themeCard('Codex').click({ timeout: 30000 })
       await closeSettings()
       await expect(wordmark).toBeVisible()
 
@@ -199,12 +199,20 @@ export async function verifyNewChatWelcome({ page, expect, screenshot, projectCh
   await expect(bubble).toBeVisible({ timeout: 30000 })
   await expect.poll(() => chat.locator('[data-slot="aui_intro"]').count()).toBe(0)
   if (!observe) {
+    // The start of the first response can reopen the summary automatically.
+    await expect(chat.getByText(reply, { exact: false }).first()).toBeVisible({ timeout: 30000 })
     await expect(summaryToggle).toHaveCount(1, { timeout: 15000 })
     await expect(chat).toHaveAttribute('data-hcv-summary-focused', '')
-    if (await summaryToggle.getAttribute('aria-expanded') !== 'true') await summaryToggle.click()
-    await expect(page.locator('[data-hcv-context-card]:visible')).toBeVisible()
+    if (await summaryToggle.getAttribute('aria-expanded') !== 'true') {
+      await page.getByRole('button', { name: 'Показать сводку', exact: true }).click()
+    }
+    await expect(summaryToggle).toHaveAttribute('aria-expanded', 'true')
+    const summaryId = await summaryToggle.getAttribute('aria-controls')
+    assert(summaryId)
+    const sentSummary = page.locator('[data-hcv-context-card][id="' + summaryId + '"]')
+    await expect(sentSummary).toHaveAttribute('aria-hidden', 'false')
+    await expect(sentSummary).toBeVisible()
     if (summaryOnly) {
-      await expect(chat.getByText(reply, { exact: false }).first()).toBeVisible({ timeout: 30000 })
       const secondCwd = path.join(path.dirname(projectFolder), 'hcv-second-workspace')
       const changed = await page.evaluate(async ({ anchor, secondCwd }) => {
         const committed = element => {
@@ -245,6 +253,8 @@ export async function verifyNewChatWelcome({ page, expect, screenshot, projectCh
       await expect(heading).toHaveText('hcv-second-workspace', { timeout: 30000 })
     }
     await summaryToggle.click()
+    await expect(summaryToggle).toHaveAttribute('aria-expanded', 'false')
+    await expect(sentSummary).toBeHidden()
   }
   const measure = (target = chat) => target.evaluate(root => {
     const viewport = root.querySelector('[data-slot="aui_thread-viewport"]')

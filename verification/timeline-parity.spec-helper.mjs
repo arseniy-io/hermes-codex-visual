@@ -22,12 +22,12 @@ function fixture(projectFolder) {
 export async function verifyChildTimelineParity({ page, expect, detail, projectFolder, screenshot, reopen }) {
   const data = fixture(projectFolder)
   assert.equal(data.secondStartedAtMs - data.firstFinalStartedAtMs, 98 * 60000)
-  assert.equal(data.visibleAssistantCount, 105)
+  assert.equal(data.visibleAssistantCount, 4)
   const first = detail.locator(`[data-hcv-agent-turn="${data.firstTurnId}"]`)
   const second = detail.locator(`[data-hcv-agent-turn="${data.secondTurnId}"]`)
   await expect(first).toHaveCount(1)
   await expect(second).toHaveCount(1)
-  await expect(first.locator('[data-hcv-agent-message="assistant"]')).toHaveCount(104)
+  await expect(first.locator('[data-hcv-agent-message="assistant"]')).toHaveCount(data.visibleAssistantCount - 1)
   await expect(second.locator('[data-hcv-agent-message="assistant"]')).toHaveCount(1)
   await expect(second.locator('[data-hcv-agent-message="user"]')).toHaveText(data.secondTask)
   await expect(second.locator('[data-hcv-agent-message="assistant"]')).toContainText(data.secondFinal)
@@ -110,13 +110,13 @@ export async function verifyChildTimelineParity({ page, expect, detail, projectF
   await expect(reopened).toHaveAttribute('data-snapshot-id', snapshotId)
   await expect(reopened.locator('[data-hcv-turn-card-apply="undo"]')).toBeEnabled()
   await expect(reopened.locator('[data-hcv-turn-card-file]')).toHaveCount(3)
-  await expect(detail.locator('[data-hcv-agent-message="assistant"]')).toHaveCount(105)
+  await expect(detail.locator('[data-hcv-agent-message="assistant"]')).toHaveCount(data.visibleAssistantCount)
   await expect(detail.locator('[data-hcv-timestamp-separator]')).toHaveCount(2)
   assert.deepEqual(actual(), states('after'))
   parentUnchanged()
   await expect.poll(() => feed.evaluate(node => Math.abs(node.scrollHeight - node.clientHeight - node.scrollTop))).toBeLessThanOrEqual(2)
   await screenshot('timeline-child-card-reopened.png')
-  return { fullPagedVisibleAssistants: 105, sourceDateSeparators: 2, sourceDateText: expectedDate,
+  return { visibleAssistantCount: data.visibleAssistantCount, sourceDateSeparators: 2, sourceDateText: expectedDate,
     perTurnDurations: ['2m 20s', '25s'], uniqueFiles: 4, shownInitially: 3, returnedPatchOperations: 5,
     actualUndo: true, actualReapply: true, parentBytesPreserved: true, reopenedSnapshotId: snapshotId }
 }

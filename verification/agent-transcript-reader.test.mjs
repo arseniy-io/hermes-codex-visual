@@ -43,16 +43,17 @@ function fixture({ rows = [], model = 'gpt-6.1-sol', effort = '', status = 'runn
       return metadata || { profile: 'default', model, model_config: JSON.stringify({ reasoning_config: { effort: 'max' } }) }
     } } }
   const document = { visibilityState: 'visible', addEventListener() {}, removeEventListener() {} }
+  const observeWindowVisibility = () => ({ hidden: () => document.visibilityState === 'hidden', dispose() {} })
   const IntersectionObserver = class {
     constructor(callback) { observerCallbacks.push(callback) }
     observe() {}
     disconnect() {}
   }
-  const invoke = new Function('useState', 'useEffect', 'host', 'window', 'document', 'IntersectionObserver',
+  const invoke = new Function('useState', 'useEffect', 'useRef', 'observeWindowVisibility', 'host', 'window', 'IntersectionObserver',
     'mergeAgentTranscript', 'agentSessionMetadata', 'finished', 'normalizeProfile', 'savedResponse', 'agent', 'scope', 'viewport',
-    hook + '\nreturn useChildResponse(agent, scope, viewport)')
+    hook + '\nreturn useChildResponse(agent, scope, viewport, undefined, true)')
   invoke(() => [null, snapshot => updates.push(snapshot)], callback => { cleanup = callback() },
-    host, window, document, IntersectionObserver, mergeAgentTranscript, agentSessionMetadata,
+    current => ({ current }), observeWindowVisibility, host, window, IntersectionObserver, mergeAgentTranscript, agentSessionMetadata,
     agent => ['completed', 'failed', 'interrupted'].includes(agent.status), value => (value || 'default').trim().toLowerCase(),
     value => value.filter(row => row.role === 'assistant' && (row.content || row.text))
       .map(row => ({ text: row.content || row.text, timestamp: row.timestamp })),

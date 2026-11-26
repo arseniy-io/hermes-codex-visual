@@ -55,7 +55,8 @@
     },
     "agent/managed_worker.py": {
       "baseline": "e7c800c2452ff76c085abcaac09394240196f9d221bdcea24fe78ce2b305d662",
-      "candidate": "3f1aa63a5e4ace5174e674bac0636b3da28d08dc7dff5f29f997474427229a2f"
+      "candidate": "d147c4e62936be5e39eeca2d47204d22b094bea05e2e80487c5255c98372a458",
+      "previous_candidate": "3f1aa63a5e4ace5174e674bac0636b3da28d08dc7dff5f29f997474427229a2f"
     },
     "gateway/session_managed_worker.py": {
       "baseline": "43e91bbe0dff1a07e32f8c6d608a7243795f112b8c342276b940495e55c3971b",

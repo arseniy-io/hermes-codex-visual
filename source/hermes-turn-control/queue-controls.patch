@@ -138,3 +138,77 @@
 +    from gateway.hcv_queue_order import move
 +    authority = connection.authority
 +    return await move(connection, ref, params, eligible=lambda row: 'reorder' in queued_controls(authority, row))
+--- a/agent/managed_worker.py
++++ b/agent/managed_worker.py
+@@ -34,7 +34,7 @@
+                  'estimated_cost_usd', 'cost_status', 'cost_source', 'service_tier', 'failure_reason',
+                  'session_id', 'requested_model', 'served_model', '_turn_input_tokens', '_turn_output_tokens',
+                  'failure_retryable', 'failure_resets_at', 'billing_block', 'free_tier', 'usage_window_message',
+-                 'refused_turn_boundary_row_id')
++                 'refused_turn_boundary_row_id', 'persisted_turn')
+ # The structured fields and their allowed keys: ``billing_block`` (``agent/billing_links.BillingBlock``
+ # plus ``unverified``) and ``free_tier`` (``agent/turn_recovery._stamp_free_tier``). With
+ # ``failure_reason``, ``failure_retryable`` and ``failure_resets_at`` they are what
+@@ -51,14 +51,34 @@
+     return isinstance(value, dict) and not set(value) - set(STRUCTURED_FIELDS[key]) and all(map(_scalar, value.values()))
+ 
+ 
++def _valid_interrupted_turn_receipt(receipt):
++    if (not isinstance(receipt, dict) or receipt.keys() - {'row_ids', 'user_row_id', 'user_row_ids', 'complete'}
++            or receipt.get('complete') is not False or type(receipt.get('user_row_id')) is not int):
++        return False
++    rows = receipt.get('row_ids')
++    if (not isinstance(rows, list) or not 0 < len(rows) <= 2048
++            or any(type(row) is not int or not 0 < row <= 2**53 - 1 for row in rows)):
++        return False
++    ids = set(rows)
++    if len(ids) != len(rows) or receipt['user_row_id'] not in ids:
++        return False
++    users = receipt.get('user_row_ids', [receipt['user_row_id']])
++    return (isinstance(users, list) and 0 < len(users) <= len(rows) and users[0] == receipt['user_row_id']
++            and all(type(row) is int and row in ids for row in users) and len(set(users)) == len(users))
++
++
+ def result_frame(result):
+     """Worker side: the receipt fields of ``run_conversation``'s result, scalars only, text bounded."""
+     frame = {k: (v[:4096] if isinstance(v, str) and k != 'final_response' else v) for k, v in result.items()
+-             if k in RESULT_FIELDS and k not in STRUCTURED_FIELDS and (v is None or type(v) in (bool, int, float, str))}
++             if k in RESULT_FIELDS and k not in STRUCTURED_FIELDS and k != 'persisted_turn'
++             and (v is None or type(v) in (bool, int, float, str))}
+     for key, fields in STRUCTURED_FIELDS.items():
+         if isinstance(block := result.get(key), dict):
+             frame[key] = {k: v[:4096] if isinstance(v, str) else v for k, v in block.items()
+                           if k in fields and (v is None or type(v) in (bool, int, float, str))}
++    receipt = result.get('persisted_turn')
++    if result.get('interrupted') is True and _valid_interrupted_turn_receipt(receipt):
++        frame['persisted_turn'] = receipt
+     return frame
+ 
+ 
+@@ -67,8 +87,10 @@
+     (gateway projection: prompt/completion tokens as input/output), or ValueError."""
+     if (not isinstance(result, dict) or set(result) - set(RESULT_FIELDS) or not isinstance(result.get('final_response'), str)
+             or any(result.get(key) is not None and not _structured(key, result[key]) for key in STRUCTURED_FIELDS)
++            or ('persisted_turn' in result and (result.get('interrupted') is not True or
++                    not _valid_interrupted_turn_receipt(result['persisted_turn'])))
+             or any(not _scalar(value) for key, value in result.items()
+-                   if key != 'final_response' and key not in STRUCTURED_FIELDS)):
++                   if key not in {'final_response', 'persisted_turn'} and key not in STRUCTURED_FIELDS)):
+         raise ValueError('invalid_worker_result')
+     accepted = dict(result)
+     for key in STRUCTURED_FIELDS:
+@@ -417,6 +439,14 @@
+                 result = {'provider': getattr(agent, 'provider', None), 'model': getattr(agent, 'model', None), **native_result}
+             finally:
+                 finish_root(controls)
++            if result.get('interrupted') is True and tree_admitted:
++                # The owner publishes the exact saved input row with the interrupted completion.
++                # Keep the receipt partial; an interrupted turn has no authoritative final reply.
++                from agent.persisted_turn_receipt import persisted_turn_receipt
++                result['persisted_turn'] = persisted_turn_receipt(
++                    result.get('messages'), getattr(agent, '_persist_user_message_idx', None), history,
++                    result.get('final_response'), 'interrupted', compression_unchanged=False,
++                    prefix_row_matches=lambda before, after: before is after)
+             result['_turn_input_tokens'] = max(0, (getattr(agent, 'session_prompt_tokens', 0) or 0) - before[0])
+             result['_turn_output_tokens'] = max(0, (getattr(agent, 'session_completion_tokens', 0) or 0) - before[1])
+             retire_agent(agent)

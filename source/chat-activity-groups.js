@@ -19,15 +19,20 @@ const protectedContent = ':is([data-approval-activity-only], [data-approval-stac
 // A compact header covers the ordinary activity between two prose messages;
 // agent cards and approvals remain outside; failed calls keep their original
 // state and output in the expanded activity, as they do in Codex.
-export function activityGroups(partsFor, setSite = () => {}) {
+export function activityGroups(partsFor, setSite = () => {}, onNativeToggle = () => {}) {
   const byResponse = new Map()
   const groupPanels = new WeakMap()
   const repeatPanels = new Map()
 
+  function toggleNative(button) {
+    button.click()
+    onNativeToggle()
+  }
+
   function restoreButton(state, button, change) {
     button.removeEventListener('click', change.onClick, true)
     if (button.isConnected && !change.touched && change.original !== change.expected &&
-      button.getAttribute('aria-expanded') === change.expected) button.click()
+      button.getAttribute('aria-expanded') === change.expected) toggleNative(button)
     state.changed.delete(button)
   }
 
@@ -46,7 +51,7 @@ export function activityGroups(partsFor, setSite = () => {}) {
       button.addEventListener('click', change.onClick, true)
     }
     change.expected = value
-    button.click()
+    toggleNative(button)
   }
 
   function syncOwners(response) {
@@ -77,7 +82,10 @@ export function activityGroups(partsFor, setSite = () => {}) {
     for (const [index, node] of state.nodes.entries()) {
       const value = open ? (index === 0 ? 'first' : 'next') : 'closed'
       if (node.getAttribute(activityMember) !== value) node.setAttribute(activityMember, value)
-      setNativeOpen(state, node.querySelector(nativeSummary), open)
+      // The outer disclosure already hides a closed member. During a stream,
+      // folding it for presentation needs no change to Hermes's own state.
+      // An opened group still needs Hermes to mount its actual tool rows.
+      if (open || updateOwners) setNativeOpen(state, node.querySelector(nativeSummary), open)
     }
     if (updateOwners) syncOwners(state.response)
   }

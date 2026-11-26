@@ -359,6 +359,23 @@ class InstallTests(unittest.TestCase):
         self.assert_status("foreign", f.apply, changes=[change])
         self.assertFalse((real / "new").exists())
 
+    @unittest.skipUnless(os.name == "nt", "Windows file permissions")
+    def test_windows_replacement_preserves_custom_permissions_on_rollback_and_retry(self):
+        f = self.fixture
+        target = f.targets / "a"
+        subprocess.run(["icacls", str(target), "/grant", "*S-1-5-32-545:(R)"],
+                       check=True, capture_output=True)
+        original = install._read_target(target)
+        self.assertNotEqual(original[1], install._read_target(f.targets / "b")[1])
+
+        f.maintenance.fail.add("new")
+        self.assert_status("rolled_back", f.apply)
+        self.assertEqual(install._read_target(target), original)
+        f.maintenance.fail.clear()
+
+        self.assertEqual(f.apply()["status"], "committed")
+        self.assertEqual(install._read_target(target), (f.candidate["a"], original[1]))
+
     @unittest.skipUnless(os.name == "nt", "Windows alternate streams")
     def test_windows_refuses_named_data_stream_before_replacing_any_target(self):
         f = self.fixture

@@ -5,7 +5,6 @@ export async function verifySummaryLayout({ page, expect, summary, outside, scre
   const viewport = chat.locator('[data-slot="aui_thread-viewport"]')
   const editor = chat.locator('[data-slot="composer-root"] [contenteditable="true"]:visible')
   const toggle = page.locator('[data-hcv-context-toggle]')
-  const actions = summary.getByRole('button', { name: 'Действия со сводкой' })
   const measure = () => chat.evaluate(node => {
     const box = (selector, root = node) => {
       const rect = root.querySelector(selector)?.getBoundingClientRect()
@@ -74,12 +73,11 @@ export async function verifySummaryLayout({ page, expect, summary, outside, scre
     await viewport.evaluate((node, top) => { node.scrollTop = top }, expanded.scrollTop)
   }
 
-  await actions.click()
-  await page.getByRole('menuitem', { name: 'Открепить сводку' }).click()
-  await expect(summary).toHaveAttribute('data-pinned', 'false')
-  await expect(summary).toBeVisible()
-  await expect.poll(inset, { message: 'A visible summary keeps space for the loaded thread even when unpinned' }).toBe(reserve)
   await outside.click()
+  await page.keyboard.press('Escape')
+  await expect(summary).toBeVisible()
+  await expect.poll(inset).toBe(reserve)
+  await toggle.click()
   await expect(summary).toBeHidden()
   await expect.poll(inset).toBe(0)
   const collapsed = await measure()
@@ -126,9 +124,6 @@ export async function verifySummaryLayout({ page, expect, summary, outside, scre
   await toggle.click()
   await expect.poll(inset).toBe(reserve)
   assert.equal(await summary.evaluate(node => node.getAnimations().length), 0)
-  await actions.click()
-  await page.getByRole('menuitem', { name: 'Закрепить сводку' }).click()
-  await expect(summary).toHaveAttribute('data-pinned', 'true')
 
   await page.setViewportSize({ width: 1440, height: 465 })
   await expect(summary).toBeVisible({ timeout: 15000 })

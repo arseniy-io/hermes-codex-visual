@@ -170,6 +170,9 @@ def unique_focus(root, requested):
 
 BRANCH_JSON = {
     'activity-center': 'activity-center.json',
+    'usage': 'usage.json',
+    'turn-diff': 'saved-main.json',
+    'file-links': 'file-links.json',
     'draft-setup': 'draft-setup.json',
     'agent-lifecycle': 'agent-lifecycle.json',
     'activity-bundles': 'activity-bundles.json',
@@ -183,13 +186,17 @@ BRANCH_JSON = {
     'sidebar-more-all': 'sidebar-more.json',
 }
 BRANCH_IMAGES = {
+    'sidebar': ('sidebar-project-menu.png', 'sidebar-project-menu-highlight.png'),
     'sidebar-activity': ('thinking-without-timer.png', 'sidebar-working-project.png'),
     'mcp-page': ('mcp-directory.png', 'mcp-tools.png'),
+    'window-menu': ('window-menu-workspace-dark-top.png', 'window-menu-workspace-dark-bottom.png',
+                    'window-menu-workspace-light-top.png', 'window-menu-workspace-light-bottom.png'),
 }
 
 
 def branch_backend_hash(focus, members):
-    name = {'activity-center': 'activity.py', 'workspace-summary-live': 'turn_changes.py'}.get(focus)
+    name = {'activity-center': 'activity.py', 'turn-diff': 'turn_changes.py',
+            'workspace-summary-live': 'turn_changes.py'}.get(focus)
     return digest(members[name]) if name in members else None
 
 
@@ -205,6 +212,15 @@ def branch_evidence(root, focus, evidence_version, module_hash, backend_hash):
             raise WorkflowError('Scenario-specific evidence has the wrong module: ' + focus)
         if focus == 'activity-center' and (value.get('backendSha256') != backend_hash or value.get('failureUi') is not True):
             raise WorkflowError('Activity scenario did not verify the same ZIP backend and failure UI')
+        if focus == 'turn-diff':
+            outlines = [value.get(key) for key in ('singleOutline', 'multiOutline', 'lightOutline')]
+            if (backend_hash is None or value.get('backendSha256') != backend_hash
+                    or not all(value.get(key) is True for key in ('actualUndoReapply', 'standalonePreviewsHidden'))
+                    or not all(isinstance(outline, dict) and outline.get('after') == 'none' for outline in outlines)):
+                raise WorkflowError('Saved change cards did not verify the same ZIP backend, outline and hidden previews')
+        if focus == 'file-links' and not all(value.get(key) is True for key in (
+                'filePreviewByMouseAndKeyboard', 'standalonePreviewsHidden', 'summarySource', 'themeAndForcedColors')):
+            raise WorkflowError('File links did not verify inline actions, hidden cards and Results')
         if focus == 'draft-setup':
             draft = value.get('draftConsent')
             def matching_edges(state):
@@ -1197,7 +1213,9 @@ def build_and_check(root, owner, out, focuses, reviewed, *, runner=command, tool
                 raise WorkflowError('Candidate changed before test')
             evidence = 'release-' + uuid4().hex + '-' + str(index)
             package_env = {'HERMES_VISUAL_ACTIVITY_PACKAGE': str(extract)}
-            if env.get('HERMES_VISUAL_TIMELINE_PARITY') == '1':
+            if focus == 'turn-diff':
+                package_env['HERMES_VISUAL_TIMELINE_PARITY'] = '1'
+            if focus == 'turn-diff' or env.get('HERMES_VISUAL_TIMELINE_PARITY') == '1':
                 package_env['HERMES_VISUAL_TIMELINE_PACKAGE'] = str(extract)
             output = step('focus-' + focus, [cmds['pwsh'], '-NoProfile', '-File', 'verification/run-local.ps1',
                           '-Focus', focus, '-Plugin', str(extract / 'plugin.js'), '-EvidenceVersion', evidence], package_env)

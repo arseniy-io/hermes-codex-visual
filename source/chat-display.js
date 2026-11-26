@@ -57,6 +57,11 @@ function displayStyles(active, chat) {
   const modernError = `${active} ${chat} [data-slot="aui_error-card"][role="alert"]`
   const content = `${active} [data-tree-group] ${chat} ${viewportSelector} [data-slot="aui_thread-content"]`
   const tileWelcome = `${active} [data-tree-group] ${chat}[data-composer-target^="tile:"] [data-hcv-project-welcome]`
+  const nativeIntro = '[data-slot="aui_intro"]:not([data-hcv-project-welcome]):only-child'
+  const projectIntro = '[data-hcv-project-welcome]:only-child'
+  const emptyBody = `${viewportSelector} > [data-slot="aui_thread-content"] > div > div`
+  const mainPlaceholder = `${docked}[data-composer-target="main"] ${emptyBody}:has(> ${nativeIntro})`
+  const tilePlaceholder = `${docked}[data-composer-target^="tile:"] ${emptyBody}:has(> ${projectIntro})`
   return `
   /* Codex 26.1111.2228.0: the default thread inset is 8 × 4px. Hermes
      otherwise resolves its titlebar-based inset to zero in a project tab. */
@@ -76,6 +81,15 @@ function displayStyles(active, chat) {
   ${tileWelcome}:only-child { display: flex !important; }
 
 @media (forced-colors: none) {
+  /* The native viewport shrinks when rows are added above the editor. Put
+     their height back into the welcome's centering only. The native matching
+     top and bottom padding cancel at full height and overflow in short panes. */
+  ${mainPlaceholder}, ${tilePlaceholder} {
+    padding-block-start: var(--hcv-composer-above-surface, 0px);
+  }
+  ${mainPlaceholder} > ${nativeIntro}, ${tilePlaceholder} > ${projectIntro} {
+    padding-block-end: 0;
+  }
   /* Current Hermes error surface. Adapt the same Codex panel and quiet
      controls used below without replacing native actions or diagnostics. */
   ${modernError} {
@@ -403,41 +417,49 @@ function displayStyles(active, chat) {
 `
 }
 
-function previewHeight(body, lineHeight) {
-  let limit = Math.ceil(lineHeight * (lineCount - 1))
-  const fences = body.querySelectorAll('[data-slot="aui_user-fence"]')
-  if (!fences.length) return limit
+function previewBounds(body) {
   const bounds = body.getBoundingClientRect()
-  const scale = bounds.height / body.offsetHeight || 1
+  return { top: bounds.top, scale: bounds.height / body.offsetHeight || 1 }
+}
+
+function previewHeight(lineHeight, fences, bounds) {
+  let limit = Math.ceil(lineHeight * (lineCount - 1))
+  if (!fences.length) return limit
   for (const fence of fences) {
     const rect = fence.getBoundingClientRect()
-    const top = (rect.top - bounds.top) / scale
-    const bottom = (rect.bottom - bounds.top) / scale
+    const top = (rect.top - bounds.top) / bounds.scale
+    const bottom = (rect.bottom - bounds.top) / bounds.scale
     if (top < limit && bottom > limit) limit = Math.ceil(bottom)
   }
   return limit
 }
 
-function syncPreviewFocus(state) {
-  for (const node of state.inert) node.removeAttribute('inert')
-  state.inert.clear()
-  if (state.expanded) return
-
-  const controls = state.body.querySelectorAll(focusable)
-  if (!controls.length) return
-
-  const bounds = state.body.getBoundingClientRect()
-  const scale = bounds.height / state.body.offsetHeight || 1
-  const bottom = bounds.top + state.previewHeight * scale
+function clippedControls(state, controls, bounds) {
+  const clipped = new Set()
+  if (!controls.length) return clipped
+  const bottom = bounds.top + state.previewHeight * bounds.scale
   for (const node of controls) {
-    if (node.closest('[inert]')) continue
+    let ancestor = node
+    while (ancestor && !clipped.has(ancestor) &&
+      (!ancestor.hasAttribute('inert') || state.inert.has(ancestor))) ancestor = ancestor.parentElement
+    if (ancestor) continue
     const rect = node.getBoundingClientRect()
     // A link on the last visible line can remain usable if part of it shows.
-    if (node.matches('a[href]') ? rect.top >= bottom : rect.bottom > bottom) {
-      node.setAttribute('inert', '')
-      state.inert.add(node)
-    }
+    if (node.matches('a[href]') ? rect.top >= bottom : rect.bottom > bottom) clipped.add(node)
   }
+  return clipped
+}
+
+function syncPreviewFocus(state, clipped) {
+  // Finish reading geometry before applying inert. Keep controls that are
+  // still clipped inert even when ResizeObserver measures the preview again.
+  for (const node of state.inert) {
+    if (!clipped.has(node)) node.removeAttribute('inert')
+  }
+  for (const node of clipped) {
+    if (!node.hasAttribute('inert')) node.setAttribute('inert', '')
+  }
+  state.inert = clipped
 }
 
 function keepToggleVisible(state) {
@@ -485,12 +507,16 @@ export function registerChatDisplay(ctx, active) {
 
   function show(state) {
     const value = state.expanded ? 'expanded' : 'collapsed'
-    state.clamp.setAttribute('data-hcv-message-preview', value)
-    state.clamp.style.setProperty('--hcv-message-height',
-      `${state.expanded ? state.fullHeight : state.previewHeight}px`)
-    state.toggle.setAttribute('aria-expanded', String(state.expanded))
+    const height = `${state.expanded ? state.fullHeight : state.previewHeight}px`
+    const expanded = String(state.expanded)
+    if (state.clamp.getAttribute('data-hcv-message-preview') !== value) {
+      state.clamp.setAttribute('data-hcv-message-preview', value)
+    }
+    if (state.clamp.style.getPropertyValue('--hcv-message-height') !== height) {
+      state.clamp.style.setProperty('--hcv-message-height', height)
+    }
+    if (state.toggle.getAttribute('aria-expanded') !== expanded) state.toggle.setAttribute('aria-expanded', expanded)
     label(state)
-    syncPreviewFocus(state)
   }
 
   function removeDisclosure(state) {
@@ -527,6 +553,9 @@ export function registerChatDisplay(ctx, active) {
     toggle.addEventListener('click', () => {
       clearTimeout(state.closeTimer)
       state.expanded = !state.expanded
+      const controls = state.expanded ? [] : state.body.querySelectorAll(focusable)
+      const bounds = controls.length ? previewBounds(state.body) : null
+      syncPreviewFocus(state, clippedControls(state, controls, bounds))
       show(state)
       if (!state.expanded) {
         if (reducedMotion.matches) keepToggleVisible(state)
@@ -554,7 +583,11 @@ export function registerChatDisplay(ctx, active) {
       return
     }
     state.fullHeight = fullHeight
-    state.previewHeight = previewHeight(state.body, lineHeight)
+    const fences = state.body.querySelectorAll('[data-slot="aui_user-fence"]')
+    const controls = state.expanded ? [] : state.body.querySelectorAll(focusable)
+    const bounds = fences.length || controls.length ? previewBounds(state.body) : null
+    state.previewHeight = previewHeight(lineHeight, fences, bounds)
+    syncPreviewFocus(state, clippedControls(state, controls, bounds))
     if (!state.toggle) addDisclosure(state)
     show(state)
   }

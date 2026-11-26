@@ -3,13 +3,11 @@ import { nativeSessionView } from './sidebar-session-state.js'
 import { nativeRenderedMessageRecord } from './native-rendered-message.js'
 import { createTurnChangesCard } from './turn-changes-dom.js'
 import { readTurnTimeline, readSavedTurnChanges, applySavedTurnChanges, openSavedTurnDiff, notifySavedTurnOutcome } from './turn-history-client.js'
-import { savedTurnCardAnchor, placeSavedTurnCard, savedTurnMutation } from './turn-card-anchor.js'
-import { movedElementMatches } from './dom-changes.js'
+import { savedTurnCardAnchor, placeSavedTurnCard } from './turn-card-anchor.js'
 
-const surfaceSelector = '[data-chat-surface][data-composer-target^="tile:"][data-session-anchor^="session-tile:"]'
+export const tileHistorySurface = '[data-chat-surface][data-composer-target^="tile:"][data-session-anchor^="session-tile:"]'
 const pair = '[data-slot="aui_turn-pair"]'
 const user = '[data-slot="aui_user-message-root"]'
-const generated = '[data-hcv-turn-history-generated]'
 const normalize = value => typeof value === 'string' && value.trim() ? value.trim() : null
 
 export function tileTurnHistoryTarget(surface) {
@@ -106,7 +104,7 @@ export function registerTileTurnHistory(ctx, active, onChange = () => {}) {
   }
   function sync() {
     const present = new Set()
-    for (const surface of enabled() ? document.querySelectorAll(surfaceSelector) : []) {
+    for (const surface of enabled() ? document.querySelectorAll(tileHistorySurface) : []) {
       const target = tileTurnHistoryTarget(surface)
       if (!target) continue
       present.add(surface)
@@ -120,25 +118,10 @@ export function registerTileTurnHistory(ctx, active, onChange = () => {}) {
     }
     for (const [surface, controller] of controllers) if (!present.has(surface)) { controller.dispose(); controllers.delete(surface) }
   }
-  const observer = new MutationObserver(records => {
-    if (!enabled()) return
-    let rescan = false
-    const reread = new Set()
-    for (const record of records) {
-      const target = record.target
-      if (!(target instanceof Element) || target.closest(generated)) continue
-      const surface = target.closest(surfaceSelector)
-      if (surface) {
-        const change = savedTurnMutation(record)
-        rescan ||= Boolean(change)
-        if (change === 'read') reread.add(surface)
-      } else if (record.type === 'childList' && movedElementMatches(record, surfaceSelector)) rescan = true
-    }
+  function processMutations(reread, rescan) {
     for (const surface of reread) controllers.get(surface)?.refresh()
     if (rescan) schedule()
-  })
-  observer.observe(document.body, { childList: true, subtree: true, attributes: true,
-    attributeFilter: ['data-message-streaming', 'data-state'] })
+  }
   const theme = new MutationObserver(schedule)
   theme.observe(document.documentElement, { attributes: true, attributeFilter: ['data-hermes-theme', 'data-hermes-mode', 'lang'] })
   contrast.addEventListener('change', schedule)
@@ -149,9 +132,9 @@ export function registerTileTurnHistory(ctx, active, onChange = () => {}) {
   const storeStops = [host.state.connectionId, host.state.profile].map(atom => atom.listen(schedule))
   schedule()
   ctx.onDispose(() => {
-    disposed = true; cancelAnimationFrame(frame); observer.disconnect(); theme.disconnect()
+    disposed = true; cancelAnimationFrame(frame); theme.disconnect()
     contrast.removeEventListener('change', schedule); storeStops.forEach(stop => stop())
     controllers.forEach(controller => controller.dispose()); controllers.clear()
   })
-  return { current(surface) { return controllers.get(surface)?.current() || null } }
+  return { observing: enabled, processMutations, current(surface) { return controllers.get(surface)?.current() || null } }
 }

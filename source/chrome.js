@@ -13,6 +13,7 @@ import { attachSidebarCron, sidebarCronStyles } from './sidebar-cron.js'
 import { movedElementMatches } from './dom-changes.js'
 import { readFocusedSession } from './sidebar-session-state.js'
 import { composerForSurface, composerRichInput } from './composer-native.js'
+import { sidebarHeaderEvent } from './activity-center.js'
 
 function icon(name) {
   return h('span', { 'aria-hidden': true, 'data-hcv-icon': name, style: codexIconStyle(name) })
@@ -179,13 +180,6 @@ function WindowChrome({ themeName, recentRows, projectRows }) {
   const { locale } = useI18n()
   const [historyState, setHistoryState] = useState({ back: false, forward: false })
 
-  useLayoutEffect(() => {
-    if (!selected) return
-    const root = document.documentElement
-    root.setAttribute('data-hcv-window-chrome', '')
-    return () => root.removeAttribute('data-hcv-window-chrome')
-  }, [selected])
-
   useEffect(() => {
     if (!selected || !window.navigation) return
     const update = () => {
@@ -310,9 +304,84 @@ function recentsControl(groupId, rows, t) {
   header.append(button, actions)
   let generation = 0
   let nativeUpdates
+  let nativeCommitTree
+  let nativeHidden = null, visibilityPaused, visibilityObserver, unsubscribeWindowState
+  const nativeCommitEvent = 'hermes:sidebar-sessions-commit'
+  const pauseAttribute = 'data-renderer-animations-paused'
+  const windowHidden = () => document.hidden || (nativeHidden === null
+    ? document.documentElement.hasAttribute(pauseAttribute) : nativeHidden)
+  const update = () => rows.update(area.parentElement, list, t('recentEmpty'))
+  const stopNativeUpdates = () => {
+    if (nativeUpdates !== undefined) clearTimeout(nativeUpdates)
+    nativeUpdates = undefined
+  }
+  function onNativeCommit(event) {
+    if (event.target === nativeCommitTree && event.currentTarget === area.parentElement &&
+        nativeCommitTree.dataset.sessionsMode === 'projects') syncNativeRows()
+  }
+  function unwatchNativeCommits() {
+    nativeCommitTree?.removeEventListener(nativeCommitEvent, onNativeCommit)
+    nativeCommitTree = undefined
+  }
+  function watchNativeCommits() {
+    const tree = area.parentElement
+    if (tree === nativeCommitTree) return
+    unwatchNativeCommits()
+    if (!tree?.matches('[data-sessions-mode="projects"][data-sessions-list-commit="1"]')) return
+    nativeCommitTree = tree
+    tree.addEventListener(nativeCommitEvent, onNativeCommit)
+  }
+  function syncWindowVisibility() {
+    if (!visibilityObserver) return
+    const paused = windowHidden()
+    if (paused === visibilityPaused) return
+    visibilityPaused = paused
+    if (paused) stopNativeUpdates()
+    else if (area.hasAttribute('data-hcv-recents-open')) syncNativeRows()
+  }
+  function watchWindowVisibility() {
+    if (visibilityObserver) return
+    visibilityPaused = windowHidden()
+    document.addEventListener('visibilitychange', syncWindowVisibility)
+    visibilityObserver = new MutationObserver(syncWindowVisibility)
+    visibilityObserver.observe(document.documentElement, { attributes: true, attributeFilter: [pauseAttribute] })
+    unsubscribeWindowState = window.hermesDesktop?.onWindowStateChanged?.(state => {
+      if (typeof state?.isMinimized !== 'boolean' && typeof state?.isVisible !== 'boolean') return
+      nativeHidden = state.isMinimized === true || state.isVisible === false
+      syncWindowVisibility()
+    })
+  }
+  function unwatchWindowVisibility() {
+    document.removeEventListener('visibilitychange', syncWindowVisibility)
+    visibilityObserver?.disconnect()
+    visibilityObserver = undefined
+    unsubscribeWindowState?.()
+    unsubscribeWindowState = undefined
+    nativeHidden = null
+    visibilityPaused = undefined
+  }
+  function scheduleNativeUpdates() {
+    // Older windows can commit new list props without a signal or DOM changes.
+    if (!nativeCommitTree && !windowHidden()) nativeUpdates = setTimeout(syncNativeRows, 400)
+  }
+  function syncNativeRows() {
+    stopNativeUpdates()
+    if (windowHidden() || !area.isConnected || body.inert) return
+    if (update()) {
+      if (list.hidden) {
+        ++generation
+        list.hidden = false
+        fallback.hidden = true
+        fallback.removeAttribute('aria-busy')
+      }
+      scheduleNativeUpdates()
+    } else if (!list.hidden) void show()
+  }
   const close = () => {
     ++generation
-    clearInterval(nativeUpdates)
+    stopNativeUpdates()
+    unwatchNativeCommits()
+    unwatchWindowVisibility()
     area.removeAttribute('data-hcv-recents-open')
     body.inert = true
     fallback.removeAttribute('aria-busy')
@@ -326,16 +395,16 @@ function recentsControl(groupId, rows, t) {
   async function show() {
     if (!area.isConnected) return
     const request = ++generation
-    clearInterval(nativeUpdates)
+    stopNativeUpdates()
+    watchNativeCommits()
+    watchWindowVisibility()
     area.setAttribute('data-hcv-recents-open', '')
     body.inert = false
     button.setAttribute('aria-expanded', 'true')
-    const update = () => rows.update(area.parentElement, list, t('recentEmpty'))
     if (update()) {
       list.hidden = false
       fallback.hidden = true
-      // The native list can change while every project row is collapsed.
-      nativeUpdates = setInterval(() => { if (!update()) void show() }, 400)
+      scheduleNativeUpdates()
       return
     }
     rows.clear(list)
@@ -516,12 +585,16 @@ function attachSidebarHeader(group, t) {
     search,
     sync(content) {
       const parent = group.querySelector(':scope > [data-panel-header]') || content
-      if (parent && bar.parentElement !== parent) parent.prepend(bar)
+      if (parent && bar.parentElement !== parent) {
+        parent.prepend(bar)
+        window.dispatchEvent(new Event(sidebarHeaderEvent))
+      }
       if (search.hidden !== !content) search.hidden = !content
       syncTerminal()
     },
     remove() {
       bar.remove()
+      window.dispatchEvent(new Event(sidebarHeaderEvent))
       terminalEmpty?.remove()
       group.removeAttribute('data-hcv-sidebar-shell')
     },
@@ -923,7 +996,15 @@ export function registerWorkspaceChrome(ctx, themeName) {
   ctx.i18n.register(sidebarCopy)
   registerChatPreviewMarker(ctx)
   const active = `html[data-hermes-codex-visual][data-hermes-theme="${themeName}"]`
+  const root = document.documentElement
+  // Layout belongs to the window, even when a route overlay owns its titlebar.
+  const windowKind = new URLSearchParams(location.search).get('win')
+  if (windowKind !== 'hud' && windowKind !== 'browser') {
+    root.setAttribute('data-hcv-window-chrome', '')
+    ctx.onDispose(() => root.removeAttribute('data-hcv-window-chrome'))
+  }
   const shell = `${active}[data-hcv-window-chrome]`
+  const workspace = '[data-tree-group="grp-main"][data-window-top]:not([data-pane-host])'
   const side = `${shell} [data-hcv-sidebar-shell]`
   const sidebarTrack = `${active} [data-tree-split].flex-row > div[style*="min-width: 237px"]:has(> [data-tree-group="grp-sessions"]:not([data-pane-host]))`
   const sidebarStrip = `${active} :is([data-hcv-sidebar-shell] > [data-panel-header] [data-zone-tabstrip], [data-zone-tabstrip="grp-sessions"])`
@@ -1027,14 +1108,33 @@ export function registerWorkspaceChrome(ctx, themeName) {
   }
 }
 @media (forced-colors: none) and (min-width: 800px) and (min-height: 480px) {
-  ${shell} [data-tree-split="spl-root"] { padding-block-start: 39px; }
+  ${shell} [data-contrib-shell] { background-color: var(--hcv-sidebar); }
+  ${shell} [data-tree-split="spl-root"] { padding-block-start: var(--hcv-window-menu-height); }
+  ${shell} ${workspace} {
+    background-color: var(--hcv-chat);
+    border-start-start-radius: 12px;
+    border-end-start-radius: 12px;
+  }
+  ${shell} ${workspace}::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    border-radius: inherit;
+    box-shadow: inset 0 0 0 0.5px light-dark(rgb(26 28 31 / 8%), rgb(255 255 255 / 8%));
+    pointer-events: none;
+  }
+  /* The frame draws this seam at rest. The resize handle keeps its hover and hit area. */
+  ${shell} [data-tree-split].flex-row > div:has(> ${workspace}) > [role="separator"]:not(:hover) > span:first-child {
+    opacity: 0;
+  }
   ${shell} [data-titlebar-cluster="left"] {
     inset-inline-start: 6px;
     inset-block-start: 4px;
     gap: 6px;
   }
   ${shell} [data-titlebar-cluster="right"] {
-    inset-block-start: 51px;
+    inset-block-start: calc(var(--hcv-window-menu-height) + 12px);
     right: calc(13px + var(--hcv-sidebar-right-offset, 0px));
   }
   ${shell} [data-hcv-history] { order: -1; display: flex; align-items: center; gap: 6px; }
@@ -1065,6 +1165,7 @@ export function registerWorkspaceChrome(ctx, themeName) {
 
   /* Windows application menu from Codex e6/eY/eJ, separate from contextual menus. */
   ${shell} {
+    --hcv-window-menu-height: 36px;
     --hcv-window-text: light-dark(#1a1c1f, #dfdfdf);
     --hcv-window-muted: light-dark(rgb(26 28 31 / .495), rgb(255 255 255 / .498));
     --hcv-window-ink: light-dark(#1a1c1f, #ffffff);
@@ -1200,9 +1301,7 @@ export function registerWorkspaceChrome(ctx, themeName) {
   }
   ${side} [data-hcv-sidebar-bar] button {
     position: relative;
-    border-radius: 50%;
     color: var(--hcv-muted);
-    transition: color 150ms var(--hcv-ease), background-color 150ms var(--hcv-ease);
   }
   ${side} [data-hcv-sidebar-bar] button:focus-visible {
     outline: 1px solid var(--hcv-focus);
@@ -1339,9 +1438,6 @@ export function registerWorkspaceChrome(ctx, themeName) {
   ${side} [data-hcv-recents-fallback]:not([hidden]) { display: grid; gap: 2px; }
   ${side} [data-hcv-recents-fallback] button { display: block; text-align: start; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   ${side} [data-hcv-recent-empty] { padding: 6px 8px; color: var(--hcv-muted); }
-}
-@media (prefers-reduced-motion: reduce) {
-  ${active} [data-hcv-sidebar-bar] button { transition: none; }
 }
 @media (forced-colors: active), (max-width: 799px), (max-height: 479px) {
   ${active} :is([data-hcv-history], [data-hcv-window-menu]) { display: none; }

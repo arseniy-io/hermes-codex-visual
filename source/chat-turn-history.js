@@ -1,7 +1,7 @@
 import { host } from '@hermes/plugin-sdk'
 import { mountCSS, chatStyles } from './style-scope.js'
 import { nativeRenderedMessageRecord } from './native-rendered-message.js'
-import { registerTileTurnHistory } from './chat-tile-turn-history.js'
+import { registerTileTurnHistory, tileHistorySurface } from './chat-tile-turn-history.js'
 import { nativeSessionView } from './sidebar-session-state.js'
 import { createPrimaryHistoryTargetReader, samePrimaryHistoryTarget } from './primary-turn-history-owner.js'
 import { savedTurnCardAnchor, placeSavedTurnCard, savedTurnMutation } from './turn-card-anchor.js'
@@ -14,6 +14,7 @@ import { applySavedTurnChanges, openSavedTurnDiff, readSavedTurnChanges, readTur
   setTurnHistoryContext, notifySavedTurnOutcome } from './turn-history-client.js'
 
 const primary = '[data-chat-surface][data-composer-target="main"][data-session-anchor="workspace"]'
+const historySurfaces = primary + ', ' + tileHistorySurface
 const pair = '[data-slot="aui_turn-pair"]'
 const user = '[data-slot="aui_user-message-root"]'
 const assistant = '[data-slot="aui_assistant-message-root"]'
@@ -201,17 +202,36 @@ export function registerChatTurnHistory(ctx, active) {
     host.state.focusedStoredSessionId, host.state.focusedSessionOwner].filter(Boolean)
     .map(atom => atom.subscribe(targetChanged))
   const observer = new MutationObserver(records => {
-    if (!enabled()) return
+    const observePrimary = enabled(), observeTiles = tiles.observing()
+    if (!observePrimary && !observeTiles) return
     let repaint = false, reread = false
+    let rescanTiles = false
+    const tileReads = new Set()
     for (const record of records) {
       const target = record.target
       if (!(target instanceof Element) || target.closest(generated)) continue
-      if (target.closest(primary)) {
+      const inPrimary = observePrimary && target.closest(primary)
+      const tile = observeTiles && target.closest(tileHistorySurface)
+      if (inPrimary || tile) {
         const change = savedTurnMutation(record)
-        repaint ||= Boolean(change)
-        reread ||= change === 'read'
-      } else if (record.type === 'childList' && movedElementMatches(record, primary)) targetChanged()
+        if (inPrimary) {
+          repaint ||= Boolean(change)
+          reread ||= change === 'read'
+        }
+        if (tile) {
+          rescanTiles ||= Boolean(change)
+          if (change === 'read') tileReads.add(tile)
+        }
+      }
+      if (record.type === 'childList') {
+        const findPrimary = observePrimary && !inPrimary
+        const findTile = observeTiles && !tile
+        if (findPrimary && findTile && !movedElementMatches(record, historySurfaces)) continue
+        if (findPrimary && movedElementMatches(record, primary)) targetChanged()
+        if (findTile && movedElementMatches(record, tileHistorySurface)) rescanTiles = true
+      }
     }
+    if (observeTiles) tiles.processMutations(tileReads, rescanTiles)
     if (repaint) announce()
     // A terminal tool-only turn may arrive without a message.complete event.
     if (reread) scheduleRead()

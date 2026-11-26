@@ -1,4 +1,5 @@
-import { tooltipCopy } from './tooltips.js'
+import { tooltipCopy } from './tooltip-copy.js'
+import { tooltipSurfaces } from './tooltips.js'
 
 const dialog = '[data-slot="dialog-content"]'
 const noticeCopy = [
@@ -11,7 +12,6 @@ const literal = [
   'pre, code, kbd, samp, svg, math, script, style, textarea',
   '[contenteditable]:not([contenteditable="false"]), .cm-editor, [data-terminal], [data-ref], [data-hcv-file-reference]',
 ].join(', ')
-const tooltip = '[data-slot="tooltip-content"]'
 const dash = '\u2014'
 
 // Hermes composes these strings in model_selection_guards.py,
@@ -101,18 +101,21 @@ export function registerInterfaceCopy(ctx, active, decorateTooltip) {
 
   function updateText(node) {
     const parent = node.parentElement
-    const tooltipContent = themed && parent.closest(tooltip)
-    if (tooltipContent && /^(?:Голосовая диктовка|Voice dictation)$/i.test(node.data)) decorateTooltip(tooltipContent)
+    if (themed && /^(?:Голосовая диктовка|Voice dictation)$/i.test(node.data)) {
+      const tip = parent.closest('[data-slot="tooltip-content"]')
+      if (tip) decorateTooltip(tip)
+    }
     const original = node.data
     const previous = edits.get(node)
     if (previous?.shown === original) return
     const notice = russian && parent.closest(noticeCopy)
-    if (!notice && !original.includes(dash) && !(themed && /[·•]/u.test(original))) {
+    const separated = themed && /[·•]/u.test(original) && parent.closest(tooltipSurfaces)
+    if (!notice && !original.includes(dash) && !separated) {
       if (previous) edits.delete(node)
       return
     }
     const translated = notice ? translateNotice(original) : original
-    const shown = tooltipContent ? tooltipCopy(translated) : translated.replaceAll(dash, '-')
+    const shown = separated ? tooltipCopy(translated) : translated.replaceAll(dash, '-')
     if (shown === original) { edits.delete(node); return }
     const title = notice && parent.matches('[data-slot="alert-title"]') && parent.title === original ? parent : null
     edits.set(node, { original, shown, tooltip: title })

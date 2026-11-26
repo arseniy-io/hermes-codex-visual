@@ -157,8 +157,8 @@ export async function measurePerformance({ app, page, expect, navigation, projec
     await nav('new-session').click()
     await expect(page.locator(composer).first()).toBeVisible()
   }
-  const openLong = async () => {
-    const row = projectChat(chatName).first()
+  const openLong = async (title = chatName) => {
+    const row = projectChat(title).first()
     if (!await row.isVisible()) {
       await page.locator('[data-hcv-project-name]').filter({ hasText: 'Тестовый проект' }).click()
     }
@@ -170,22 +170,6 @@ export async function measurePerformance({ app, page, expect, navigation, projec
     const plugins = page.locator('[data-tour="tab-plugins"]:visible').first()
     await plugins.click()
     await expect(page.locator('[data-catalog-card]').filter({ hasText: 'Fixture plugin' }).first()).toBeVisible()
-  }
-  const expandHistory = async () => {
-    const thread = page.locator(chat + ' [data-slot="aui_thread-content"]:visible').first()
-    const groups = thread.locator('[data-slot="aui_response-group"]')
-    const earlier = thread.getByRole('button', { name: /Show earlier messages|Показать (?:более ранние|предыдущие|ранние|старые) сообщения/i })
-    let count = await groups.count()
-    for (let index = 0; count < 40 && index < 10; index++) {
-      await earlier.first().click()
-      await expect.poll(() => groups.count()).toBeGreaterThan(count)
-      count = await groups.count()
-    }
-    assert(count >= 40, 'Expected at least 40 mounted responses, got ' + count)
-    await page.locator(chat + ' [data-slot="aui_thread-viewport"]:visible').first().evaluate(node => {
-      node.scrollTop = node.scrollHeight
-    })
-    return count
   }
   const sidebar = await measureSidebarScope({ app, page, expect, navigation })
   const masks = (await sidebarMasks(page, navigation)).map(mask => createHash('sha256').update(mask).digest('hex'))
@@ -239,9 +223,12 @@ export async function measurePerformance({ app, page, expect, navigation, projec
       nodes: b.Nodes,
     }
   }
-  const repeat = async (name, action) => {
+  const repeat = async (name, action, prepare) => {
     const runs = []
-    for (const i of cases) runs.push(await sample(() => action(i)))
+    for (const i of cases) {
+      if (prepare) await prepare(i)
+      runs.push(await sample(() => action(i)))
+    }
     console.log('Performance', name, JSON.stringify(runs.map(({ frames, ...row }) => row)))
     return runs
   }
@@ -268,7 +255,10 @@ export async function measurePerformance({ app, page, expect, navigation, projec
     })
     await openLong()
     const input = page.locator(composer).first()
-    results.mountedTurns = await expandHistory()
+    results.mountedTurns = await page.locator(chat + ' [data-slot="aui_response-group"]:visible').count()
+    assert.equal(results.mountedTurns, 1)
+    const viewport = page.locator(chat + ' [data-slot="aui_thread-viewport"]:visible').first()
+    await expect.poll(() => viewport.evaluate(node => node.scrollHeight - node.clientHeight)).toBeGreaterThan(500)
     results.typing = await repeat('typing', async () => {
       await input.pressSequentially('Testing the composer in a long conversation', { delay: 15 })
       await expect(input).toHaveText('Testing the composer in a long conversation')
@@ -276,7 +266,7 @@ export async function measurePerformance({ app, page, expect, navigation, projec
     })
     const sourcesPane = page.locator('[data-hcv-summary-pane="sources"] [data-hcv-sources-pane]:visible')
     const sourcesTab = page.locator('[data-tree-tab="plugin-workspace:hermes-codex-visual-summary-sources"]')
-    if (hotspotMode) {
+    const openHotspotSources = async () => {
       const compact = page.locator('[data-hcv-context-card]:visible [data-hcv-sources-compact]')
       await expect(compact).toBeVisible()
       const heading = compact.locator('[data-hcv-summary-heading]')
@@ -285,6 +275,9 @@ export async function measurePerformance({ app, page, expect, navigation, projec
       await expect(sourcesPane).toBeVisible()
       await expect(sourcesTab).toHaveAttribute('aria-selected', 'true')
       await expect(page.locator('[data-hcv-summary-add-tab]')).toBeVisible()
+    }
+    if (hotspotMode) {
+      await openHotspotSources()
       results.hotspots = {
         linksPerReply: hotspotLinks, target: 'fixture-note.md', tool: 'write_file',
         writeLines: 2, streamChunks: 28, chunkDelayMs: 65,
@@ -319,6 +312,12 @@ export async function measurePerformance({ app, page, expect, navigation, projec
       await expect(last.getByText(end, { exact: true })).toBeVisible({ timeout: hotspotMode ? 45000 : 20000 })
       await expect(last.locator('[data-hcv-live-turn]')).toHaveCount(0)
       if (hotspotMode) await expect(page.locator(chat + ' [data-hcv-composer-changes-chip]')).toHaveCount(0)
+    }, async i => {
+      if (hotspotMode && i === cases.at(-1)) {
+        await sourcesTab.getByRole('button', { name: /^(Закрыть|Close)$/ }).click()
+        await openLong('Повторный потоковый замер')
+        await openHotspotSources()
+      }
     })
     const { JSHeapUsedSize } = await getMetrics()
     results.heapMiB = Math.round(JSHeapUsedSize / 1048576)

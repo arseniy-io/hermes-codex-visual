@@ -5,6 +5,7 @@ import {
   DialogHeader, DialogTitle, host, Input, TITLEBAR_AREAS, useValue,
 } from '@hermes/plugin-sdk'
 import { codexIconRules } from './codex-reference.js'
+import { movedElementMatches } from './dom-changes.js'
 import { committedFiber } from './sidebar-recents.js'
 import { composerForSurface, composerRichInput } from './composer-native.js'
 import { applyTitleRead, createRenameFormController, createSessionRenamer, createUncertainRpcRegistry, MissingStoredSession, readTitleWithRetry, sessionOwnerKey, sessionRowOwner, sessionTabOwner, titleForOpen } from './session-rename.js'
@@ -13,6 +14,8 @@ import { fadingTitleStyles, trackTitleOverflow } from './title-overflow.js'
 const tilePrefix = 'session-tile:'
 const workspaceTab = '[role="tab"][data-tree-tab="workspace"]'
 const chatTab = `${workspaceTab}, [role="tab"][data-tree-tab^="${tilePrefix}"]`
+const tabStrip = '[data-zone-tabstrip]'
+const sidebar = '[data-tour="sessions-sidebar"]'
 const sidebarChatRow = '[data-sessions-mode="projects"] [data-sessions-project] .row-hover'
 const sidebarChatButton = 'button[data-slot="row-button"]:has(.hover-marquee)'
 const labelSelector = '.pane-tab-content .truncate'
@@ -292,7 +295,7 @@ export function registerSessionTabs(ctx, active) {
     for (const [text, entry] of translated) {
       if (!enabled() || !text.isConnected || text.data !== entry.shown) restore(text, entry)
     }
-    if (!enabled()) return measureTitles()
+    if (!enabled()) { watchLabels([]); return measureTitles() }
     const openIds = new Set()
     const mainLabels = []
     for (const tab of document.querySelectorAll(chatTab)) {
@@ -370,6 +373,7 @@ export function registerSessionTabs(ctx, active) {
     }
     measureTitles(mainLabels)
     for (const key of named.keys()) if (!openIds.has(key)) named.delete(key)
+    watchLabels(document.querySelectorAll(sidebarNamed.size ? `${tabStrip}, ${sidebar}` : tabStrip))
   }
   const schedule = () => { frame ||= requestAnimationFrame(labels) }
   const sheet = document.createElement('style')
@@ -377,21 +381,35 @@ export function registerSessionTabs(ctx, active) {
   sheet.textContent = sessionTabStyles(active)
   mountStyle(ctx, sheet)
 
-  const observer = new MutationObserver((changes) => {
+  let labelScopes = []
+  const labelObserver = new MutationObserver(changes => {
     if (!enabled()) return
-    if (changes.some(({ target, addedNodes }) => {
+    if (changes.some(record => {
+      const { target } = record
       const element = target instanceof Element ? target : target.parentElement
-      return element?.closest('[data-zone-tabstrip]') || (sidebarNamed.size && element?.closest(sidebarChatRow)) || [...addedNodes].some(node =>
-        node instanceof Element && (node.matches(chatTab) || node.querySelector(chatTab) ||
-          (sidebarNamed.size && (node.matches(sidebarChatRow) || node.querySelector(sidebarChatRow)))))
+      return element?.closest(tabStrip) || (sidebarNamed.size &&
+        (element?.closest(sidebarChatRow) || movedElementMatches(record, sidebarChatRow)))
     })) schedule()
+  })
+  function watchLabels(scopes) {
+    if (scopes.length === labelScopes.length && labelScopes.every((scope, index) => scope === scopes[index])) return
+    labelObserver.disconnect()
+    labelScopes = Array.from(scopes)
+    for (const scope of labelScopes) labelObserver.observe(scope, { subtree: true, childList: true, characterData: true })
+  }
+  // Text changes in the chat are unrelated to names. Discover tab strip and
+  // sidebar mounts here, and observe text only within the relevant controls.
+  const mounts = new MutationObserver(changes => {
+    if (!enabled()) return
+    const selector = sidebarNamed.size ? `${tabStrip}, ${chatTab}, ${sidebar}` : `${tabStrip}, ${chatTab}`
+    if (changes.some(record => !record.target.closest('[data-chat-surface]') && movedElementMatches(record, selector))) schedule()
   })
   const themeObserver = new MutationObserver(() => {
     if (!enabled()) close()
     schedule()
   })
   themeObserver.observe(root, { attributes: true, attributeFilter: ['data-hermes-theme', 'lang'] })
-  observer.observe(document.body, { subtree: true, childList: true, characterData: true })
+  mounts.observe(document.body, { subtree: true, childList: true })
 
   function targetState(target) {
     const current = target.sidebar ? sidebarSession(target.tab) : null
@@ -619,7 +637,7 @@ export function registerSessionTabs(ctx, active) {
   ctx.onDispose(() => {
     disposed = true
     close()
-    observer.disconnect()
+    mounts.disconnect()
     themeObserver.disconnect()
     cancelAnimationFrame(frame)
     labels()

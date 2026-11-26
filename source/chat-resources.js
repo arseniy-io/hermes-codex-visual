@@ -17,6 +17,7 @@ export function registerChatResources(ctx, active) {
   const site = `${preview}:has(> span[title]:is([title^="http://" i], [title^="https://" i]))`
   const directory = `${preview}${directoryCard}`
   const file = `${preview}:not(${site}, ${directory})`
+  const fileCard = `${file}:not([data-hcv-file-reference], [data-hcv-skill-card])`
   const artifact = `${answer} [data-slot="aui_artifact-card"]`
   const icon = `:is(${preview}, ${artifact}) > span:first-child`
   const withPreview = `${preview}:not(${directoryCard})`
@@ -39,6 +40,8 @@ export function registerChatResources(ctx, active) {
   const style = document.createElement('style')
   style.dataset.hcvChatResources = ''
   style.textContent = `
+/* Keep the native actions available to Results and inline file links. */
+${fileCard} { display: none !important; }
 @media (forced-colors: none) {
   /* fLcv and qO6B in 739301.37a39f26d6.js, Desktop tokens in 9ec44337a842.css. */
   :is(${preview}, ${artifact}) {
@@ -209,11 +212,26 @@ export function registerChatResources(ctx, active) {
 }
 `
   mountStyle(ctx, style, { surface: '[data-slot="aui_assistant-message-content"], [data-slot="aui_user-message-root"]', retainAcrossChatTabs: true })
-  registerChatAudio(ctx, active, `${media} > audio`)
-  registerChatVideo(ctx, active, `${media} > video`)
+  const players = [
+    registerChatAudio(ctx, active, `${media} > audio`, forcedColors),
+    registerChatVideo(ctx, active, `${media} > video`, forcedColors),
+  ].filter(Boolean)
+  const reconcileMedia = () => { for (const player of players) player.reconcile() }
+  const mediaAppearance = new MutationObserver(records => {
+    if (records.some(record => record.attributeName === 'data-hermes-theme')) reconcileMedia()
+    if (records.some(record => record.attributeName === 'lang')) {
+      for (const player of players) player.localize()
+    }
+  })
+  mediaAppearance.observe(document.documentElement, {
+    attributes: true, attributeFilter: ['data-hermes-theme', 'lang'],
+  })
+  ctx.addEventListener(forcedColors, 'change', reconcileMedia)
+  reconcileMedia()
   // Use the real preview button without covering the filename's native tooltip.
   document.addEventListener('click', openFromCard)
   ctx.onDispose(() => {
+    mediaAppearance.disconnect()
     document.removeEventListener('click', openFromCard)
     style.remove()
   })

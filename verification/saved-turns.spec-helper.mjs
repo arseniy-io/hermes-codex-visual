@@ -2,9 +2,10 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { previewResourceCard } from '../source/chat-resources.js'
 
 export async function verifySavedMainTurns({ page, expect, projectChat, projectFolder,
-  singleEditPrompt, editsPrompt, singleFile, newFiles, seedLine, screenshot, hermesHome, pythonPath }) {
+  singleEditPrompt, editsPrompt, singleFile, newFiles, seedLine, screenshot, openThemeSettings, closeSettings, hermesHome, pythonPath }) {
   await page.setViewportSize({ width: 1440, height: 1000 })
   const decline = page.getByRole('button', { name: 'Нет, спасибо', exact: true }).first()
   if (await decline.isVisible()) await decline.click()
@@ -13,6 +14,34 @@ export async function verifySavedMainTurns({ page, expect, projectChat, projectF
   const editor = chat.locator('[data-slot="composer-rich-input"]')
   const cards = chat.locator('[data-hcv-saved-turn-card]')
   const dates = chat.locator('[data-hcv-timestamp-separator]')
+  const checkOutline = async (card, background) => {
+    const style = await card.evaluate(node => {
+      const css = getComputedStyle(node), box = node.getBoundingClientRect()
+      const parent = node.parentElement.getBoundingClientRect()
+      const list = node.querySelector('[data-hcv-turn-card-files]')
+      return { shadow: css.boxShadow, after: getComputedStyle(node, '::after').content,
+        border: css.borderTopWidth, radius: css.borderTopLeftRadius, corners: css.getPropertyValue('corner-shape'),
+        background: css.backgroundColor, overflow: css.overflow,
+        insetLeft: box.left - parent.left, insetRight: parent.right - box.right,
+        headerHeight: node.firstElementChild.getBoundingClientRect().height,
+        listBorder: list && getComputedStyle(list).borderBlockStartWidth, scale: devicePixelRatio }
+    })
+    assert.match(style.shadow, /^rgba?\([^)]*\) 0px 0px 0px 0\.5px$/)
+    assert.equal(style.after, 'none')
+    assert.equal(style.border, '0px')
+    assert.equal(style.background, background)
+    assert.equal(style.overflow, 'hidden')
+    assert(style.insetLeft >= 1 && style.insetRight >= 1, JSON.stringify(style))
+    assert(style.headerHeight >= 64 && style.headerHeight < 65, JSON.stringify(style))
+    return style
+  }
+  const hiddenPreviews = async (card, count) => {
+    const turn = card.locator('xpath=ancestor::*[@data-slot="aui_turn-pair"][1]')
+    const previews = turn.locator(previewResourceCard)
+    await expect(previews).toHaveCount(count)
+    await expect(turn.locator(previewResourceCard).filter({ visible: true })).toHaveCount(0)
+    await expect(turn.getByRole('button', { name: 'Открыть предпросмотр', exact: true })).toHaveCount(0)
+  }
   await expect(dates).toHaveCount(1, { timeout: 15000 })
   const initialDate = await dates.locator('time').getAttribute('datetime')
   assert(Date.now() - Date.parse(initialDate) > 3600000)
@@ -83,6 +112,9 @@ export async function verifySavedMainTurns({ page, expect, projectChat, projectF
   await expect(first.locator('[data-hcv-turn-card-removed]').first()).toHaveText('−0')
   const file = path.join(projectFolder, singleFile), after = fs.readFileSync(file)
   const snapshot = await first.getAttribute('data-snapshot-id')
+  const singleOutline = await checkOutline(first, 'rgb(34, 34, 34)')
+  assert.equal(singleOutline.listBorder, null)
+  await hiddenPreviews(first, 2)
   await first.getByRole('button', { name: 'Отменить', exact: true }).click()
   await expect(first.getByRole('button', { name: 'Повторно применить', exact: true })).toBeEnabled()
   await expect(page.getByText('Changes reverted', { exact: true }).first()).toBeVisible()
@@ -100,10 +132,9 @@ export async function verifySavedMainTurns({ page, expect, projectChat, projectF
   const second = cards.last()
   await expect(second.locator('[data-hcv-turn-card-title]')).toHaveText('Изменено 5 файлов')
   await expect(second.locator('[data-hcv-turn-card-file]')).toHaveCount(3)
-  const cardShadow = await second.evaluate(node => getComputedStyle(node).boxShadow)
-  assert.notEqual(cardShadow, 'none')
-  assert.doesNotMatch(cardShadow, /inset/)
-  await expect(second).toHaveCSS('overflow', 'hidden')
+  const multiOutline = await checkOutline(second, 'rgb(34, 34, 34)')
+  assert.equal(multiOutline.listBorder, '1px')
+  await hiddenPreviews(second, 4)
   const more = second.locator('[data-hcv-turn-card-more]')
   await more.scrollIntoViewIfNeeded()
   const header = second.locator('[data-hcv-turn-card-header]')
@@ -147,7 +178,7 @@ export async function verifySavedMainTurns({ page, expect, projectChat, projectF
   const hoveredFileBackground = await row.evaluate(node => getComputedStyle(node).backgroundColor)
   assert.notEqual(hoveredFileBackground, normalFileBackground)
   await screenshot('saved-files-hover.png', { timeout: 30000 })
-  console.log('Saved file row backgrounds', JSON.stringify({ normalFileBackground, hoveredFileBackground, cardShadow }))
+  console.log('Saved file row backgrounds', JSON.stringify({ normalFileBackground, hoveredFileBackground }))
   await second.getByRole('button', { name: 'Показать еще 2 файла', exact: true }).click()
   await expect(second.locator('[data-hcv-turn-card-file]')).toHaveCount(5)
   for (const name of newFiles) assert(fs.existsSync(path.join(projectFolder, name)))
@@ -178,9 +209,25 @@ export async function verifySavedMainTurns({ page, expect, projectChat, projectF
   await expect(dates.locator('time')).toHaveAttribute('datetime', initialDate)
   await expect(cards.first()).toHaveAttribute('data-snapshot-id', snapshot)
   await expect(cards.last()).toHaveAttribute('data-snapshot-id', secondSnapshot)
+  await hiddenPreviews(cards.first(), 2)
+  await hiddenPreviews(cards.last(), 4)
   await send('Создай контрольную заметку для проверки истории.', 'Контрольная заметка сохранена.')
   await expect(cards).toHaveCount(3, { timeout: 30000 })
-  await expect(cards.last().locator('[data-hcv-turn-card-title]')).toHaveText('Изменён timeline-native-write.txt')
+  const last = cards.last()
+  await expect(last.locator('[data-hcv-turn-card-title]')).toHaveText('Изменён timeline-native-write.txt')
+  await hiddenPreviews(last, 1)
+  await last.scrollIntoViewIfNeeded()
+  await page.mouse.move(3, 80)
+  await screenshot('saved-main-delivery-hidden.png', { timeout: 30000 })
+  await openThemeSettings()
+  await page.getByText(/^(Светлая|Light)$/).first().click()
+  await closeSettings()
+  await expect(last).toHaveCSS('background-color', 'rgb(255, 255, 255)')
+  const lightOutline = await checkOutline(last, 'rgb(255, 255, 255)')
+  await hiddenPreviews(last, 1)
+  await last.scrollIntoViewIfNeeded()
+  await page.mouse.move(3, 80)
+  await screenshot('saved-main-delivery-hidden-light.png', { timeout: 30000 })
   await cards.first().getByRole('button', { name: 'Просмотреть изменения', exact: true }).click()
   const diff = page.locator('[data-hcv-saved-turn-diff]:visible')
   await expect(diff).toContainText('Первая строка.')
@@ -195,5 +242,6 @@ export async function verifySavedMainTurns({ page, expect, projectChat, projectF
   assert(metadata.finals.length >= 2, 'Actual native final responses preserve producer timing')
   for (const final of metadata.finals) assert(final.completedAtMs >= final.finalAssistantStartedAtMs && final.finalAssistantStartedAtMs >= final.turnStartedAtMs)
   return { savedSnapshots: 3, sourceMainDateSeparator: true, actualUndoReapply: true, olderSnapshotStable: true, manualConflictPreserved: true,
-    nativeCapturedWrites: metadata.captures, producerFinals: metadata.finals.length }
+    nativeCapturedWrites: metadata.captures, producerFinals: metadata.finals.length,
+    singleOutline, multiOutline, lightOutline, standalonePreviewsHidden: true }
 }

@@ -23,9 +23,6 @@ export async function verifySummarySources({ page, expect, projectChat, screensh
   await expect(heading).toHaveAttribute('aria-expanded', 'true')
   await expect(viewAll).toBeVisible()
 
-  await summary.getByRole('button', { name: 'Действия со сводкой' }).click()
-  await page.getByRole('menuitem', { name: 'Открепить сводку' }).click()
-  await expect(summary).toHaveAttribute('data-pinned', 'false')
   await plus.click()
   await expect(addMenu).toBeVisible()
   await expect(addMenu.getByRole('menuitem', { name: 'Использовать плагины' })).toBeVisible()
@@ -36,11 +33,13 @@ export async function verifySummarySources({ page, expect, projectChat, screensh
   await expect(page.getByRole('menuitem', { name: 'Файлы…', exact: true })).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(nativeAdd).toHaveAttribute('aria-expanded', 'false')
+  await expect(summary).toBeVisible()
 
   await thumbnail.click()
   await expect(page.getByRole('dialog')).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(summary).toBeVisible()
 
   await viewAll.click()
   const pane = page.locator('[data-hcv-sources-pane]:visible')
@@ -80,5 +79,6 @@ export async function verifySummarySources({ page, expect, projectChat, screensh
   await expect(pane).toBeVisible()
 
   await pane.getByRole('button', { name: 'fixture-note.md', exact: true }).click()
-  await expect(page.locator('[data-slot="aui_thread-content"]').getByRole('button', { name: 'Скрыть', exact: true })).toBeVisible()
+  await expect(page.locator('[data-preview-markdown]')).toContainText('Тестовый файл')
+  await expect(page.locator('[data-slot="aui_thread-content"]').getByRole('button', { name: 'Скрыть', exact: true })).toHaveCount(0)
 }

@@ -2,13 +2,13 @@
 
 **Тема в стиле Codex для Hermes Desktop.** Компактная боковая панель проектов, скруглённое поле ввода и сводка чата работают прямо в Hermes Agent.
 
-[Установка](#установка) · [Скачать ZIP v0.15.135](https://raw.githubusercontent.com/arseniy-io/hermes-codex-visual/main/downloads/hermes-codex-visual-v0.15.135.zip) · [Сообщить об ошибке или предложить идею](https://github.com/arseniy-io/hermes-codex-visual/issues/new/choose) · [English](README.md)
+[Установка](#установка) · [Скачать ZIP v0.15.137](https://raw.githubusercontent.com/arseniy-io/hermes-codex-visual/main/downloads/hermes-codex-visual-v0.15.137.zip) · [Сообщить об ошибке или предложить идею](https://github.com/arseniy-io/hermes-codex-visual/issues/new/choose) · [English](README.md)
 
 ![Тема Codex v0.15.89 в Hermes Desktop. Слева проекты, в центре ответ с таблицей, справа сводка](docs/images/workspace-dark.png)
 
 <sub>v0.15.89 в Hermes Desktop v0.23.1+2062. Публичная сборка с демонстрационным проектом Atlas.</sub>
 
-В версии 0.15.135 вкладки чатов одной ширины. Переключение между ними требует меньше работы от приложения. В боковой панели появились быстрый архив и показ дополнительных чатов проекта. [Что вошло в выпуск](CHANGELOG.md#v015135)
+В версии 0.15.137 приложение делает меньше повторной работы при выводе ответа и загрузке истории. После повторного открытия чата виден статус остановленного отдельного агента. Обновлены карточки файлов, подсказки и заставка пустой вкладки. [Что вошло в выпуск](CHANGELOG.md#v015137)
 
 ## Что можно делать
 
@@ -44,7 +44,7 @@
 
 ### Установка из ZIP
 
-Скачай ZIP. В «Возможности → Плагины» открой папку плагинов приложения и распакуй туда папку `hermes-codex-visual`. Путь должен заканчиваться на `desktop-plugins/hermes-codex-visual/plugin.js`. Нажми «Пересканировать», включи плагин и выбери **Codex** во «Внешнем виде». [Скачать ZIP v0.15.135](https://raw.githubusercontent.com/arseniy-io/hermes-codex-visual/main/downloads/hermes-codex-visual-v0.15.135.zip) · [Контрольные суммы SHA-256](downloads/SHA256SUMS.txt)
+Скачай ZIP. В «Возможности → Плагины» открой папку плагинов приложения и распакуй туда папку `hermes-codex-visual`. Путь должен заканчиваться на `desktop-plugins/hermes-codex-visual/plugin.js`. Нажми «Пересканировать», включи плагин и выбери **Codex** во «Внешнем виде». [Скачать ZIP v0.15.137](https://raw.githubusercontent.com/arseniy-io/hermes-codex-visual/main/downloads/hermes-codex-visual-v0.15.137.zip) · [Контрольные суммы SHA-256](downloads/SHA256SUMS.txt)
 
 Для «Активности», «Использования» и функций сохранённой истории установи файлы агентской части из того же ZIP. При обновлении замени обе части файлами из нового ZIP. Если шлюз уже загрузил агентскую часть, штатно перезапусти его. Затем пересканируй плагины интерфейса. [Установка и обновление агентской части](docs/development.md#usage-analytics-in-source-builds)
 

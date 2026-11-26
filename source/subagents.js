@@ -1,4 +1,5 @@
 import { mountStyle } from './style-scope.js'
+import { observeWindowVisibility } from './window-visibility.js'
 import { atom, host, useValue } from '@hermes/plugin-sdk'
 import { createElement as h, useEffect } from 'react'
 import { agentAvatars } from './agent-avatars.js'
@@ -22,7 +23,8 @@ const pair = '[data-slot="aui_turn-pair"]'
 const prompt = '[data-slot="aui_user-message-root"][data-message-id]'
 const generated = '[data-hcv-agent-rows]'
 const agentAvatar = 'data-hcv-delegate-avatar'
-const notice = '[data-slot="aui_system-message-root"] [data-slot="aui_background-result"]'
+const noticeBody = '[data-slot="aui_background-result"]'
+const notice = '[data-slot="aui_system-message-root"] ' + noticeBody
 const final = (status) => ['completed', 'failed', 'interrupted'].includes(status)
 const isActive = ({ status }) => status === 'running' || status === 'queued'
 const tidy = (text) => typeof text === 'string' ? text.trim().replace(/\s+/g, ' ') : ''
@@ -187,13 +189,12 @@ function readCard(card, cardIndex) {
   })
 }
 
-function applyStoredReceipts(rowsByCard, markReceipt, historyForSurface) {
+function applyStoredReceipts(nodes, rowsByCard, markReceipt, historyForSurface) {
   // The async dispatch result only records "dispatched". Hermes writes the
   // actual outcome as a system result later, including the original goals.
   // Use an exact, unambiguous match in the same transcript. Mixed batches
   // without per-agent outcomes keep the native result visible.
-  const receipts = [...document.querySelectorAll(surface + ' ' + transcript + ' ' + notice)]
-    .map(node => [node, tidy(node.querySelector('[data-conversation-scaffold] span.truncate')?.textContent)])
+  const receipts = nodes.map(node => [node, tidy(node.querySelector('[data-conversation-scaffold] span.truncate')?.textContent)])
   const decisions = receipts.map(([target, heading]) => {
     const history = historyForSurface?.(target.closest(surface))
     const source = history && nativeRenderedMessageRecord(target)
@@ -516,21 +517,17 @@ function useScopedRoster(roster, focus) {
   return value.scope === scope ? value : { ...value, scope, agents: [] }
 }
 
-function useTileRefresh(roster, value, gateway) {
+function useTileRefresh(roster, value, gateway, shown) {
   const target = value.target
   useEffect(() => {
-    if (!target || gateway !== 'open') return
-    const refresh = () => { if (document.visibilityState !== 'hidden') void roster.refreshTile(target) }
-    refresh()
-    const timer = window.setInterval(refresh, 5000)
-    return () => window.clearInterval(timer)
-  }, [roster, target?.surface, target?.view, target?.runtimeId, target?.sessionId, target?.connectionId, target?.profile, gateway])
+    if (shown && target && gateway === 'open') return roster.watchTile(target)
+  }, [roster, shown, target?.surface, target?.view, target?.runtimeId, target?.sessionId, target?.connectionId, target?.profile, gateway])
 }
 
-export function SubagentsPane({ roster, focus }) {
+export function SubagentsPane({ roster, focus, shown }) {
   const value = useScopedRoster(roster, focus)
   const gateway = useValue(host.state.gateway)
-  useTileRefresh(roster, value, gateway)
+  useTileRefresh(roster, value, gateway, shown)
   useEffect(() => {
     if (!value.target && value.scope && gateway === 'open') void roster.refresh(value.scope)
   }, [roster, value.scope, value.target, gateway])
@@ -539,7 +536,7 @@ export function SubagentsPane({ roster, focus }) {
   if (value.target) {
     const target = value.target
     const current = () => roster.isCurrentTile(target)
-    return h(AgentPane, { ...value, key: JSON.stringify([value.scope, target.sessionId]), avatarUrl,
+    return h(AgentPane, { ...value, key: JSON.stringify([value.scope, target.sessionId]), avatarUrl, shown,
       nativeActions: () => [], openNativeAgent: () => {},
       tileOwner: { isCurrent: current, storedId: target.sessionId, surface: target.surface, view: target.view,
         connectionId: target.connectionId, profile: target.profile },
@@ -547,15 +544,15 @@ export function SubagentsPane({ roster, focus }) {
         tileSelection?.scope === value.scope ? tileSelection : null,
       selectAgent: id => roster.selectTileAgent(target, id) })
   }
-  return h(AgentPane, { ...value, key: value.scope ?? 'draft', avatarUrl, nativeActions, openNativeAgent,
+  return h(AgentPane, { ...value, key: value.scope ?? 'draft', avatarUrl, shown, nativeActions, openNativeAgent,
     onIdentity: roster.recordIdentity,
     selection, selectAgent: id => roster.selectAgent(id) })
 }
 
-export function SummarySubagents({ roster, onExpand, disclosure, focus }) {
+export function SummarySubagents({ roster, onExpand, disclosure, focus, shown }) {
   const value = useScopedRoster(roster, focus)
   const gateway = useValue(host.state.gateway)
-  useTileRefresh(roster, value, gateway)
+  useTileRefresh(roster, value, gateway, shown)
   if (!value.agents.length) return null
   const { agents, lang, dark } = value
   const copy = labels[lang]
@@ -630,7 +627,7 @@ export function registerSubagents(ctx, active, history) {
   const selection = atom(null)
   const tiles = atom(new Map())
   const tileSelection = atom(null)
-  const roster = Object.assign(atom(empty), { refresh, selection, tiles, tileSelection, refreshTile, isCurrentTile,
+  const roster = Object.assign(atom(empty), { refresh, selection, tiles, tileSelection, refreshTile, isCurrentTile, watchTile,
     selectTileAgent(target, id) {
       if (isCurrentTile(target)) tileSelection.set({ surface: target.surface, sessionId: target.sessionId,
         scope: tileScope(target), id })
@@ -678,6 +675,7 @@ export function registerSubagents(ctx, active, history) {
   let rosterSignature = ''
   let snapshot = null
   let reading = null
+  let tilePoll = null
   let disposed = false
   const childIdentities = new Map()
   const identityReads = new Map()
@@ -811,11 +809,55 @@ export function registerSubagents(ctx, active, history) {
       focus.owner?.connectionId === target.connectionId && focus.owner?.profile === target.profile
   }
 
-  async function refreshTile(target) {
+  function forgetTilePollRead(poll) {
+    const { surface } = poll.target
+    if (tileReads.get(surface)?.poll === poll) tileReads.delete(surface)
+  }
+
+  function syncTilePoll() {
+    const poll = tilePoll
+    if (!poll) return
+    window.clearTimeout(poll.timer)
+    poll.timer = undefined
+    if (poll.visibility.hidden()) {
+      // A refresh from before minimize must neither block nor replace the new one on restore.
+      forgetTilePollRead(poll)
+      return
+    }
+    if (!enabled()) return
+    void refreshTile(poll.target, poll)
+    poll.timer = window.setTimeout(syncTilePoll, 5000)
+  }
+
+  function stopTilePoll() {
+    const poll = tilePoll
+    if (!poll) return
+    tilePoll = null
+    window.clearTimeout(poll.timer)
+    forgetTilePollRead(poll)
+    poll.visibility.dispose()
+  }
+
+  function watchTile(target) {
+    if (!target.runtimeId || !isCurrentTile(target)) return
+    if (!sameTileTarget(tilePoll?.target, target)) {
+      stopTilePoll()
+      const visibility = observeWindowVisibility(syncTilePoll)
+      tilePoll = { target, visibility, readers: 0, timer: undefined }
+      syncTilePoll()
+    }
+    const poll = tilePoll
+    poll.readers++
+    return () => {
+      if (--poll.readers === 0 && poll === tilePoll) stopTilePoll()
+    }
+  }
+
+  async function refreshTile(target, poll) {
     if (!target?.runtimeId || !isCurrentTile(target) || tileReads.has(target.surface) ||
         typeof host.requestProfile !== 'function' || typeof host.profileRoutes !== 'function') return
     const ownerKey = tileScope(target)
-    const request = { target, version: eventVersions.get(ownerKey) || 0 }
+    const request = { target, poll, version: eventVersions.get(ownerKey) || 0 }
     tileReads.set(target.surface, request)
     try {
       const routes = await host.profileRoutes()
@@ -963,6 +1005,8 @@ export function registerSubagents(ctx, active, history) {
     const live = snapshot ? new Map([...snapshot.agents, ...(observed || [])]) : observed
     const claimed = new Set()
     const activeCards = new Set(on ? document.querySelectorAll(surface + ' ' + transcript + ' ' + delegate) : [])
+    const notices = on ? Array.from(document.querySelectorAll(surface + ' ' + transcript + ' ' + notice)) : []
+    watchNativeDetails([...activeCards, ...notices])
     const enhance = on && contrast.matches
     for (const [card, state] of cards) {
       if (!activeCards.has(card)) {
@@ -1036,7 +1080,7 @@ export function registerSubagents(ctx, active, history) {
       }
     }
     const currentReceipts = new Map()
-    applyStoredReceipts(rowsByCard, (target, entries) => {
+    applyStoredReceipts(notices, rowsByCard, (target, entries) => {
       if (!enhance) return
       currentReceipts.set(target, entries)
     }, node => history?.forSurface?.(node) ||
@@ -1255,34 +1299,50 @@ export function registerSubagents(ctx, active, history) {
     }
   }
 
-  const observer = new MutationObserver((records) => {
-    const relevant = [delegate, primary, pair, response, notice, messageRoot, messageBody, timelinePart].join(', ')
-    if (records.some(({ target, type, addedNodes, removedNodes }) => {
-      if (target === root) return true
-      if (!enabled()) return false
-      const element = target instanceof Element ? target : target.parentElement
-      if (!element || element.closest(generated)) return false
-      if (element.closest(delegate) || element.closest(notice)) return true
-      if (type !== 'childList') return false
-      return [...addedNodes, ...removedNodes].some((node) => node instanceof Element &&
+  const relevant = [delegate, primary, pair, response, noticeBody, messageRoot, messageBody, timelinePart].join(', ')
+  const observer = new MutationObserver(records => {
+    if (enabled() && records.some(({ target, addedNodes, removedNodes }) => {
+      if (target.closest(generated)) return false
+      return [...addedNodes, ...removedNodes].some(node => node instanceof Element &&
         !node.matches(generated) && (node.matches(relevant) || node.querySelector(relevant)))
     })) queue()
   })
-  observer.observe(root, {
-    subtree: true, childList: true, characterData: true, attributes: true,
-    attributeFilter: ['aria-label', 'aria-expanded', 'disabled', 'data-hermes-theme', 'data-hermes-mode', 'data-hermes-codex-visual', 'lang'],
+  observer.observe(root, { subtree: true, childList: true })
+  const themeOptions = {
+    attributes: true, attributeFilter: ['data-hermes-theme', 'data-hermes-mode', 'data-hermes-codex-visual', 'lang'],
+  }
+  const nativeDetails = new MutationObserver(records => {
+    if (records.some(({ target }) => {
+      if (target === root) return true
+      const element = target instanceof Element ? target : target.parentElement
+      return enabled() && element && !element.closest(generated)
+    })) queue()
   })
+  nativeDetails.observe(root, themeOptions)
+  let observedDetails = []
+  function watchNativeDetails(nodes) {
+    if (nodes.length === observedDetails.length && nodes.every((node, index) => node === observedDetails[index])) return
+    nativeDetails.disconnect()
+    nativeDetails.observe(root, themeOptions)
+    observedDetails = nodes
+    for (const node of nodes) nativeDetails.observe(node, {
+      subtree: true, childList: true, characterData: true, attributes: true,
+      attributeFilter: ['aria-label', 'aria-expanded', 'disabled'],
+    })
+  }
   const unsubscribers = [host.state.activeSessionId, host.state.connectionId, host.state.profile].map((state) => state.subscribe(queue))
   if (history?.subscribe) unsubscribers.push(history.subscribe(queue))
   contrast.addEventListener('change', queue)
   ctx.onDispose(() => {
     disposed = true
+    stopTilePoll()
     cancelIdentityReads()
     childVisibility?.disconnect()
     document.removeEventListener('visibilitychange', resumeVisibleIdentityReads)
     stopIdentityGateway()
     childIdentities.clear()
     observer.disconnect()
+    nativeDetails.disconnect()
     for (const unsubscribe of unsubscribers) unsubscribe()
     contrast.removeEventListener('change', queue)
     cancelAnimationFrame(frame)

@@ -117,9 +117,6 @@ export async function verifyVisualParity({ page, expect, screenshot, navigation,
   await expect(project).toBeFocused()
   if (!before) {
     const summary = page.locator('[data-hcv-context-card]')
-    await summary.getByRole('button', { name: 'Действия со сводкой', exact: true }).click()
-    await page.getByRole('menuitem', { name: 'Открепить сводку' }).click()
-    await expect(summary).toHaveAttribute('data-pinned', 'false')
     await project.press('Enter')
     await expect(search).toBeFocused()
     await search.press('ArrowDown')

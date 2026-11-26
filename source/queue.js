@@ -469,6 +469,7 @@ function queueStyles(active) {
       translate: -50% -100%;
       box-sizing: border-box;
       margin: 0;
+      inline-size: max-content;
       max-inline-size: calc(100vw - 16px);
       padding: 5px 12px;
       border: 1px solid var(--hcv-dropdown-outline);

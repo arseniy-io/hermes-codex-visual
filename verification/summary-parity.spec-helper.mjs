@@ -234,11 +234,12 @@ async function verifySummaryOutputs({ page, expect, projectChat, outputs }) {
   const native = page.locator('[data-slot="aui_thread-content"]')
   const result = outputs.getByRole('button', { name: 'fixture-note.md', exact: true })
   await result.click()
-  const hidePreview = native.getByRole('button', { name: 'Скрыть', exact: true })
-  await expect(hidePreview).toBeVisible()
-  // Opening a native preview replaces the summary with the preview pane.
-  // Close it using the original action in the chat before returning to the list.
-  await hidePreview.click()
+  const hidePreview = native.getByRole('button', { name: 'Скрыть', exact: true, includeHidden: true })
+  await expect(hidePreview).toHaveCount(1)
+  await expect(hidePreview).toBeHidden()
+  await expect(page.locator('[data-preview-markdown]')).toContainText('Тестовый файл')
+  // Use the still-mounted native toggle to close the isolated test preview.
+  await hidePreview.evaluate(button => button.click())
   await expect(native.getByRole('button', { name: 'Скрыть', exact: true })).toHaveCount(0)
   await expect(result).toBeVisible()
 

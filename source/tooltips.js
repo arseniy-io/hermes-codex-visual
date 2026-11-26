@@ -1,28 +1,31 @@
 import { keybindLabel } from './chrome.js'
 import { hubSelector } from './dictation.js'
 import { mountCSS } from './style-scope.js'
+import { tooltipCopy } from './tooltip-copy.js'
 
 const radix = '[data-slot="tooltip-content"]'
 const nativeTip = '[data-hcv-title-tip]'
-const bubbles = [
+export const tooltipSurfaces = [
   radix, nativeTip, '[data-hcv-reply-copy-tip]', '[data-hcv-terminal-copy-tip]',
   '[data-hcv-table-tip]', '[data-hcv-queue-tooltip]',
 ].join(', ')
+const sidebar = '[data-hcv-sidebar-bar]'
+const search = '[data-hcv-search-toggle]'
+const hoverDelay = 150
+const warmDelay = 300
+const gap = 2
+const viewportMargin = 8
 const videoHint = '[data-hcv-video] .hcv-video-button::after'
 const ownTooltip = '[data-slot="tooltip-trigger"], button[data-hcv-terminal-copy], [data-hcv-table-action]'
 const titleScope = 'button, [role="button"], a[href], [role="tab"], [role^="menuitem"], [role="option"], label'
 const editor = 'iframe, webview, svg, math, [data-terminal], .cm-editor, [contenteditable]:not([contenteditable="false"])'
 const hint = ':is(kbd, span.ms-2.opacity-55:last-child)'
-const mic = `[data-slot="composer-surface"] ${hubSelector}:not([aria-pressed="true"])`
-
-export function tooltipCopy(value) {
-  return value.replace(/(?<=\S)[^\S\r\n]+[·•][^\S\r\n]+(?=\S)/gu, ' ').replaceAll('\u2014', '-')
-}
+const mic = `[data-slot="composer-surface"] ${hubSelector}`
 
 export function registerTooltips(ctx, active) {
   mountCSS(ctx, 'data-hcv-tooltip-style', `
 @media (forced-colors: none) {
-  ${active} :is(${bubbles}),
+  ${active} :is(${tooltipSurfaces}),
   ${active} ${videoHint} {
     box-sizing: border-box;
     max-inline-size: min(320px, calc(100vw - 20px), var(--radix-tooltip-content-available-width, 320px));
@@ -39,14 +42,16 @@ export function registerTooltips(ctx, active) {
     text-align: center;
     filter: none;
     backdrop-filter: none;
+    animation: none;
+    transition: none;
   }
   @supports (corner-shape: superellipse(1.5)) {
-    ${active} :is(${bubbles}),
+    ${active} :is(${tooltipSurfaces}),
     ${active} ${videoHint} { border-radius: 20px; corner-shape: superellipse(1.5); }
   }
-  ${active} ${radix} { animation: none; }
   ${active} ${radix} :is([data-slot="tooltip-arrow"], span:has(> [data-slot="tooltip-arrow"])) { display: none; }
-  ${active} ${radix} [data-slot="tooltip-label"] > ${hint} {
+  ${active} ${radix} [data-slot="tooltip-label"] > ${hint},
+  ${active} ${nativeTip} > kbd {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -70,14 +75,6 @@ export function registerTooltips(ctx, active) {
     pointer-events: none;
     user-select: none;
   }
-  @media (prefers-reduced-motion: no-preference) {
-    ${active} :is(${nativeTip}:popover-open, ${radix}:is([data-state="delayed-open"], [data-state="instant-open"])) {
-      animation: hcv-tooltip-in 150ms var(--hcv-enter) both;
-    }
-    ${active} ${radix}[data-state="closed"] { animation: hcv-tooltip-out 150ms var(--hcv-enter) both; }
-  }
-  @keyframes hcv-tooltip-in { from { opacity: 0; scale: .97; } to { opacity: 1; scale: 1; } }
-  @keyframes hcv-tooltip-out { from { opacity: 1; scale: 1; } to { opacity: 0; scale: .97; } }
 }
 `)
 
@@ -90,6 +87,7 @@ export function registerTooltips(ctx, active) {
   bubble.setAttribute('role', 'tooltip')
   let current
   let timer
+  let warmUntil = 0
 
   function close() {
     window.clearTimeout(timer)
@@ -100,6 +98,7 @@ export function registerTooltips(ctx, active) {
     if (anchor.getAttribute('title') === '') anchor.setAttribute('title', title)
     if (anchor.getAttribute('aria-describedby') === description) anchor.removeAttribute('aria-describedby')
     if (nameAdded && anchor.getAttribute('aria-label') === nameAdded) anchor.removeAttribute('aria-label')
+    if (bubble.matches(':popover-open')) warmUntil = performance.now() + warmDelay
     bubble.hidePopover()
     bubble.remove()
   }
@@ -109,16 +108,25 @@ export function registerTooltips(ctx, active) {
     const { anchor, title } = current
     const target = anchor.getBoundingClientRect()
     if (!target.width || !target.height) { close(); return }
-    bubble.textContent = tooltipCopy(title)
+    bubble.textContent = tooltipCopy(title).trim()
+    const shortcut = anchor.matches(search) && keybindLabel('session.focusSearch', 'mod+shift+f', '+')
+    if (shortcut) {
+      const badge = document.createElement('kbd')
+      badge.textContent = shortcut
+      bubble.append(badge)
+    }
     document.body.append(bubble)
-    bubble.showPopover()
+    if (!bubble.matches(':popover-open')) bubble.showPopover()
     const { offsetWidth: width, offsetHeight: height } = bubble
-    const x = Math.max(8, Math.min(innerWidth - width - 8, target.left + (target.width - width) / 2))
-    const top = target.top >= height + 10
-      ? target.top - height - 5
-      : Math.min(innerHeight - height - 5, target.bottom + 5)
+    const x = Math.max(viewportMargin, Math.min(innerWidth - width - viewportMargin, target.left + (target.width - width) / 2))
+    const above = target.top - height - gap
+    const below = target.bottom + gap
+    const fitsAbove = above >= viewportMargin
+    const fitsBelow = below + height <= innerHeight - viewportMargin
+    const preferBelow = anchor.closest(sidebar)
+    const top = (preferBelow && fitsBelow) || !fitsAbove ? below : above
     bubble.style.left = String(x) + 'px'
-    bubble.style.top = String(Math.max(5, top)) + 'px'
+    bubble.style.top = String(Math.max(viewportMargin, Math.min(top, innerHeight - height - viewportMargin))) + 'px'
     if (!anchor.hasAttribute('aria-describedby')) {
       current.description = bubble.id
       anchor.setAttribute('aria-describedby', current.description)
@@ -146,7 +154,8 @@ export function registerTooltips(ctx, active) {
     // Put the real value back before native click and after hover or focus.
     anchor.setAttribute('title', '')
     changes.observe(anchor, { attributes: true, attributeFilter: ['title'] })
-    timer = window.setTimeout(show, keyboard ? 0 : 150)
+    if (keyboard || performance.now() < warmUntil) show()
+    else timer = window.setTimeout(show, hoverDelay)
   }
 
   const changes = new MutationObserver(() => {
@@ -166,21 +175,29 @@ export function registerTooltips(ctx, active) {
     if (node?.nodeType !== Node.TEXT_NODE || label.childNodes.length !== 1) return
     const original = node.data
     const word = root.matches(':lang(ru)') ? ['Голосовая диктовка', 'Диктовать'] : ['Voice dictation', 'Dictate']
-    if (original !== word[0] || !document.querySelector(mic + ':is(:hover, :focus-visible)')) return
-    const shown = word[1]
+    if (original !== word[0]) return
+    const trigger = document.querySelector(mic + ':is(:hover, :focus-visible)')
+    if (!trigger) return
+    const phase = trigger.getAttribute('data-hcv-dictation-hub')
+    const shown = phase ? trigger.getAttribute('aria-label') : word[1]
+    if (!shown) return
     node.data = shown
-    const key = keybindLabel('composer.dictate', undefined, '+')
+    const description = tip.querySelector('[role="tooltip"]')?.firstChild
+    const described = description?.nodeType === Node.TEXT_NODE && description.data === original ? description : null
+    if (described) described.data = shown
+    const key = phase !== 'transcribing' && keybindLabel('composer.dictate', undefined, '+')
     const badge = key && document.createElement('kbd')
     if (badge) {
       badge.textContent = key
       badge.setAttribute('aria-hidden', 'true')
       label.append(badge)
     }
-    decorated.set(tip, { node, original, shown, badge })
+    decorated.set(tip, { node, described, original, shown, badge })
   }
   function clearDictationLabels() {
-    for (const { node, original, shown, badge } of decorated.values()) {
+    for (const { node, described, original, shown, badge } of decorated.values()) {
       if (node.data === shown) node.data = original
+      if (described?.data === shown) described.data = original
       badge?.remove()
     }
     decorated.clear()

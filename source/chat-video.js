@@ -355,7 +355,7 @@ function attachPlayer(card, video) {
   }
 }
 
-export function registerChatVideo(ctx, active, selector) {
+export function registerChatVideo(ctx, active, selector, forcedColors) {
   if (!HTMLElement.prototype.showPopover || !CSS.supports('bottom', 'anchor(top)')) return
   const card = `${active} ${cardSelector}`
   const iconRules = Object.entries({
@@ -600,7 +600,6 @@ export function registerChatVideo(ctx, active, selector) {
   `, { surface: cardSelector })
 
   const root = document.documentElement
-  const forcedColors = window.matchMedia('(forced-colors: active)')
   const players = new Map()
   function collect() {
     for (const [video, player] of players) {
@@ -630,19 +629,14 @@ export function registerChatVideo(ctx, active, selector) {
     collect()
     changes.observe(document.body, { childList: true, subtree: true })
   }
-  const theme = new MutationObserver(records => {
-    if (records.some(record => record.attributeName === 'data-hermes-theme')) reconcile()
-    if (records.some(record => record.attributeName === 'lang')) {
-      for (const player of players.values()) player.localize()
-    }
-  })
-  theme.observe(root, { attributes: true, attributeFilter: ['data-hermes-theme', 'lang'] })
-  forcedColors.addEventListener('change', reconcile)
-  reconcile()
   ctx.onDispose(() => {
-    theme.disconnect()
     changes.disconnect()
-    forcedColors.removeEventListener('change', reconcile)
     clear()
   })
+  return {
+    reconcile,
+    localize() {
+      for (const player of players.values()) player.localize()
+    },
+  }
 }

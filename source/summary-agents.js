@@ -7,12 +7,16 @@ import { AgentTranscript, agentTranscriptStyles } from './agent-transcript.js'
 import { agentModelDisplayName, agentReasoningEffortName, agentSessionMetadata, mergeAgentTranscript } from './agent-transcript-data.js'
 import { readSavedTurnChanges, applySavedTurnChanges, openSavedTurnDiff, sameTurnHistoryOwner, notifySavedTurnOutcome } from './turn-history-client.js'
 import { uniqueTileRoute } from './tile-agent-scope.js'
+import { observeWindowVisibility } from './window-visibility.js'
+
+const russianPlurals = new Intl.PluralRules('ru')
+const relativeTimeFormats = new Map()
 
 const labels = {
   ru: {
     title: 'Субагенты', active: 'Активные', done: 'Готово', noActive: 'Нет активных субагентов',
     back: 'Назад к субагентам', fallback: 'Субагент', task: 'Задание',
-    waitingCount: (count) => new Intl.PluralRules('ru').select(count) === 'one' ? count + ' ожидает' : count + ' ожидают',
+    waitingCount: (count) => russianPlurals.select(count) === 'one' ? count + ' ожидает' : count + ' ожидают',
     more: (count) => 'Показать ещё ' + count, worked: (time) => 'Работал на протяжении ' + time,
     elapsed: (time) => 'Работает уже ' + time, activity: 'Активность', result: 'Результат',
     loading: 'Загрузка ответа…', noResult: 'Результат пока недоступен', partial: 'Часть истории недоступна', copy: 'Копировать',
@@ -48,7 +52,8 @@ function relativeTime(value, now, lang) {
   const weeks = Math.floor(days / 7)
   const [age, unit] = weeks ? [weeks, 'week'] : days ? [days, 'day']
     : minutes >= 60 ? [Math.floor(minutes / 60), 'hour'] : [minutes, 'minute']
-  return new Intl.RelativeTimeFormat(lang, { style: 'narrow', numeric: 'auto' }).format(-age, unit)
+  if (!relativeTimeFormats.has(lang)) relativeTimeFormats.set(lang, new Intl.RelativeTimeFormat(lang, { style: 'narrow', numeric: 'auto' }))
+  return relativeTimeFormats.get(lang).format(-age, unit)
 }
 
 function AgentAvatar({ agent, dark, avatarUrl }) {
@@ -116,9 +121,14 @@ function savedResponse(rows) {
     .filter(message => message.text)
 }
 
-function useChildResponse({ subagentId, childSession, status, model, effort }, scope, viewport, tileOwner) {
+function useChildResponse({ subagentId, childSession, status, model, effort }, scope, viewport, tileOwner, shown) {
   const [snapshot, setSnapshot] = useState(null)
+  const pane = useRef({ shown, watch: null })
   const key = JSON.stringify([scope, subagentId, childSession])
+  useEffect(() => {
+    pane.current.shown = shown
+    pane.current.watch?.(shown)
+  }, [shown])
   useEffect(() => {
     if ((!subagentId && !childSession) || !scope) return
     const [connectionId, profile, parent] = JSON.parse(scope)
@@ -128,7 +138,10 @@ function useChildResponse({ subagentId, childSession, status, model, effort }, s
     let running = !finished({ status })
     let rows = []
     let offset = 0
-    let busy = false
+    let activeRead
+    let interrupted = false
+    let windowVisibility
+    let viewportVisibility
     let complete = false
     let partial = false
     let targetProfile = profile
@@ -141,8 +154,9 @@ function useChildResponse({ subagentId, childSession, status, model, effort }, s
     const sameOwner = () => current && (tileOwner ? tileOwner.isCurrent() :
       host.state.activeSessionId.get() === parent && (host.state.connectionId.get() || null) === connectionId &&
       normalizeProfile(host.state.profile.get()) === profile)
-    const visible = () => document.visibilityState !== 'hidden' &&
+    const visible = () => windowVisibility && !windowVisibility.hidden() &&
       viewport.current?.checkVisibility({ visibilityProperty: true })
+    const isCurrent = read => activeRead === read && sameOwner() && visible()
     const publish = (loaded = complete) => {
       complete = loaded
       if (!sameOwner()) return
@@ -153,11 +167,10 @@ function useChildResponse({ subagentId, childSession, status, model, effort }, s
       setSnapshot({ key, status, rows: [...rows], messages: savedResponse(rows), complete,
         child, parentSessionId, model: storedModel, effort: storedEffort, elapsed, partial })
     }
-    async function read() {
-      if (!sameOwner() || !visible()) return
+    async function read(request) {
       const routes = (tileOwner || connectionId && connectionId !== 'local') && typeof host.profileRoutes === 'function'
         ? await host.profileRoutes().catch(() => []) : []
-      if (!sameOwner()) return
+      if (!isCurrent(request)) return
       const route = tileOwner ? uniqueTileRoute(routes, tileOwner)
         : routes.find(entry => entry.connectionId === connectionId && normalizeProfile(entry.profile) === profile)
       // A tile may use an aliased backend profile. Only the unique host route
@@ -179,7 +192,7 @@ function useChildResponse({ subagentId, childSession, status, model, effort }, s
         : route && typeof host.requestProfile === 'function'
           ? await host.requestProfile(route, 'session.transcript', params, 8000)
           : await host.request('session.transcript', params, 8000)
-      if (!sameOwner()) return
+      if (!isCurrent(request)) return
       const canonical = identity?.child_session_id
       if (identity?.available !== true || identity.subagent_id !== subagentId ||
           typeof canonical !== 'string' || !canonical || canonical === parent || canonical === params.session_id) {
@@ -192,12 +205,12 @@ function useChildResponse({ subagentId, childSession, status, model, effort }, s
       }
       let readOffset = offset && rowId(rows.at(-1)) != null ? offset - 1 : offset
       let restarts = 0
-      while (sameOwner() && visible()) {
+      while (isCurrent(request)) {
         const query = new URLSearchParams({ profile: targetProfile, order: 'oldest', limit: '100',
           offset: String(readOffset), include_compacted: 'true', inline_images: 'false' })
         const result = await window.hermesDesktop.api({ ...owner,
           path: '/api/sessions/' + encodeURIComponent(child) + '/messages?' + query })
-        if (!sameOwner()) return
+        if (!isCurrent(request)) return
         const page = result?.messages ?? result?.data
         const pagingProven = Array.isArray(page) && result.pagination?.order === 'oldest' &&
           result.pagination?.offset === readOffset && result.pagination?.limit === 100 &&
@@ -223,13 +236,13 @@ function useChildResponse({ subagentId, childSession, status, model, effort }, s
         if (caughtUp || stalled) break
         readOffset = next
       }
-      if (!sameOwner() || !visible()) return
+      if (!isCurrent(request)) return
       if ((!storedModel || !storedEffort) && !metadataAttempted && child) {
-        metadataAttempted = true
         const query = new URLSearchParams({ profile: targetProfile })
         const details = await window.hermesDesktop.api({ ...owner,
           path: '/api/sessions/' + encodeURIComponent(child) + '?' + query }).catch(() => null)
-        if (!sameOwner()) return
+        if (!isCurrent(request)) return
+        metadataAttempted = true
         const metadata = agentSessionMetadata(details)
         if (!metadata.profile || normalizeProfile(metadata.profile) === normalizeProfile(targetProfile)) {
           storedModel ||= metadata.model
@@ -238,37 +251,66 @@ function useChildResponse({ subagentId, childSession, status, model, effort }, s
         }
       }
     }
-    const poll = async () => {
-      if (!sameOwner() || busy) return
+    const pause = () => {
       window.clearTimeout(timer)
-      busy = true
-      let retry = false
-      try { await read() } catch {
-        if (sameOwner()) { partial = true; publish(false); retry = visible() }
-      } finally { busy = false }
-      if (sameOwner() && (!finished({ status }) || running || retry)) timer = window.setTimeout(poll, 2000)
+      timer = undefined
+      if (activeRead) {
+        interrupted = true
+        activeRead = undefined
+      }
     }
-    const reveal = () => { if (sameOwner() && visible() && (!complete || !finished({ status }) || running)) void poll() }
-    const visibility = new IntersectionObserver(reveal)
-    if (viewport.current) visibility.observe(viewport.current)
-    document.addEventListener('visibilitychange', reveal)
-    void poll()
+    const poll = async () => {
+      if (!sameOwner() || !visible() || activeRead) return
+      window.clearTimeout(timer)
+      timer = undefined
+      const request = activeRead = {}
+      interrupted = false
+      let retry = false
+      try { await read(request) } catch {
+        if (isCurrent(request)) { partial = true; publish(false); retry = true }
+      }
+      if (activeRead !== request) return
+      if (!isCurrent(request)) { pause(); return }
+      activeRead = undefined
+      if (!finished({ status }) || running || retry) timer = window.setTimeout(poll, 2000)
+    }
+    const reveal = () => {
+      if (!sameOwner() || !visible()) { pause(); return }
+      if (interrupted || !complete || !finished({ status }) || running) void poll()
+    }
+    const watchPane = shown => {
+      if (Boolean(shown) === Boolean(windowVisibility)) return
+      if (shown) {
+        windowVisibility = observeWindowVisibility(reveal)
+        viewportVisibility = new IntersectionObserver(reveal)
+        if (viewport.current) viewportVisibility.observe(viewport.current)
+        reveal()
+        return
+      }
+      windowVisibility.dispose()
+      windowVisibility = undefined
+      viewportVisibility.disconnect()
+      viewportVisibility = undefined
+      pause()
+    }
+    // A mounted tab keeps its transcript and its paging position while hidden.
+    pane.current.watch = watchPane
+    watchPane(pane.current.shown)
     return () => {
       current = false
-      window.clearTimeout(timer)
-      visibility.disconnect()
-      document.removeEventListener('visibilitychange', reveal)
+      pane.current.watch = null
+      watchPane(false)
     }
   }, [subagentId, childSession, scope, status, key, model, effort, viewport, tileOwner?.storedId, tileOwner?.surface, tileOwner?.view, tileOwner?.connectionId, tileOwner?.profile])
   return snapshot?.key === key ? snapshot : null
 }
 
-function AgentDetail({ agent, scope, now, copy, lang, dark, avatarUrl, onBack, nativeActions, openNativeAgent, onIdentity, tileOwner }) {
+function AgentDetail({ agent, scope, now, copy, lang, dark, avatarUrl, onBack, nativeActions, openNativeAgent, onIdentity, tileOwner, shown }) {
   const back = useRef(null)
   useLayoutEffect(() => { back.current?.focus({ preventScroll: true }) }, [])
   const viewport = useRef(null)
   useLayoutEffect(() => attachAgentTranscriptScroll(viewport.current), [])
-  const snapshot = useChildResponse(agent, scope, viewport, tileOwner)
+  const snapshot = useChildResponse(agent, scope, viewport, tileOwner, shown)
   useEffect(() => {
     if (!agent.visualSeed && agent.subagentId && snapshot?.child) onIdentity?.(scope, agent.subagentId, snapshot.child)
   }, [agent.visualSeed, agent.subagentId, snapshot?.child, scope, onIdentity])
@@ -343,7 +385,7 @@ function AgentDetail({ agent, scope, now, copy, lang, dark, avatarUrl, onBack, n
         actions)))
 }
 
-export function AgentPane({ agents, scope, lang, dark, avatarUrl, nativeActions, openNativeAgent, selection, selectAgent, onIdentity, tileOwner }) {
+export function AgentPane({ agents, scope, lang, dark, avatarUrl, nativeActions, openNativeAgent, selection, selectAgent, onIdentity, tileOwner, shown }) {
   const copy = labels[lang]
   const [localSelected, setLocalSelected] = useState(null)
   const selected = selection?.scope === scope ? selection.id : selectAgent ? null : localSelected
@@ -355,14 +397,21 @@ export function AgentPane({ agents, scope, lang, dark, avatarUrl, nativeActions,
   const running = agents.some(({ status, startedAt }) => status === 'running' && startedAt)
   const clock = running ? 1000 : agents.some(({ finishedAt }) => finishedAt) ? 60000 : 0
   useEffect(() => {
-    if (!clock) return
+    if (!clock || !shown) return
+    let timer
     const update = () => {
-      if (document.visibilityState !== 'hidden' && pane.current?.checkVisibility({ visibilityProperty: true })) setNow(Date.now())
+      window.clearTimeout(timer)
+      if (visibility.hidden()) return
+      if (pane.current?.checkVisibility({ visibilityProperty: true })) setNow(Date.now())
+      timer = window.setTimeout(update, clock)
     }
+    const visibility = observeWindowVisibility(update)
     update()
-    const timer = window.setInterval(update, clock)
-    return () => window.clearInterval(timer)
-  }, [clock])
+    return () => {
+      window.clearTimeout(timer)
+      visibility.dispose()
+    }
+  }, [clock, shown])
   useLayoutEffect(() => {
     if (!agent && returning.current !== null) {
       const rows = Array.from(pane.current?.querySelectorAll('[data-hcv-subagent-row]') || [])
@@ -382,7 +431,7 @@ export function AgentPane({ agents, scope, lang, dark, avatarUrl, nativeActions,
         h(AgentGroup, { ...group, name: 'active', title: copy.active, agents: active, limit: 4,
           empty: copy.noActive, trailing: waiting ? copy.waitingCount(waiting) : null }),
         h(AgentGroup, { ...group, name: 'done', title: copy.done, agents: done, limit: 10 }))),
-    agent && h(AgentDetail, { key: agent.id, agent, scope, now, copy, lang, dark, avatarUrl, nativeActions, openNativeAgent, onIdentity, tileOwner,
+    agent && h(AgentDetail, { key: agent.id, agent, scope, now, copy, lang, dark, avatarUrl, nativeActions, openNativeAgent, onIdentity, tileOwner, shown,
       onBack: () => { returning.current = agent.id; setSelected(null) } }))
 }
 

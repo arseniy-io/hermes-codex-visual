@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.15.137
+
+- Reduce repeated work during streaming, history loading and subagent status updates. Pause refreshes for Usage and the Git summary while the window is hidden.
+- Refresh new skill proposals in Activity when the gateway sends a notification. Keep the stopped status and elapsed time for an interrupted separate agent process when the chat reopens.
+- Align the empty-chat welcome in the main chat and project tabs. Update change cards, file previews, tooltip placement and the left corners of the workspace.
+- Include the recent improvements to hover controls, tooltips, dictation and model speed settings.
+
+В выпуск вошли оптимизации потока ответа, истории, «Активности» и фоновых обновлений. Исправлены положение заставки, карточки правок, подсказки и углы рабочей области. После повторного открытия чата видны статус и длительность остановленной работы отдельного агента.
+
+ZIP для Windows включает интерфейсную и агентскую части одной версии. [Установка](README.ru.md#установка) · [Контрольные суммы](downloads/SHA256SUMS.txt).
+
 ## v0.15.135
 
 - Give chat tabs equal widths, remove folder icons and keep each close button in a fixed position within its tab. Reduce repeated work when switching chats.

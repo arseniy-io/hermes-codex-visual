@@ -365,8 +365,8 @@ export async function verifyAgentLifecycle({ page, expect, projectChat, screensh
   await expect(detail).not.toContainText('Compact identity projection.')
   await expect(detail).not.toContainText('HCV_PRIVATE_')
   await expect(detail.locator('[data-hcv-agent-message="assistant"]').last()).toContainText('Проверка завершена.')
-  // >100 persisted rows prove that this is not just the last fixed-size page.
-  await expect(detail.locator('[data-hcv-agent-message="assistant"]')).toHaveCount(timelineParity ? 105 : 104)
+  await expect(detail.locator('[data-hcv-agent-message="assistant"]')).toHaveCount(timelineParity ? 4 : 3)
+  await expect(detail.getByText('Сохранённый шаг проверки 18', { exact: true })).toBeVisible()
   const childFeed = detail.locator('[data-hcv-subagent-feed]')
   await expect(childFeed).toHaveCSS('overflow-anchor', 'none')
   await expect.poll(() => childFeed.evaluate(node =>

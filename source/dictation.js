@@ -159,9 +159,12 @@ function styles(active) {
   ${row} { grid-area: dictation; display: flex; min-inline-size: 0; align-items: center; gap: 8px; color: var(--hcv-muted); }
   ${row} button, ${hub} {
     display: grid; place-items: center; flex: none; inline-size: 28px; block-size: 28px; padding: 0;
-    border-radius: 50%; color: var(--hcv-text); background: color-mix(in srgb, currentColor 6%, transparent);
+    border-radius: 50%; color: var(--hcv-text); background: transparent; transition: none;
   }
-  ${row} button:hover, ${hub}:hover { background: color-mix(in srgb, currentColor 13%, transparent); }
+  ${row} [data-hcv-dictation-stop], ${hub} { box-shadow: inset 0 0 0 1px var(--hcv-control-hover); }
+  @media (hover: hover) and (pointer: fine) {
+    ${row} button:not(:disabled):hover, ${hub}:not(:disabled):hover { background: var(--hcv-control-hover); }
+  }
   ${row} button:focus-visible, ${hub}:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }
   ${row} button::before, ${hub}::after { content: ''; }
   ${row} [data-hcv-dictation-cancel]::before {

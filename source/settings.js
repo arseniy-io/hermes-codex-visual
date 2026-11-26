@@ -139,7 +139,6 @@ export function registerSettingsStyle(ctx, active) {
   ${rail} button.row-hover > :is(svg, .codicon) { color: inherit; }
   ${rail} div[id] > button.row-hover { min-block-size: 30px; font-size: 14px; }
   ${rail} div[id] > button.row-hover > svg { inline-size: 14px; block-size: 14px; }
-  ${rail} button[data-tour^="nav-toggle-"] { border-radius: 6px; }
   ${rail} :is(button.row-hover, button[data-tour^="nav-toggle-"]):focus-visible,
   ${search}:focus-visible, ${compact}:focus-visible {
     outline: 2px solid var(--hcv-focus);
@@ -404,7 +403,7 @@ export function registerSettingsStyle(ctx, active) {
     padding: 4px 8px;
     font: 430 13px/18px var(--hcv-ui-font);
   }
-  ${quietButton}[data-size^="icon"] { inline-size: 28px; block-size: 28px; border-radius: 8px; }
+  ${quietButton}[data-size^="icon"] { inline-size: 28px; block-size: 28px; border-radius: 999px; }
   ${focusable}:focus-visible {
     outline: 2px solid var(--hcv-focus);
     outline-offset: -2px;

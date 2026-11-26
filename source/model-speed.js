@@ -2,6 +2,7 @@ import { host, queryClient } from '@hermes/plugin-sdk'
 import { codexMask } from './codex-reference.js'
 import { committedFiber } from './sidebar-recents.js'
 import { mountCSS } from './style-scope.js'
+import { tooltipCopy } from './tooltip-copy.js'
 import { codexModelName, compactEffort, effortMenuLabel, modelLabel, modelSpeedDescription, providerName } from './model-speed-data.js'
 
 const pill = '[data-slot="composer-surface"] button[data-tour="model-pill"]'
@@ -70,7 +71,7 @@ export function registerModelSpeed(ctx, active) {
   let observed = []
   const views = new Map()
   const writtenText = new Map()
-  const effortLabels = new Map()
+  const controlLabels = new Map()
   const added = new Set()
   const catalogRetries = new Map()
 
@@ -136,6 +137,16 @@ export function registerModelSpeed(ctx, active) {
     }
   }
 
+  function editControlLabel(button, format) {
+    const title = button.getAttribute('aria-label')
+    const previous = controlLabels.get(button)
+    const original = previous?.value === title ? previous.original : title
+    const value = original && format(original)
+    if (value && value !== original) controlLabels.set(button, { original, value })
+    else controlLabels.delete(button)
+    setAttribute(button, 'aria-label', value)
+  }
+
   function writeElement(parent, marker, tag, text, before = null) {
     let node = parent.querySelector(`:scope > ${marker}`)
     if (!node) {
@@ -159,10 +170,10 @@ export function registerModelSpeed(ctx, active) {
     added.clear()
     for (const [node, { original, value }] of writtenText) if (node.data === value) node.data = original
     writtenText.clear()
-    for (const [button, { original, value }] of effortLabels) {
+    for (const [button, { original, value }] of controlLabels) {
       if (button.getAttribute('aria-label') === value) button.setAttribute('aria-label', original)
     }
-    effortLabels.clear()
+    controlLabels.clear()
     for (const node of document.querySelectorAll(marked)) {
       for (const key of ['model-label', 'model-speed', 'provider-label', 'model-options', 'speed-option', 'effort-ultra']) node.removeAttribute(`data-hcv-${key}`)
     }
@@ -172,6 +183,7 @@ export function registerModelSpeed(ctx, active) {
 
   function labelText() {
     const seen = new Set()
+    for (const button of document.querySelectorAll(pill)) editControlLabel(button, tooltipCopy)
     for (const node of document.querySelectorAll(`${pill} > span.truncate`)) {
       const view = sessionView(node)
       if (!view) {
@@ -194,15 +206,7 @@ export function registerModelSpeed(ctx, active) {
       const label = editText(button.querySelector(':scope > span'), original => compactEffort(original, root.lang))
       setAttribute(button, 'data-hcv-effort-ultra', label === 'Ultra' ? 'true' : '')
       editTooltip(button, original => effortMenuLabel(original, root.lang))
-      const title = button.getAttribute('aria-label')
-      if (title) {
-        const previous = effortLabels.get(button)
-        const original = title === previous?.value ? previous.original : title
-        const value = effortMenuLabel(original, root.lang)
-        if (value !== original) effortLabels.set(button, { original, value })
-        else effortLabels.delete(button)
-        setAttribute(button, 'aria-label', value)
-      }
+      editControlLabel(button, original => effortMenuLabel(original, root.lang))
     }
     for (const [view, dispose] of views) if (!seen.has(view)) { for (const off of dispose) off(); views.delete(view) }
     for (const node of document.querySelectorAll(header)) {
@@ -270,7 +274,7 @@ export function registerModelSpeed(ctx, active) {
     for (const menu of catalogRetries.keys()) if (!menu.isConnected) stopCatalogRetry(menu)
     for (const node of added) if (!node.isConnected) added.delete(node)
     for (const node of writtenText.keys()) if (!node.isConnected) writtenText.delete(node)
-    for (const node of effortLabels.keys()) if (!node.isConnected) effortLabels.delete(node)
+    for (const node of controlLabels.keys()) if (!node.isConnected) controlLabels.delete(node)
   }
   function sync() {
     frame = 0

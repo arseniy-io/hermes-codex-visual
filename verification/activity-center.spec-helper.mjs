@@ -48,6 +48,8 @@ export async function verifyActivityCenter({ page, expect, screenshot, sandbox, 
   const panel = page.locator('[data-hcv-activity]')
   const pendingFiles = kind => fs.readdirSync(path.join(sandbox.hermesHome, 'pending', kind)).filter(file => file.endsWith('.json'))
   const pendingCount = () => pendingFiles('skills').length + pendingFiles('memory').length
+  const cacheDir = path.join(sandbox.hermesHome, 'plugin-data', 'hermes-codex-visual', 'activity-explanations')
+  const cacheFiles = () => fs.existsSync(cacheDir) ? fs.readdirSync(cacheDir).filter(file => file.endsWith('.json')) : []
   const skill = path.join(sandbox.hermesHome, 'skills', skillName)
   const skillFile = path.join(skill, 'SKILL.md')
   const supportFile = path.join(skill, 'references', 'check.md')
@@ -129,10 +131,15 @@ export async function verifyActivityCenter({ page, expect, screenshot, sandbox, 
   assert.equal(await page.locator('[data-slot="aui_system-message-root"]').count(), nativeMessagesBefore,
     'The global queue must not add slash command output to the chat')
   const skillRow = panel.locator('[data-hcv-activity-item]').filter({ has: page.getByRole('heading', { name: skillName, exact: true }) })
+  const earlierCache = new Set(cacheFiles())
   await skillRow.getByRole('button', { name: 'Посмотреть правку', exact: true }).click()
   const explanation = panel.locator('[data-hcv-activity-explanation]')
   const preview = panel.locator('[data-hcv-activity-changes]')
   await expect(explanation).toContainText('Сверять дату и результаты тестового отчёта с источниками.', { timeout: 30000 })
+  const [skillCache] = cacheFiles().filter(file => !earlierCache.has(file))
+  assert(skillCache, 'The ready explanation must be saved to the isolated profile')
+  const savedSkill = path.join(cacheDir, skillCache)
+  const firstSaved = fs.statSync(savedSkill).mtimeMs
   await expect(panel.getByRole('button', { name: 'Принять', exact: true })).toBeEnabled()
   assert.equal(await preview.evaluate(node => node.open), false, 'Changed fragments start collapsed')
   await preview.locator('summary').first().click()
@@ -171,10 +178,12 @@ export async function verifyActivityCenter({ page, expect, screenshot, sandbox, 
   await expect(explanation).toContainText('Сверять дату и результаты тестового отчёта с источниками.', { timeout: 30000 })
   await preview.locator('summary').first().click()
   await expect(preview).toContainText(supportAfter)
+  assert.equal(fs.statSync(savedSkill).mtimeMs, firstSaved, 'Reopening preserves the saved explanation')
   await measureButtons('lightPreview')
   await screenshot('activity-light.png')
   await panel.getByRole('button', { name: 'Принять', exact: true }).click()
   await expect(panel.getByText('Предложение принято.', { exact: true })).toBeVisible()
+  assert(!fs.existsSync(savedSkill), 'Approval removes the pending explanation cache')
   await expect(count).toHaveText('4')
   assert(fs.readFileSync(skillFile, 'utf8').includes(descriptionAfter))
   assert(fs.readFileSync(skillFile, 'utf8').includes(ruleAfter))
@@ -192,12 +201,16 @@ export async function verifyActivityCenter({ page, expect, screenshot, sandbox, 
   await expect(count).toHaveText('3')
   assert(readMemory().includes(acceptedNote), 'Native memory approval must apply the complete note')
   const rejectedRow = panel.locator('[data-hcv-activity-item]').filter({ hasText: rejectedNote })
+  const beforeReject = new Set(cacheFiles())
   await rejectedRow.getByRole('button', { name: 'Посмотреть правку', exact: true }).click()
   await expect(explanation).toContainText('Сверять дату и результаты тестового отчёта с источниками.', { timeout: 30000 })
+  const [rejectedCache] = cacheFiles().filter(file => !beforeReject.has(file))
+  assert(rejectedCache, 'Rejection must have a saved explanation to transfer to history')
   await preview.locator('summary').first().click()
   await expect(preview).toContainText(rejectedNote)
   await panel.getByRole('button', { name: 'Отклонить', exact: true }).click()
   await expect(panel.getByText('Предложение отклонено.', { exact: true })).toBeVisible()
+  assert(!cacheFiles().includes(rejectedCache))
   assert(!readMemory().includes(rejectedNote))
   assert.equal(pendingCount(), 2)
   await expect(count).toHaveText('2')
@@ -233,6 +246,7 @@ export async function verifyActivityCenter({ page, expect, screenshot, sandbox, 
   await page.keyboard.press('Escape')
   await expect(button).toBeFocused()
   return { nativeQueue: true, explanation: true, sectionsAndFilters: true, decisionHistory: true,
+    savedExplanation: true, decisionCacheCleared: true,
     fullBatch: true, fullMemory: true, createPreview: true, missingSkillPreview: true, linkedCreationAndFiles: true, approvedSkill: true,
     approvedMemory: true, rejectedMemory: true, pending: pendingCount(), keyboard: true, narrow: true, light: true, buttonRadii }
 }

@@ -5,7 +5,7 @@ the journal, compare-and-swap under maintenance, and rollback.
 """
 
 import ast
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from io import BytesIO
 import json
 from pathlib import Path
@@ -55,16 +55,12 @@ class PlanError(QueueError):
 
 @dataclass(frozen=True)
 class ActiveCore:
-    """Reviewed evidence that one active core supports both release bundles.
-
-    The hashes cover every core target. This mode guards the same exact bytes
-    before and after activation. A core rewrite needs an independently staged
-    and verified transition and is outside this adapter's active-core mode.
-    """
+    """Installed pins and any replacements staged for these exact bundles."""
 
     old_bundle_sha256: str
     new_bundle_sha256: str
     files: Mapping[str, str]
+    replacements: Mapping[str, bytes] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -240,8 +236,12 @@ def _manifest_targets(parts, source):
     return targets
 
 
+def core_parts(members, agents):
+    return {name: data for name, data in members.items() if name not in agents | ZIP_METADATA | {"plugin.js"}}
+
+
 def _core_contract(members, agents):
-    parts = {name: data for name, data in members.items() if name not in agents | ZIP_METADATA | {"plugin.js"}}
+    parts = core_parts(members, agents)
     covered = set()
     targets = {}
     for family, asset_family in SHARED_TYPES.items():
@@ -308,15 +308,23 @@ def _add_core(changes, root, old, new, evidence):
         raise PlanError("Core bundle differs from the reviewed active-core evidence")
     if old_targets.keys() != new_targets.keys() or evidence.files.keys() != new_targets.keys():
         raise PlanError("Active core coverage differs from the declared old or new core targets")
+    if not evidence.replacements.keys() <= new_targets.keys():
+        raise PlanError("A staged core replacement is outside the declared targets")
     for name, allowed in sorted(new_targets.items()):
         expected = _require_hash(evidence.files[name], name)
-        if allowed is not None and expected not in allowed:
+        replacement = evidence.replacements.get(name)
+        if name in evidence.replacements and (not isinstance(replacement, bytes) or allowed is None):
+            raise PlanError(f"Core replacement needs exact candidate bytes: {name}")
+        if replacement is not None and old_targets[name] is not None and expected not in old_targets[name]:
+            raise PlanError(f"Core replacement preimage is not in the old bundle: {name}")
+        desired = expected if replacement is None else workflow.digest(replacement)
+        if allowed is not None and desired not in allowed:
             raise PlanError(f"Active core hash is not a candidate or approved successor: {name}")
         target = _relative(root, name)
         data = _target_bytes(target)
         if _hash_or_missing(data) != expected:
             raise PlanError(f"Active core changed or is missing: {target}")
-        changes.append({"target": target, "before": expected, "after": data})
+        changes.append({"target": target, "before": expected, "after": data if replacement is None else replacement})
 
 
 def _add_installed(changes, desktop, agent, old, new, preimages):
@@ -404,7 +412,7 @@ def make_plan(project, state, desktop_root, agent_root, core_root, *, old_archiv
         project_pins = _preimages(project_before)
         if isinstance(active_core, ActiveCore):
             active_core = ActiveCore(active_core.old_bundle_sha256, active_core.new_bundle_sha256,
-                                     dict(active_core.files))
+                                     dict(active_core.files), dict(active_core.replacements))
     except PlanError:
         raise
     except (RuntimeError, OSError, TypeError, ValueError) as error:

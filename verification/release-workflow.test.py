@@ -273,6 +273,47 @@ class ReleaseWorkflowTest(unittest.TestCase):
         with self.assertRaises(wf.WorkflowError):
             wf.branch_evidence(self.root, 'draft-setup', version, 'c' * 64, None)
 
+    def test_file_card_evidence_proves_exact_backend_and_complete_scenarios(self):
+        version, module, backend = 'release-' + 'a' * 32 + '-0', 'b' * 64, 'c' * 64
+        folder = self.root / 'evidence'
+        folder.mkdir()
+        outline = {'after': 'none'}
+        changes = {'moduleSha256': module, 'backendSha256': backend, 'actualUndoReapply': True,
+                   'standalonePreviewsHidden': True, 'singleOutline': outline, 'multiOutline': outline,
+                   'lightOutline': outline}
+        path = folder / (version + '-saved-main.json')
+        path.write_text(json.dumps(changes), encoding='utf-8')
+        self.assertTrue(wf.branch_evidence(self.root, 'turn-diff', version, module, backend)['confirmed'])
+        with self.assertRaisesRegex(wf.WorkflowError, 'same ZIP backend'):
+            wf.branch_evidence(self.root, 'turn-diff', version, module, 'd' * 64)
+        outline['after'] = "''"
+        path.write_text(json.dumps(changes), encoding='utf-8')
+        with self.assertRaisesRegex(wf.WorkflowError, 'outline and hidden previews'):
+            wf.branch_evidence(self.root, 'turn-diff', version, module, backend)
+
+        links = dict.fromkeys(('filePreviewByMouseAndKeyboard', 'standalonePreviewsHidden',
+                               'summarySource', 'themeAndForcedColors'), True)
+        path = folder / (version + '-file-links.json')
+        path.write_text(json.dumps({'moduleSha256': module, **links}), encoding='utf-8')
+        self.assertTrue(wf.branch_evidence(self.root, 'file-links', version, module, None)['confirmed'])
+        links['standalonePreviewsHidden'] = False
+        path.write_text(json.dumps({'moduleSha256': module, **links}), encoding='utf-8')
+        with self.assertRaisesRegex(wf.WorkflowError, 'hidden cards'):
+            wf.branch_evidence(self.root, 'file-links', version, module, None)
+
+    def test_usage_evidence_is_bound_to_the_tested_module(self):
+        version, module = 'release-' + 'a' * 32 + '-0', 'b' * 64
+        folder = self.root / 'evidence'
+        folder.mkdir()
+        path = folder / (version + '-usage.json')
+        path.write_text(json.dumps({'moduleSha256': module}), encoding='utf-8')
+        self.assertTrue(wf.branch_evidence(self.root, 'usage', version, module, None)['confirmed'])
+        with self.assertRaisesRegex(wf.WorkflowError, 'wrong module'):
+            wf.branch_evidence(self.root, 'usage', version, 'c' * 64, None)
+        path.unlink()
+        with self.assertRaises(wf.WorkflowError):
+            wf.branch_evidence(self.root, 'usage', version, module, None)
+
     def test_focus_guard_in_powershell_before_plugin_lookup(self):
         powershell = shutil.which('pwsh')
         if not powershell:

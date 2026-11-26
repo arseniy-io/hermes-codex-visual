@@ -78,7 +78,7 @@ test('options label native speed and effort controls, even when the fast catalog
     const text = `${slug.endsWith('-fast') ? 'GPT-6.2-sol' : slug}${selected === 'ultrafast' ? ' · Ultrafast' : on || slug.endsWith('-fast') ? ' · Fast' : ''}`
     const tooltip = `Модель · ChatGPT or Codex Subscription: ${slug}`
     return h('div', { 'data-slot': 'composer-surface' },
-      h('button', { 'data-tour': 'model-pill', 'aria-describedby': 'model-tooltip' }, h('span', { className: 'truncate' }, text),
+      h('button', { 'data-tour': 'model-pill', 'aria-describedby': 'model-tooltip', 'aria-label': tooltip }, h('span', { className: 'truncate' }, text),
         h('span', { 'data-testid': 'model-pinned-dot', role: 'img', 'aria-label': 'Модель закреплена' })),
       h('button', { 'data-testid': 'reasoning-pill', 'aria-label': 'Усилия: Максимум (на этом маршруте отправляется Очень высокое)' },
         h('span', null, 'Max→XHigh')),
@@ -145,6 +145,7 @@ test('options label native speed and effort controls, even when the fast catalog
   assert.equal(window.getComputedStyle(pinDot).display, 'none')
   assert.equal(document.querySelector('[data-slot="tooltip-label"]').textContent, 'Модель GPT-6.2 Sol')
   assert.equal(document.querySelector('#model-tooltip').textContent, 'Модель GPT-6.2 Sol')
+  assert.equal(button.getAttribute('aria-label'), 'Модель ChatGPT or Codex Subscription: gpt-6.2-sol')
   assert.equal(label.textContent, 'GPT-6.2 Sol')
   assert.equal(label.dataset.hcvModelLabel, 'GPT-6.2 Sol')
   assert.equal(button.dataset.hcvModelSpeed, undefined)
@@ -245,6 +246,7 @@ test('options label native speed and effort controls, even when the fast catalog
   await wait()
   assert.equal(document.querySelector('[data-hcv-standard-speed]'), null)
   assert.notEqual(window.getComputedStyle(pinDot).display, 'none')
+  assert.equal(button.getAttribute('aria-label'), 'Модель · ChatGPT or Codex Subscription: gpt-6.2-sol')
   assert.equal(document.querySelector('[data-hcv-speed-heading]'), null)
   assert.equal(document.querySelector('[data-testid="reasoning-pill"] > span').textContent, 'Max→XHigh')
   assert.equal(document.querySelector('[data-slot="dropdown-menu-radio-item"]').textContent, 'Максимум (на этом маршруте отправляется Очень высокое)')

@@ -19,6 +19,7 @@ import { registerDraftSetup } from './draft-setup.js'
 import { codexMask, codexReference } from './codex-reference.js'
 import { registerInterface } from './interface.js'
 import { registerTooltips } from './tooltips.js'
+import { registerControlHover } from './control-hover.js'
 import { registerInterfaceCopy } from './interface-copy.js'
 import { registerMcpRussian } from './mcp-ru.js'
 import { registerMcpCatalogRussian } from './mcp-catalog-ru.js'
@@ -275,7 +276,7 @@ const styles = `
     font-family: var(--hcv-ui-font);
   }
 
-  ${active} :is([data-sidebar="menu-button"], [data-slot="pane-tab"], [data-slot="dropdown-menu-item"], [data-slot="dropdown-menu-sub-trigger"], [data-slot="dropdown-menu-radio-item"], [data-slot="dropdown-menu-checkbox-item"], [data-tour="overlay-nav"] button, [data-titlebar-cluster] [data-size="icon-titlebar"]),
+  ${active} :is([data-sidebar="menu-button"], [data-slot="pane-tab"], [data-slot="dropdown-menu-item"], [data-slot="dropdown-menu-sub-trigger"], [data-slot="dropdown-menu-radio-item"], [data-slot="dropdown-menu-checkbox-item"], [data-tour="overlay-nav"] button),
   ${sidebar} .row-hover {
     border-radius: 8px;
   }
@@ -492,15 +493,12 @@ const styles = `
 
   ${composerSurface} button[type="submit"] {
     border-radius: 50%;
+    transition: none;
   }
 
   ${composerSurface} button[type="submit"]:not(:disabled) {
     background-color: var(--hcv-action);
     color: var(--hcv-ink);
-  }
-
-  ${composerSurface} button[type="submit"]:not(:disabled):hover {
-    background-color: color-mix(in srgb, var(--hcv-action) 85%, var(--hcv-ink));
   }
 
   ${iconRules()}
@@ -661,7 +659,8 @@ export default {
     overflow: hidden;
     box-shadow: 0 0 0 .5px var(--hcv-file-stroke);
     background: light-dark(#fff, #222222);
-    margin: 14px .5px 8px;
+    /* The message container clips content at its edges. */
+    margin: 14px 1px 8px;
     padding: 0;
     color: var(--hcv-file-text);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -904,6 +903,7 @@ export default {
     registerDictation(ctx, active)
     registerZoomBanner(ctx, active, themeName)
     registerTypography(ctx, active)
+    registerControlHover(ctx, active)
     registerInterfaceCopy(ctx, active, registerTooltips(ctx, active))
     // Local installations record activation through the plugin's own data folder.
     if (typeof HCV_LOCAL_VERSION !== 'undefined' && HCV_LOCAL_VERSION && ctx.files) {

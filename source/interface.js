@@ -16,7 +16,6 @@ const items = ':is([data-slot^="dropdown-menu-"][role^="menuitem"], [data-slot^=
 const menuRows = `${menus} ${items}`
 const popover = '[data-slot="popover-content"]'
 const button = ':is(button, [role="button"], [data-slot="button"])'
-const quietIcon = '[data-variant="ghost"][data-size^="icon"]'
 const dialog = '[data-slot="dialog-content"]'
 const dialogOverlay = '[data-slot="dialog-overlay"]'
 const notification = '[data-slot="card-stack-surface"] > div > [data-slot="alert"][aria-live]'
@@ -261,7 +260,6 @@ export function registerInterface(ctx, active) {
   ${active} :is(${button}, ${button} :where(.underline, [class*=':underline'])) {
     text-decoration-line: none;
   }
-  ${active} :where(${quietIcon}) { border-radius: ${codex.quietControl.radius}; }
     ${active} ${notificationStack} :is([data-slot="card-stack-surface"], [data-slot="card-stack-edge"]) {
     border-color: var(--hcv-hairline);
     border-radius: var(--hcv-menu-radius);
@@ -390,7 +388,6 @@ export function registerInterface(ctx, active) {
     margin-inline: 2px;
     border-radius: 7px;
   }
-  ${active} [data-titlebar-cluster] button[data-size="icon-titlebar"] { border-radius: 8px; }
   ${codexIconRules(`${active} [data-titlebar-cluster] .codicon-settings-gear`, 'settings')}
   ${codexIconRules(`${active} [data-titlebar-cluster] .codicon-comment-discussion`, 'hud')}
   ${codexIconRules(`${active} [data-titlebar-cluster] .codicon-arrow-swap`, 'swap')}
@@ -405,7 +402,7 @@ export function registerInterface(ctx, active) {
   ${projectRow} [data-slot="row-button"] > span { text-decoration: none; }
   ${projectRow} [data-row-actions] button:focus-visible,
   ${projectRow}[data-hcv-preview-open] [data-row-actions] button,
-  ${projectRow}:has([data-state="open"][aria-haspopup="menu"]) [data-row-actions] button { opacity: 1; }
+  ${projectRow} > [data-row-actions]:has(> [data-state="open"][aria-haspopup="menu"]) button { opacity: 1; }
   ${projectRow} [data-row-actions] button > .codicon { font-size: 14px !important; }
   ${codexIconRules(`${projectRow} [data-row-actions] .codicon-kebab-vertical`, 'more')}
   ${codexIconRules(`${projectRow} [data-row-actions] .codicon-add`, 'newChat')}
@@ -434,10 +431,6 @@ export function registerInterface(ctx, active) {
   }
 
   @media (hover: hover) and (pointer: fine) {
-    ${active} :where(${quietIcon}):hover:not(:disabled, [aria-disabled="true"], [aria-pressed="true"], [data-state="open"]) {
-      background-color: var(--hcv-dropdown-hover);
-      color: var(--hcv-text);
-    }
     ${active} ${menuButtons}:hover:not(:disabled, [aria-disabled="true"]) {
       background-color: var(--hcv-dropdown-hover);
     }
@@ -921,7 +914,6 @@ ${active} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/lab
   }
   ${nav} button.row-hover[aria-current="page"] { background: var(--hcv-selected); color: var(--hcv-text); }
   ${nav} button.row-hover > svg { width: 16px; height: 16px; }
-  ${shown} button[data-size="icon-titlebar"] { border-radius: 8px; }
   ${codexIconRules(`${shown} button[data-size="icon-titlebar"] .codicon-close`, 'close')}
   ${codexIconRules(`${nav} button[data-tour="nav-sessions"] > svg`, 'messages')}
   ${codexIconRules(`${nav} button[data-tour="nav-system"] > svg`, 'system')}

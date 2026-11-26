@@ -6,6 +6,8 @@ import {
 import { codexMask } from './codex-reference.js'
 import { mountCSS } from './style-scope.js'
 
+export const sidebarHeaderEvent = 'hcv:sidebar-header'
+
 const labels = {
   ru: {
     title: 'Активность', description: 'Предложения, текущие проверки и их результаты.',
@@ -204,7 +206,7 @@ function ActivityDialog({ model, controller }) {
     itemKey(item) !== itemKey(selected)) : []
   const filteredItems = snapshot?.items.filter(item => state.filter === 'all' || item.kind === state.filter) || []
   const filteredEvents = list => list.filter(item => state.filter === 'all' || item.kinds.includes(state.filter))
-  const explanation = detail?.explanation
+  const explanation = detail?.explanation ?? (loading && selected && controller.savedExplanation(selected))
   const unavailableFragments = detail?.changes.some(change => change.fragments_unavailable)
   const unavailableMessage = !detail?.changes.length
     ? detail?.preview && detail.preview !== detail.reason ? t.summaryUnavailableFull : t.summaryUnavailableOnly
@@ -234,13 +236,12 @@ function ActivityDialog({ model, controller }) {
       selected ? h('section', { 'data-hcv-activity-detail': '', 'aria-label': title },
         h('p', { 'data-hcv-activity-kind': '' }, kindLabel(detail || selected, t)),
         h('p', { 'data-hcv-activity-meta': '' }, `${originLabel(selected, t)} · ${dateLabel(selected.created_at)}`),
-        loading ? h('p', { role: 'status' }, t.previewLoading)
-          : detail ? h('div', { 'data-hcv-activity-explanation': '' },
-            !detail.applicable && h('p', { 'data-hcv-activity-warning': '', role: 'status' }, text(detail.reason) || t.unavailable),
-            detail.missing_skill && h('p', null, creationMatches.length ? t.missingSkillCreate : t.missingSkillNext),
+        explanation ? h('div', { 'data-hcv-activity-explanation': '' },
+            detail && !detail.applicable && h('p', { 'data-hcv-activity-warning': '', role: 'status' }, text(detail.reason) || t.unavailable),
+            detail?.missing_skill && h('p', null, creationMatches.length ? t.missingSkillCreate : t.missingSkillNext),
             creationMatches.length === 1 && h(Button, { type: 'button', variant: 'outline', disabled: Boolean(state.busy),
               onClick: () => controller.inspect(creationMatches[0]) }, t.openCreate),
-            detail.proposed_files.length ? h('p', { 'data-hcv-activity-summary': '' }, t.proposedFiles)
+            detail?.proposed_files.length ? h('p', { 'data-hcv-activity-summary': '' }, t.proposedFiles)
               : explanation.status === 'ready' ? h('p', { 'data-hcv-activity-summary': '' }, explanation.text)
               : h('p', { role: 'status' }, explanation.status === 'pending' ? t.waitingSummary
                 : explanation.status === 'error' ? t.summaryError : unavailableMessage),
@@ -248,7 +249,7 @@ function ActivityDialog({ model, controller }) {
             explanation.status === 'error' && h(Button, { type: 'button', variant: 'outline', disabled: Boolean(state.busy),
               onClick: controller.retryExplanation }, t.retry),
             destructive && h('p', { 'data-hcv-activity-warning': '' }, t.destructive))
-            : h('p', { role: 'status' }, state.detailError || t.previewError),
+            : h('p', { role: 'status' }, loading ? t.previewLoading : state.detailError || t.previewError),
         locked && h('p', { 'data-hcv-activity-warning': '', role: 'status' }, t.locked),
         detail?.proposed_files.length > 0 && h('div', { 'data-hcv-activity-proposed-files': '' },
           detail.proposed_files.map((file, index) => h('details', { key: index, 'data-hcv-activity-full': '' },
@@ -292,14 +293,21 @@ export function registerActivityCenter(ctx, active) {
   let disposed = false, epoch = 0, identity = '', socket = null, gatewayState = ''
   const busyScopes = new Set()
   const networkBusy = () => busyScopes.has(identity)
-  let pendingRefresh = null, header = null, button = null, buttonBadge = null
-  let originFocus = null, scanQueued = false, summaryPoll = null
+  let pendingRefresh = null, button = null, buttonBadge = null
+  let originFocus = null, scanQueued = false, summaryPoll = null, listPoll = null
+  let stopPush = null, pushLease = null
   const locked = new Set()
   const memorySeen = new Map()
+  const explanations = new Map()
   const enabled = () => !disposed && root.matches(active)
+  let nativeHidden = null
+  const windowIsVisible = () => !document.hidden &&
+    !(nativeHidden === null ? root.hasAttribute('data-renderer-animations-paused') : nativeHidden)
+  let windowVisible = windowIsVisible()
   const identityNow = () => JSON.stringify([host.state.connectionId.get() || null, host.state.profile.get() || 'default'])
   const current = token => enabled() && token === epoch && identityNow() === identity && host.getGateway() === socket &&
     gatewayState === 'open' && host.state.gateway.get() === 'open'
+  const canWatchActivity = () => windowIsVisible() && enabled() && gatewayState === 'open'
   const write = patch => model.set({ ...model.get(), ...patch, locked: [...locked] })
   const controller = {
     open(from) {
@@ -320,10 +328,70 @@ export function registerActivityCenter(ctx, active) {
     section: section => write({ section, message: '' }),
     filter: filter => write({ filter, message: '' }),
     refresh: explicit => refresh(explicit),
+    savedExplanation(item) {
+      const saved = explanations.get(itemKey(item))
+      return saved?.version === item.version ? saved.explanation : null
+    },
     inspect: item => inspect(item), decide: action => decide(action), retryExplanation: () => retryExplanation(),
   }
 
   function stopSummaryPoll() { if (summaryPoll !== null) clearTimeout(summaryPoll); summaryPoll = null }
+  function syncListPoll(readStartedAt = null) {
+    const interval = 10000
+    if (!canWatchActivity() || pushLease !== null && model.get().listStatus !== 'error') {
+      if (listPoll !== null) clearTimeout(listPoll.timer)
+      listPoll = null
+    } else if (listPoll === null || (readStartedAt !== null && listPoll.deadline < readStartedAt + interval)) {
+      // A fresh successful read replaces the due tick. Use request start so
+      // time spent awaiting the response does not extend the refresh interval.
+      if (listPoll !== null) clearTimeout(listPoll.timer)
+      const now = performance.now()
+      const deadline = (readStartedAt ?? now) + interval
+      const timer = setTimeout(() => {
+        listPoll = null
+        if (windowIsVisible() && enabled() && !networkBusy()) void refresh(false)
+        syncListPoll()
+      }, Math.max(0, deadline - now))
+      listPoll = { timer, deadline }
+    }
+  }
+  function stopActivityPush() {
+    stopPush?.()
+    stopPush = null
+    clearTimeout(pushLease)
+    pushLease = null
+  }
+  function syncActivityPush() {
+    if (!canWatchActivity()) { stopActivityPush(); return }
+    const snapshot = model.get().snapshot
+    if (snapshot && snapshot.change_feed !== true) { stopActivityPush(); return }
+    if (!snapshot || stopPush || typeof ctx.socket !== 'function') return
+    const token = epoch
+    stopPush = ctx.socket('/activity/events', message => {
+      if (!current(token) || !windowIsVisible() || message?.schema !== 1 ||
+          !['ready', 'changed', 'heartbeat'].includes(message.kind)) return
+      // The SDK reconnects, but does not expose an onclose callback. Only a
+      // live feed can stand in for the polling timer, and missed changes are
+      // reconciled on (re)connect before trusting that feed again.
+      const needsRead = pushLease === null || message.kind !== 'heartbeat'
+      clearTimeout(pushLease)
+      pushLease = setTimeout(() => {
+        pushLease = null
+        if (!current(token) || !windowIsVisible()) return
+        syncListPoll()
+        void refresh(false)
+      }, 9000)
+      syncListPoll()
+      if (needsRead) void refresh(false)
+    })
+  }
+  function syncWindowVisibility() {
+    const visible = windowIsVisible(), changed = visible !== windowVisible
+    windowVisible = visible
+    syncActivityPush()
+    syncListPoll()
+    if (changed && visible && enabled()) void refresh(false)
+  }
   function finishRequest(token, route, refreshAfter = false) {
     busyScopes.delete(route)
     if (route !== identity) return
@@ -362,12 +430,10 @@ export function registerActivityCenter(ctx, active) {
 
   function mountButton() {
     scanQueued = false
-    if (!enabled()) { button?.remove(); header = null; return }
-    // The header itself is owned by chrome.js. Observe attachment only; do not rebuild it.
+    if (!enabled()) { button?.remove(); return }
     const next = document.querySelector('[data-hcv-sidebar-bar]')
     const bell = next?.querySelector('[data-hcv-notifications]')
-    if (!next || !bell) { if (!button?.isConnected) header = null; return }
-    header = next
+    if (!bell) return
     if (!button) {
       button = document.createElement('button')
       button.type = 'button'
@@ -400,12 +466,16 @@ export function registerActivityCenter(ctx, active) {
     gatewayState = nextGatewayState
     epoch++
     stopSummaryPoll()
+    stopActivityPush()
+    syncListPoll()
     locked.clear()
+    explanations.clear()
     pendingRefresh = null
     write({ open: false, profile: host.state.profile.get() || 'default', snapshot: null,
       listStatus: gatewayState === 'open' ? 'loading' : 'error',
       listError: gatewayState === 'open' ? '' : words().disconnected,
       section: 'proposals', filter: 'all', selected: null, detail: null, detailError: '', busy: null, message: '' })
+    syncActivityPush()
     scheduleMount()
     return true
   }
@@ -449,6 +519,7 @@ export function registerActivityCenter(ctx, active) {
     busyScopes.add(route)
     if (explicit) { stopSummaryPoll(); write({ selected: null, detail: null, detailError: '', message: '' }) }
     write({ busy: 'list', listStatus: model.get().snapshot ? model.get().listStatus : 'loading', listError: '' })
+    const readStartedAt = performance.now()
     try {
       const response = await ctx.rest('/activity', { timeoutMs: 12000 })
       if (!current(token)) return
@@ -457,18 +528,26 @@ export function registerActivityCenter(ctx, active) {
       const previous = model.get()
       if (previous.snapshot?.scope && previous.snapshot.scope !== snapshot.scope) {
         locked.clear()
+        explanations.clear()
         write({ selected: null, detail: null, detailError: '', message: '' })
       }
+      const versions = new Map(snapshot.items.map(item => [itemKey(item), item.version]))
+      for (const [key, saved] of explanations) if (versions.get(key) !== saved.version) explanations.delete(key)
       if (explicit) locked.clear()
       const selected = model.get().selected
       const selectedNow = selected && snapshot.items.find(item => itemKey(item) === itemKey(selected))
       write({ snapshot, listStatus: 'ready', listError: '',
         ...(selected && (!selectedNow || selectedNow.version !== selected.version)
           ? { selected: null, detail: null, detailError: '', message: words().stale } : {}) })
+      syncActivityPush()
+      syncListPoll(readStartedAt)
       announce(snapshot)
     } catch {
-      if (current(token)) write({ snapshot: null, listStatus: 'error', listError: words().loadError,
-        selected: null, detail: null, detailError: '' })
+      if (current(token)) {
+        write({ snapshot: null, listStatus: 'error', listError: words().loadError,
+          selected: null, detail: null, detailError: '' })
+        syncListPoll()
+      }
     } finally {
       finishRequest(token, route)
     }
@@ -492,6 +571,9 @@ export function registerActivityCenter(ctx, active) {
           model.get().snapshot?.scope !== snapshot.scope) return
       const detail = activityDetail(response, fresh, snapshot.scope)
       if (!detail) throw new Error('Invalid activity detail')
+      const key = itemKey(fresh)
+      if (detail.explanation.status === 'ready') explanations.set(key, { version: fresh.version, explanation: detail.explanation })
+      else explanations.delete(key)
       write({ detail, detailError: '' })
       if (detail.explanation.status === 'pending') scheduleSummaryPoll(fresh)
     } catch {
@@ -522,6 +604,9 @@ export function registerActivityCenter(ctx, active) {
       if (response?.scope !== state.snapshot.scope || !response.explanation ||
           !['pending', 'ready', 'error', 'unavailable'].includes(response.explanation.status) ||
           typeof response.explanation.text !== 'string') throw new Error('Invalid explanation')
+      if (response.explanation.status === 'ready') {
+        explanations.set(itemKey(item), { version: item.version, explanation: response.explanation })
+      }
       write({ detail: { ...detail, explanation: response.explanation } })
       if (response.explanation.status === 'pending') scheduleSummaryPoll(item)
     } catch {
@@ -549,6 +634,7 @@ export function registerActivityCenter(ctx, active) {
       if (!current(token)) return
       if (response?.scope !== state.snapshot.scope || response.status !== (action === 'approve' ? 'approved' : 'rejected'))
         throw new Error('Unconfirmed decision')
+      explanations.delete(key)
       write({ selected: null, detail: null, detailError: '', snapshot: { ...state.snapshot,
         items: state.snapshot.items.filter(candidate => itemKey(candidate) !== key) },
         message: action === 'approve' ? words().approved : words().rejected })
@@ -564,27 +650,26 @@ export function registerActivityCenter(ctx, active) {
   }
 
   const unsubscribe = model.listen(paintButton)
-  const changes = new MutationObserver(records => {
-    if (records.some(record => record.type === 'attributes')) {
-      scopeChanged()
-      scheduleMount()
-      if (enabled()) void refresh(false)
-      return
-    }
-    if (!header?.isConnected || !button?.isConnected) scheduleMount()
-  })
-  changes.observe(document.body, { childList: true, subtree: true })
+  ctx.addEventListener(window, sidebarHeaderEvent, scheduleMount)
   const theme = new MutationObserver(() => {
     scopeChanged()
     scheduleMount()
+    syncActivityPush()
+    syncListPoll()
     if (enabled()) void refresh(false)
   })
-  theme.observe(root, { attributes: true, attributeFilter: ['data-hermes-theme', 'lang'] })
+  theme.observe(root, { attributes: true, attributeFilter: ['data-hermes-codex-visual', 'data-hermes-theme', 'lang'] })
   const scopeSubscriptions = [host.state.connectionId, host.state.profile, host.state.gateway].filter(Boolean)
     .map(value => value.listen(() => { scopeChanged(); if (enabled()) void refresh(false) }))
-  const poll = setInterval(() => { if (!document.hidden && enabled() && !networkBusy()) void refresh(false) }, 10000)
-  ctx.addEventListener(window, 'focus', () => { if (enabled()) void refresh(false) })
-  ctx.addEventListener(document, 'visibilitychange', () => { if (!document.hidden && enabled()) void refresh(false) })
+  const stopWindowState = window.hermesDesktop?.onWindowStateChanged?.(state => {
+    if (typeof state?.isMinimized !== 'boolean' && typeof state?.isVisible !== 'boolean') return
+    nativeHidden = state.isMinimized === true || state.isVisible === false
+    syncWindowVisibility()
+  })
+  const visibility = new MutationObserver(syncWindowVisibility)
+  visibility.observe(root, { attributes: true, attributeFilter: ['data-renderer-animations-paused'] })
+  ctx.addEventListener(window, 'focus', () => { if (enabled() && windowIsVisible()) void refresh(false) })
+  ctx.addEventListener(document, 'visibilitychange', syncWindowVisibility)
   ctx.onEvent?.('review.summary', () => { if (enabled()) void refresh(false) })
   ctx.register({ id: 'activity-center', area: TITLEBAR_AREAS.center, render: () => h(ActivityDialog, { model, controller }) })
   mountCSS(ctx, 'data-hcv-activity-style', activityStyles(active), { surface: '[data-hcv-activity-button], [data-hcv-activity]' })
@@ -595,14 +680,17 @@ export function registerActivityCenter(ctx, active) {
     disposed = true
     epoch++
     stopSummaryPoll()
-    clearInterval(poll)
-    changes.disconnect()
+    stopActivityPush()
+    syncListPoll()
+    visibility.disconnect()
+    stopWindowState?.()
     theme.disconnect()
     unsubscribe()
     scopeSubscriptions.forEach(stop => stop())
     button?.remove()
     model.set({ ...model.get(), open: false, snapshot: null, selected: null, detail: null })
     memorySeen.clear()
+    explanations.clear()
     locked.clear()
   })
   return controller

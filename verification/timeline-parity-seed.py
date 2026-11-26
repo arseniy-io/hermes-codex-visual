@@ -17,8 +17,8 @@ def _has_assistant_text(row):
 
 def with_child_timeline(messages, *, worker, child, project_folder, now):
     messages = copy.deepcopy(messages)
-    if sum(_has_assistant_text(row) for row in messages) != 104:
-        raise AssertionError("Expected the original 104 visible assistant messages")
+    if sum(_has_assistant_text(row) for row in messages) != 3:
+        raise AssertionError("Expected three assistant messages in the first turn")
     root = Path(project_folder).resolve(strict=True)
     if not (root / ".git").is_dir() or not (root / "fixture-note.md").is_file():
         raise AssertionError("Timeline seed requires the synthetic Git fixture")
@@ -104,6 +104,6 @@ def with_child_timeline(messages, *, worker, child, project_folder, now):
         "secondCompletedAtMs": completed * 1000, "secondTask": SECOND_TASK, "secondFinal": SECOND_FINAL,
         "parentControl": {"path": "fixture-note.md", "bytes": base64.b64encode(control).decode()},
         "files": [{"path": "child-fixture/" + name, "before": encode(before[name]), "after": encode(after[name])} for name in before],
-        "patches": patches, "counts": {"added": 7, "removed": 4}, "visibleAssistantCount": 105}
+        "patches": patches, "counts": {"added": 7, "removed": 4}, "visibleAssistantCount": 4}
     (cwd / ".timeline-parity.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     return messages

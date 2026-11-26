@@ -57,7 +57,7 @@ export function registerComposerLayout(ctx, active) {
         --composer-control-primary-size: 28px;
         --composer-surface-pad-x: 8px;
         --composer-surface-pad-y: 8px;
-        --hcv-composer-hover: var(--hcv-dropdown-hover);
+        --hcv-composer-hover: var(--hcv-control-hover);
       }
       ${surface} ${backing}, ${fallback} ${backing},
       ${dock} > [data-slot="composer-root"] > .pointer-events-none.absolute.inset-0 {

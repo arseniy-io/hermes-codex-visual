@@ -16,6 +16,10 @@ import release_queue as queue
 import release_queue_build as builder
 import release_queue_install as engine
 import release_workflow as workflow
+from release_queue_live import (
+    MANAGED_WORKER, TURN_CONTROL_MANIFEST, TURN_CONTROL_PATCH, TURN_CONTROL_STAGE,
+    LiveError, stage_worker_update,
+)
 from release_queue_live_plan import ActiveCore, PlanError, describe_core, make_plan
 
 
@@ -284,6 +288,28 @@ class PlanTest(unittest.TestCase):
         })
         with self.assertRaisesRegex(PlanError, "not a candidate or approved successor"):
             self.plan(active_core=bogus)
+
+    def test_stages_a_pinned_worker_without_writing_the_live_file(self):
+        original, updated = b"value = 1\n", b"value = 2\n"
+        baseline = workflow.digest(b"value = 0\n")
+        pin = workflow.digest(original)
+        put(self.core / MANAGED_WORKER, original)
+        stager = (PROJECT / TURN_CONTROL_STAGE).read_bytes()
+        put(self.project / TURN_CONTROL_STAGE, stager)
+        old = {TURN_CONTROL_STAGE: stager, TURN_CONTROL_PATCH: b"", TURN_CONTROL_MANIFEST: json.dumps({
+            "version": 1, "files": {MANAGED_WORKER: {"baseline": baseline, "candidate": pin}},
+        }).encode()}
+        entry = {"baseline": baseline, "previous_candidate": pin, "candidate": workflow.digest(updated)}
+        new = {**old, TURN_CONTROL_PATCH: (f"--- a/{MANAGED_WORKER}\n+++ b/{MANAGED_WORKER}\n"
+                                           "@@ -1 +1 @@\n-value = 1\n+value = 2\n").encode(),
+               TURN_CONTROL_MANIFEST: json.dumps({"version": 1, "files": {MANAGED_WORKER: entry}}).encode()}
+        self.assertEqual(stage_worker_update(self.project, self.core, old, new, {MANAGED_WORKER: pin}),
+                         {MANAGED_WORKER: updated})
+        self.assertEqual((self.core / MANAGED_WORKER).read_bytes(), original)
+        entry["baseline"] = "0" * 64
+        new[TURN_CONTROL_MANIFEST] = json.dumps({"version": 1, "files": {MANAGED_WORKER: entry}}).encode()
+        with self.assertRaisesRegex(LiveError, "does not match the installed worker pin"):
+            stage_worker_update(self.project, self.core, old, new, {MANAGED_WORKER: pin})
 
     def test_rejects_tampered_archive_output_and_frozen_source(self):
         desktop = self.workspace / "plugin.js"

@@ -151,7 +151,8 @@ var chatTab = '[data-zone-tabstrip="grp-main"] [role="tab"][data-tree-tab^="sess
 var visibleChatTab = `${chatTab}:not(:is(${hiddenPane}) *)`;
 var chatStyles = {
   surface: '[data-chat-surface], [data-slot="composer-surface"]',
-  retainAcrossChatTabs: true
+  retainAcrossChatTabs: true,
+  retainParsed: true
 };
 function registerStyleScope(ctx, theme2) {
   const root = document.documentElement;
@@ -162,29 +163,36 @@ function registerStyleScope(ctx, theme2) {
   function update() {
     queued = false;
     if (disposed) return;
-    const enabled = root.dataset.hermesTheme === theme2;
+    const enabled2 = root.dataset.hermesTheme === theme2;
     const [route, query] = location.hash.slice(2).split("?", 2);
     const screen = route.split("/")[0];
     const tab = screen === "settings" ? new URLSearchParams(query).get("tab") : null;
     const surfaces = /* @__PURE__ */ new Map();
     const pending = /* @__PURE__ */ new Set();
     let hasChatTabs;
-    for (const { sheet, anchor, screens, tabs, surface: surface5, visibleSurface, retainAcrossChatTabs } of entries) {
-      let visible2 = enabled && !screens && !surface5;
-      if (enabled && screens?.includes(screen) && (!tabs || tabs.includes(tab))) visible2 = true;
-      if (enabled && surface5 && !visible2) {
+    for (const { sheet, anchor, screens, tabs, surface: surface5, visibleSurface, retainAcrossChatTabs, retainParsed } of entries) {
+      const mounted = sheet.isConnected;
+      const parsed = enabled2 && mounted && retainParsed ? sheet.sheet : null;
+      let visible2 = enabled2 && !screens && !surface5;
+      if (enabled2 && screens?.includes(screen) && (!tabs || tabs.includes(tab))) visible2 = true;
+      if (enabled2 && surface5 && !visible2) {
         pending.add(surface5);
         if (retainAcrossChatTabs) {
           pending.add(chatTab);
-          if (sheet.isConnected) visible2 = hasChatTabs ??= Boolean(document.querySelector(visibleChatTab));
+          if (mounted && !parsed?.disabled) visible2 = hasChatTabs ??= Boolean(document.querySelector(visibleChatTab));
         }
         if (!visible2) {
           if (!surfaces.has(surface5)) surfaces.set(surface5, Boolean(document.querySelector(visibleSurface)));
           visible2 = surfaces.get(surface5);
         }
       }
-      if (visible2 && !sheet.isConnected) anchor.after(sheet);
-      if (!visible2 && sheet.isConnected) sheet.remove();
+      if (parsed) {
+        if (parsed.disabled !== !visible2) parsed.disabled = !visible2;
+      } else if (visible2 && !mounted) {
+        anchor.after(sheet);
+      } else if (!visible2 && mounted) {
+        sheet.remove();
+      }
     }
     const next = [...pending].join(", ");
     if (watched !== next) {
@@ -248,15 +256,15 @@ function mountCSS(ctx, marker5, text7, conditions) {
 import { THEMES_AREA } from "@hermes/plugin-sdk";
 
 // source/chrome.js
-import { createElement as h4, Fragment, useEffect, useLayoutEffect as useLayoutEffect2, useRef, useState } from "react";
+import { createElement as h5, Fragment, useEffect, useLayoutEffect as useLayoutEffect2, useRef, useState } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  host as host6,
-  TITLEBAR_AREAS,
+  host as host7,
+  TITLEBAR_AREAS as TITLEBAR_AREAS2,
   useI18n,
   useTheme
 } from "@hermes/plugin-sdk";
@@ -771,8 +779,8 @@ function committedFiber(element7) {
   if (fiber?.memoizedProps !== props) fiber = fiber?.alternate;
   return fiber?.memoizedProps === props ? fiber : null;
 }
-function nativeDraftWorkspaceAction(sidebar3) {
-  for (let node4 = committedFiber(sidebar3); node4; node4 = node4.return) {
+function nativeDraftWorkspaceAction(sidebar6) {
+  for (let node4 = committedFiber(sidebar6); node4; node4 = node4.return) {
     const props = node4.memoizedProps;
     if (typeof props?.onNewSessionInWorkspace === "function" && typeof props.onNewSessionSplit === "function") {
       return props.onNewSessionInWorkspace;
@@ -819,15 +827,15 @@ function readNativeList(tree) {
     for (let node4 = fiber.return; node4; node4 = node4.return) {
       const props = node4.memoizedProps;
       if (typeof node4.type !== "function" || props?.pinned !== false || typeof props.onEnterProject !== "function" || !Array.isArray(props.sessions) || !sectionActions.every((name) => typeof props[name] === "function")) continue;
-      let sidebar3 = node4.return;
-      while (sidebar3 && typeof sidebar3.memoizedProps?.onRetrySessions !== "function") sidebar3 = sidebar3.return;
+      let sidebar6 = node4.return;
+      while (sidebar6 && typeof sidebar6.memoizedProps?.onRetrySessions !== "function") sidebar6 = sidebar6.return;
       return {
         group: group2,
         fiber: node4,
         section: node4.type,
         props,
-        refresh: sidebar3?.memoizedProps.onRetrySessions,
-        manageCronJob: sidebar3?.memoizedProps.onManageCronJob
+        refresh: sidebar6?.memoizedProps.onRetrySessions,
+        manageCronJob: sidebar6?.memoizedProps.onManageCronJob
       };
     }
   }
@@ -2153,12 +2161,13 @@ function openNativeRename(entry, alive) {
   requestAnimationFrame(select);
 }
 function positionSidebarPreview(card2, rect) {
-  const gap = codexReference.sidebar.previewOffset;
+  const gap2 = codexReference.sidebar.previewOffset;
   const width = card2.offsetWidth;
-  const fitsRight = rect.right + width + gap + 8 <= innerWidth;
-  const left = fitsRight ? rect.right + gap : rect.left - width - gap;
+  const height = card2.offsetHeight;
+  const fitsRight = rect.right + width + gap2 + 8 <= innerWidth;
+  const left = fitsRight ? rect.right + gap2 : rect.left - width - gap2;
   card2.style.left = `${Math.max(8, Math.min(innerWidth - width - 8, left))}px`;
-  card2.style.top = `${Math.max(8, Math.min(innerHeight - card2.offsetHeight - 8, rect.top))}px`;
+  card2.style.top = `${Math.max(8, Math.min(innerHeight - height - 8, rect.top))}px`;
 }
 function projectPreview(content3, t) {
   const card2 = el("section", { "data-hcv-project-preview": "" });
@@ -2169,8 +2178,8 @@ function projectPreview(content3, t) {
   const count = el("span");
   const sessions = el("div", { "data-hcv-project-preview-row": "" });
   sessions.append(glyph("messages"), count);
-  const summary2 = el("div", { "data-hcv-project-preview-summary": "" });
-  summary2.append(heading, sessions);
+  const summary3 = el("div", { "data-hcv-project-preview-summary": "" });
+  summary3.append(heading, sessions);
   const path = el("span");
   const folder = el("div", { "data-hcv-project-preview-row": "", "data-hcv-project-preview-path": "" });
   folder.append(glyph("folder"), path);
@@ -2179,7 +2188,7 @@ function projectPreview(content3, t) {
   edit3.append(glyph("settings"), editLabel);
   const footer2 = el("div", { "data-hcv-project-preview-edit": "" });
   footer2.append(edit3);
-  card2.append(summary2, folder, footer2);
+  card2.append(summary3, folder, footer2);
   document.body.append(card2);
   let hovered;
   let showing;
@@ -2189,6 +2198,7 @@ function projectPreview(content3, t) {
   let alive = true;
   const supportsHover = window.matchMedia("(any-hover: hover) and (any-pointer: fine)");
   function close2() {
+    if (!hovered && !showing && card2.hidden) return;
     clearTimeout(timer);
     clearTimeout(delay);
     hovered = void 0;
@@ -3204,9 +3214,991 @@ function composerForSurface(surface5) {
   return matches.length === 1 ? matches[0].querySelector(composerRoot) : null;
 }
 
+// source/activity-center.js
+import { createElement as h4 } from "react";
+import {
+  atom,
+  Button,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  host as host6,
+  TITLEBAR_AREAS,
+  useValue
+} from "@hermes/plugin-sdk";
+var sidebarHeaderEvent = "hcv:sidebar-header";
+var labels = {
+  ru: {
+    title: "\u0410\u043A\u0442\u0438\u0432\u043D\u043E\u0441\u0442\u044C",
+    description: "\u041F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u044F, \u0442\u0435\u043A\u0443\u0449\u0438\u0435 \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0438 \u0438 \u0438\u0445 \u0440\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442\u044B.",
+    profile: "\u041F\u0440\u043E\u0444\u0438\u043B\u044C Hermes",
+    attention: "\u041E\u0436\u0438\u0434\u0430\u044E\u0442 \u0440\u0435\u0448\u0435\u043D\u0438\u044F",
+    refresh: "\u041E\u0431\u043D\u043E\u0432\u0438\u0442\u044C",
+    loading: "\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043C \u043F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u044F\u2026",
+    loadError: "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u043F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C \u043E\u0447\u0435\u0440\u0435\u0434\u044C. \u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u043F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0435 \u0438 \u043F\u043E\u0432\u0442\u043E\u0440\u0438\u0442\u0435.",
+    noItems: "\u041D\u0435\u0442 \u043F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u0439, \u043E\u0436\u0438\u0434\u0430\u044E\u0449\u0438\u0445 \u0440\u0435\u0448\u0435\u043D\u0438\u044F.",
+    invalid: "\u041D\u0435\u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u0437\u0430\u043F\u0438\u0441\u0438 \u043E\u0447\u0435\u0440\u0435\u0434\u0438 \u043D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u043F\u0440\u043E\u0447\u0438\u0442\u0430\u0442\u044C.",
+    skill: "\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0435 \u043D\u0430\u0432\u044B\u043A\u0430",
+    skillCreate: "\u0421\u043E\u0437\u0434\u0430\u043D\u0438\u0435 \u043D\u0430\u0432\u044B\u043A\u0430",
+    skillFiles: "\u0424\u0430\u0439\u043B\u044B \u043D\u0430\u0432\u044B\u043A\u0430",
+    memory: "\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0435 \u043F\u0430\u043C\u044F\u0442\u0438",
+    auto: "\u0418\u0437 \u0430\u0432\u0442\u043E\u0440\u0430\u0437\u0431\u043E\u0440\u0430",
+    manual: "\u041F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u0435 \u0430\u0441\u0441\u0438\u0441\u0442\u0435\u043D\u0442\u0430",
+    inspect: "\u041F\u043E\u0441\u043C\u043E\u0442\u0440\u0435\u0442\u044C \u043F\u0440\u0430\u0432\u043A\u0443",
+    back: "\u041A \u043F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u044F\u043C",
+    preview: "\u041F\u043E\u043B\u043D\u044B\u0439 \u0442\u0435\u043A\u0441\u0442 \u043F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u044F",
+    previewLoading: "\u041E\u0442\u043A\u0440\u044B\u0432\u0430\u0435\u043C \u043F\u043E\u043B\u043D\u044B\u0439 \u0442\u0435\u043A\u0441\u0442\u2026",
+    previewError: "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u043F\u043E\u043B\u043D\u044B\u0439 \u0442\u0435\u043A\u0441\u0442. \u041E\u0431\u043D\u043E\u0432\u0438\u0442\u0435 \u043E\u0447\u0435\u0440\u0435\u0434\u044C \u0438 \u043F\u043E\u0432\u0442\u043E\u0440\u0438\u0442\u0435.",
+    unavailable: "\u041F\u0440\u0438\u043C\u0435\u043D\u0435\u043D\u0438\u0435 \u044D\u0442\u043E\u0433\u043E \u043F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u044F \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E.",
+    accept: "\u041F\u0440\u0438\u043D\u044F\u0442\u044C",
+    reject: "\u041E\u0442\u043A\u043B\u043E\u043D\u0438\u0442\u044C",
+    approved: "\u041F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u0435 \u043F\u0440\u0438\u043D\u044F\u0442\u043E.",
+    rejected: "\u041F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u0435 \u043E\u0442\u043A\u043B\u043E\u043D\u0435\u043D\u043E.",
+    working: "\u0412\u044B\u043F\u043E\u043B\u043D\u044F\u0435\u043C\u2026",
+    uncertain: "\u0420\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442 \u043D\u0435 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0451\u043D. \u041E\u0431\u043D\u043E\u0432\u0438\u0442\u0435 \u043E\u0447\u0435\u0440\u0435\u0434\u044C \u0438 \u0437\u0430\u043D\u043E\u0432\u043E \u043E\u0442\u043A\u0440\u043E\u0439\u0442\u0435 \u043F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u0435 \u043F\u0435\u0440\u0435\u0434 \u0441\u043B\u0435\u0434\u0443\u044E\u0449\u0438\u043C \u0440\u0435\u0448\u0435\u043D\u0438\u0435\u043C.",
+    stale: "\u041F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u0435 \u0438\u043B\u0438 \u0438\u0441\u0445\u043E\u0434\u043D\u044B\u0435 \u0444\u0430\u0439\u043B\u044B \u0438\u0437\u043C\u0435\u043D\u0438\u043B\u0438\u0441\u044C. \u041E\u0431\u043D\u043E\u0432\u0438\u0442\u0435 \u043E\u0447\u0435\u0440\u0435\u0434\u044C \u0438 \u043F\u0440\u043E\u0441\u043C\u043E\u0442\u0440\u0438\u0442\u0435 \u043F\u0440\u0430\u0432\u043A\u0443 \u0437\u0430\u043D\u043E\u0432\u043E.",
+    retry: "\u041F\u043E\u0432\u0442\u043E\u0440\u0438\u0442\u044C",
+    unknownDate: "\u0412\u0440\u0435\u043C\u044F \u043D\u0435 \u0443\u043A\u0430\u0437\u0430\u043D\u043E",
+    unknown: "\u041E\u0447\u0435\u0440\u0435\u0434\u044C \u0435\u0449\u0451 \u043D\u0435 \u043F\u0440\u043E\u0432\u0435\u0440\u0435\u043D\u0430",
+    locked: "\u041E\u0431\u043D\u043E\u0432\u0438\u0442\u0435 \u043E\u0447\u0435\u0440\u0435\u0434\u044C \u0438 \u0437\u0430\u043D\u043E\u0432\u043E \u043E\u0442\u043A\u0440\u043E\u0439\u0442\u0435 \u043F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u0435.",
+    unsupported: "\u041E\u0447\u0435\u0440\u0435\u0434\u044C \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u0430 \u0432 \u044D\u0442\u043E\u043C \u043F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0438.",
+    disconnected: "\u041F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0435 \u043A Hermes \u043F\u043E\u0442\u0435\u0440\u044F\u043D\u043E. \u041E\u0447\u0435\u0440\u0435\u0434\u044C \u0431\u0443\u0434\u0435\u0442 \u043F\u0440\u043E\u0432\u0435\u0440\u0435\u043D\u0430 \u043F\u043E\u0441\u043B\u0435 \u0432\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F \u0441\u0432\u044F\u0437\u0438.",
+    unknownOrigin: "\u0418\u0441\u0442\u043E\u0447\u043D\u0438\u043A \u043D\u0435 \u0443\u043A\u0430\u0437\u0430\u043D",
+    proposals: "\u041F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u044F",
+    now: "\u0421\u0435\u0439\u0447\u0430\u0441",
+    recent: "\u041D\u0435\u0434\u0430\u0432\u043D\u0435\u0435",
+    filter: "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C",
+    all: "\u0412\u0441\u0435",
+    skills: "\u041D\u0430\u0432\u044B\u043A\u0438",
+    memories: "\u041F\u0430\u043C\u044F\u0442\u044C",
+    noRunning: "\u0421\u0435\u0439\u0447\u0430\u0441 \u043D\u0435\u0442 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0451\u043D\u043D\u044B\u0445 \u0444\u043E\u043D\u043E\u0432\u044B\u0445 \u043F\u0440\u043E\u0432\u0435\u0440\u043E\u043A.",
+    noRecent: "\u0417\u0434\u0435\u0441\u044C \u043F\u043E\u044F\u0432\u044F\u0442\u0441\u044F \u0440\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442\u044B \u043D\u043E\u0432\u044B\u0445 \u043F\u0440\u043E\u0432\u0435\u0440\u043E\u043A \u0438 \u0440\u0435\u0448\u0435\u043D\u0438\u0439.",
+    historyError: "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u043F\u0440\u043E\u0447\u0438\u0442\u0430\u0442\u044C \u0441\u043E\u0431\u044B\u0442\u0438\u044F \u0438 \u0438\u0441\u0442\u043E\u0440\u0438\u044E. \u041E\u0431\u043D\u043E\u0432\u0438\u0442\u0435 \u043F\u0430\u043D\u0435\u043B\u044C.",
+    review: "\u0424\u043E\u043D\u043E\u0432\u0430\u044F \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0430",
+    completed: "\u0417\u0430\u0432\u0435\u0440\u0448\u0435\u043D\u0430",
+    interrupted: "\u041F\u0440\u0435\u0440\u0432\u0430\u043D\u0430",
+    failed: "\u041D\u0435 \u0437\u0430\u0432\u0435\u0440\u0448\u0438\u043B\u0430\u0441\u044C \u0438\u0437-\u0437\u0430 \u043E\u0448\u0438\u0431\u043A\u0438",
+    resultUnknown: "\u0420\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442 \u043D\u0435 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0451\u043D",
+    decisionApproved: "\u041F\u0440\u0438\u043D\u044F\u0442\u043E",
+    decisionRejected: "\u041E\u0442\u043A\u043B\u043E\u043D\u0435\u043D\u043E",
+    notApplied: "\u041D\u0435 \u043F\u0440\u0438\u043C\u0435\u043D\u0435\u043D\u043E",
+    waitingSummary: "\u0413\u043E\u0442\u043E\u0432\u0438\u043C \u043A\u0440\u0430\u0442\u043A\u043E\u0435 \u043E\u043F\u0438\u0441\u0430\u043D\u0438\u0435\u2026",
+    summaryError: "\u041A\u0440\u0430\u0442\u043A\u043E\u0435 \u043E\u043F\u0438\u0441\u0430\u043D\u0438\u0435 \u043D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u043F\u043E\u0434\u0433\u043E\u0442\u043E\u0432\u0438\u0442\u044C. \u041C\u043E\u0436\u043D\u043E \u043F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C \u0438\u0437\u043C\u0435\u043D\u0451\u043D\u043D\u044B\u0435 \u0444\u0440\u0430\u0433\u043C\u0435\u043D\u0442\u044B \u043D\u0438\u0436\u0435.",
+    summaryUnavailable: "\u041A\u0440\u0430\u0442\u043A\u043E\u0435 \u043E\u043F\u0438\u0441\u0430\u043D\u0438\u0435 \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E. \u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u0438\u0437\u043C\u0435\u043D\u0451\u043D\u043D\u044B\u0435 \u0444\u0440\u0430\u0433\u043C\u0435\u043D\u0442\u044B \u043D\u0438\u0436\u0435.",
+    summaryUnavailableFull: "\u041A\u0440\u0430\u0442\u043A\u043E\u0435 \u043E\u043F\u0438\u0441\u0430\u043D\u0438\u0435 \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E. \u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u043F\u043E\u043B\u043D\u044B\u0439 \u0442\u0435\u043A\u0441\u0442 \u043D\u0438\u0436\u0435.",
+    summaryUnavailableOnly: "\u041A\u0440\u0430\u0442\u043A\u043E\u0435 \u043E\u043F\u0438\u0441\u0430\u043D\u0438\u0435 \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E.",
+    missingSkillNext: "\u0427\u0442\u043E\u0431\u044B \u043F\u0440\u0438\u043C\u0435\u043D\u0438\u0442\u044C \u043F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u0435, \u0441\u043D\u0430\u0447\u0430\u043B\u0430 \u0441\u043E\u0437\u0434\u0430\u0439\u0442\u0435 \u0438\u043B\u0438 \u0432\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u0435 \u043D\u0430\u0432\u044B\u043A, \u0437\u0430\u0442\u0435\u043C \u043E\u0431\u043D\u043E\u0432\u0438\u0442\u0435 \u0441\u043F\u0438\u0441\u043E\u043A.",
+    missingSkillCreate: "\u0412 \u043E\u0447\u0435\u0440\u0435\u0434\u0438 \u0435\u0441\u0442\u044C \u043F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u0435 \u0441\u043E\u0437\u0434\u0430\u0442\u044C \u043D\u0430\u0432\u044B\u043A \u0441 \u0442\u0430\u043A\u0438\u043C \u043D\u0430\u0437\u0432\u0430\u043D\u0438\u0435\u043C. \u0420\u0430\u0441\u0441\u043C\u043E\u0442\u0440\u0438\u0442\u0435 \u0435\u0433\u043E \u0432 \u043F\u0435\u0440\u0432\u0443\u044E \u043E\u0447\u0435\u0440\u0435\u0434\u044C.",
+    openCreate: "\u0420\u0430\u0441\u0441\u043C\u043E\u0442\u0440\u0435\u0442\u044C \u0441\u043E\u0437\u0434\u0430\u043D\u0438\u0435 \u043D\u0430\u0432\u044B\u043A\u0430",
+    proposedFiles: "\u041F\u0440\u0435\u0434\u043B\u0430\u0433\u0430\u0435\u0442\u0441\u044F \u0437\u0430\u043F\u0438\u0441\u0430\u0442\u044C \u0432 \u043D\u0430\u0432\u044B\u043A \u044D\u0442\u0438 \u0444\u0430\u0439\u043B\u044B:",
+    inspectCreate: "\u041F\u043E\u0441\u043C\u043E\u0442\u0440\u0435\u0442\u044C \u043F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u0435",
+    changes: "\u0418\u0437\u043C\u0435\u043D\u0451\u043D\u043D\u044B\u0435 \u0444\u0440\u0430\u0433\u043C\u0435\u043D\u0442\u044B",
+    fullFile: "\u041F\u043E\u043B\u043D\u044B\u0439 \u0442\u0435\u043A\u0441\u0442 \u0444\u0430\u0439\u043B\u0430",
+    before: "\u0411\u044B\u043B\u043E",
+    after: "\u0421\u0442\u0430\u043D\u0435\u0442",
+    fragmentsUnavailable: "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0432\u044B\u0434\u0435\u043B\u0438\u0442\u044C \u0438\u0437\u043C\u0435\u043D\u0451\u043D\u043D\u044B\u0435 \u0444\u0440\u0430\u0433\u043C\u0435\u043D\u0442\u044B. \u041E\u0442\u043A\u0440\u043E\u0439\u0442\u0435 \u043F\u043E\u043B\u043D\u044B\u0439 \u0442\u0435\u043A\u0441\u0442 \u0444\u0430\u0439\u043B\u0430.",
+    empty: "\u041F\u0443\u0441\u0442\u043E",
+    removed: "\u0411\u0443\u0434\u0435\u0442 \u0443\u0434\u0430\u043B\u0435\u043D\u043E",
+    change: "\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0435",
+    create: "\u0421\u043E\u0437\u0434\u0430\u043D\u0438\u0435",
+    replace: "\u041F\u043E\u043B\u043D\u0430\u044F \u0437\u0430\u043C\u0435\u043D\u0430",
+    deletion: "\u0423\u0434\u0430\u043B\u0435\u043D\u0438\u0435",
+    destructive: "\u041F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u0435 \u0432\u043A\u043B\u044E\u0447\u0430\u0435\u0442 \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u0435 \u0438\u043B\u0438 \u043F\u043E\u043B\u043D\u0443\u044E \u0437\u0430\u043C\u0435\u043D\u0443. \u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u0437\u0430\u0442\u0440\u043E\u043D\u0443\u0442\u044B\u0435 \u0444\u0440\u0430\u0433\u043C\u0435\u043D\u0442\u044B.",
+    summaryHint: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435 \u043F\u043E\u0434\u0433\u043E\u0442\u043E\u0432\u043B\u0435\u043D\u043E \u043C\u043E\u0434\u0435\u043B\u044C\u044E. \u041F\u0435\u0440\u0435\u0434 \u0440\u0435\u0448\u0435\u043D\u0438\u0435\u043C \u043C\u043E\u0436\u043D\u043E \u043F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C \u0444\u0440\u0430\u0433\u043C\u0435\u043D\u0442\u044B.",
+    excerpt: "\u0424\u0440\u0430\u0433\u043C\u0435\u043D\u0442"
+  },
+  en: {
+    title: "Activity",
+    description: "Proposals, ongoing reviews and their results.",
+    profile: "Hermes profile",
+    attention: "Needs your decision",
+    refresh: "Refresh",
+    loading: "Loading proposals\u2026",
+    loadError: "Could not check the queue. Check the connection and try again.",
+    noItems: "No proposals are waiting for a decision.",
+    invalid: "Some queue records could not be read.",
+    skill: "Skill change",
+    skillCreate: "Create a skill",
+    skillFiles: "Skill files",
+    memory: "Memory change",
+    auto: "From background review",
+    manual: "Assistant proposal",
+    inspect: "View proposed change",
+    back: "Back to proposals",
+    preview: "Full proposed change",
+    previewLoading: "Opening the full proposal\u2026",
+    previewError: "Could not open the full proposal. Refresh the queue and try again.",
+    unavailable: "This proposal cannot be applied.",
+    accept: "Approve",
+    reject: "Reject",
+    approved: "Proposal approved.",
+    rejected: "Proposal rejected.",
+    working: "Working\u2026",
+    uncertain: "The result is unconfirmed. Refresh the queue and review the proposal again before another decision.",
+    stale: "The proposal or source files changed. Refresh the queue and review the change again.",
+    retry: "Retry",
+    unknownDate: "Time not recorded",
+    unknown: "The queue has not been checked",
+    locked: "Refresh the queue and review the proposal again.",
+    unsupported: "The queue is unavailable on this connection.",
+    disconnected: "The Hermes connection was lost. The queue will be checked after reconnecting.",
+    unknownOrigin: "Source not recorded",
+    proposals: "Proposals",
+    now: "Now",
+    recent: "Recent",
+    filter: "Show",
+    all: "All",
+    skills: "Skills",
+    memories: "Memory",
+    noRunning: "No confirmed background reviews are running.",
+    noRecent: "New review results and decisions will appear here.",
+    historyError: "Could not read activity and history. Refresh the panel.",
+    review: "Background review",
+    completed: "Completed",
+    interrupted: "Interrupted",
+    failed: "Failed",
+    resultUnknown: "Result not confirmed",
+    decisionApproved: "Approved",
+    decisionRejected: "Rejected",
+    notApplied: "Not applied",
+    waitingSummary: "Preparing a short explanation\u2026",
+    summaryError: "Could not prepare an explanation. Review the changed passages below.",
+    summaryUnavailable: "An explanation is unavailable. Review the changed passages below.",
+    summaryUnavailableFull: "An explanation is unavailable. Review the full text below.",
+    summaryUnavailableOnly: "An explanation is unavailable.",
+    missingSkillNext: "Create or restore the skill first, then refresh the list to apply this proposal.",
+    missingSkillCreate: "There is also a proposal to create a skill with this name. Review it first.",
+    openCreate: "Review skill creation",
+    proposedFiles: "These files are proposed for the skill:",
+    inspectCreate: "View proposal",
+    changes: "Changed passages",
+    fullFile: "Full file",
+    before: "Before",
+    after: "After",
+    empty: "Empty",
+    removed: "Will be removed",
+    fragmentsUnavailable: "Could not isolate the changed passages. Open the full file.",
+    change: "Change",
+    create: "Create",
+    replace: "Full replacement",
+    deletion: "Removal",
+    destructive: "This proposal includes removal or a full replacement. Review the affected passages.",
+    summaryHint: "The explanation was prepared by a model. You can check the passages before deciding.",
+    excerpt: "Excerpt"
+  }
+};
+var words = () => document.documentElement.lang.toLowerCase().startsWith("ru") ? labels.ru : labels.en;
+var itemKey = (item) => `${item.kind}:${item.id}`;
+var proposalPath = (item) => `/activity/${item.kind}/${item.id}`;
+var idValid = (value2) => typeof value2 === "string" && /^[0-9a-f]{8}$/.test(value2);
+var text = (value2) => typeof value2 === "string" ? value2 : "";
+function activityItem(value2) {
+  if (!value2 || !idValid(value2.id) || !["skills", "memory"].includes(value2.kind) || typeof value2.version !== "string" || !value2.version) return null;
+  return {
+    ...value2,
+    names: Array.isArray(value2.names) ? value2.names.filter((name) => typeof name === "string" && name) : [],
+    summary: text(value2.summary),
+    origin: text(value2.origin)
+  };
+}
+function activitySnapshot(value2) {
+  if (!value2 || value2.schema !== 1 || typeof value2.scope !== "string" || !value2.scope || !Array.isArray(value2.items) || !Number.isInteger(value2.invalid_count) || value2.invalid_count < 0) return null;
+  const items2 = value2.items.map(activityItem);
+  if (items2.some((item) => !item) || new Set(items2.map(itemKey)).size !== items2.length) return null;
+  const validEvent = (item) => item && typeof item.id === "string" && ["review", "decision"].includes(item.category) && Array.isArray(item.kinds) && item.kinds.every((kind) => ["skills", "memory"].includes(kind)) && typeof item.name === "string" && (item.description === void 0 || typeof item.description === "string") && [
+    "running",
+    "completed",
+    "interrupted",
+    "failed",
+    "unknown",
+    "submitted",
+    "approved",
+    "rejected",
+    "not_applied"
+  ].includes(item.status);
+  const historyAvailable = value2.history_available === true && Array.isArray(value2.running) && Array.isArray(value2.recent) && value2.running.every(validEvent) && value2.recent.every(validEvent);
+  return {
+    ...value2,
+    items: items2,
+    history_available: historyAvailable,
+    running: historyAvailable ? value2.running : [],
+    recent: historyAvailable ? value2.recent : []
+  };
+}
+function activityDetail(value2, item, scope4) {
+  if (!value2 || value2.scope !== scope4 || value2.id !== item.id || value2.kind !== item.kind || value2.version !== item.version || typeof value2.signature !== "string" || !value2.signature || typeof value2.preview !== "string" || typeof value2.applicable !== "boolean" || !Array.isArray(value2.changes) || !value2.changes.every((change) => change && typeof change.name === "string" && typeof change.file === "string" && typeof change.action === "string" && Array.isArray(change.fragments) && (change.full_replacement === void 0 || typeof change.full_replacement === "boolean") && (change.fragments_unavailable === void 0 || typeof change.fragments_unavailable === "boolean") && change.fragments.every((fragment) => typeof fragment.before === "string" && typeof fragment.after === "string") && (change.before === null || typeof change.before === "string") && (change.after === null || typeof change.after === "string")) || !value2.explanation || !["pending", "ready", "error", "unavailable"].includes(value2.explanation.status) || typeof value2.explanation.text !== "string" || value2.missing_skill !== void 0 && typeof value2.missing_skill !== "string" || value2.proposed_files !== void 0 && (!Array.isArray(value2.proposed_files) || !value2.proposed_files.every((file) => file && typeof file.file === "string" && typeof file.heading === "string" && typeof file.content === "string"))) return null;
+  return {
+    ...value2,
+    names: Array.isArray(value2.names) ? value2.names.filter((name) => typeof name === "string" && name) : item.names,
+    proposed_files: value2.proposed_files || []
+  };
+}
+function dateLabel(value2) {
+  if (value2 === null || value2 === void 0 || value2 === "") return words().unknownDate;
+  const numeric2 = typeof value2 === "number" ? value2 : typeof value2 === "string" && /^\d+(?:\.\d+)?$/.test(value2) ? Number(value2) : null;
+  const date = new Date(numeric2 === null ? value2 : numeric2 < 1e11 ? numeric2 * 1e3 : numeric2);
+  return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat(
+    document.documentElement.lang.toLowerCase().startsWith("ru") ? "ru-RU" : "en-US",
+    { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }
+  ).format(date) : words().unknownDate;
+}
+function nameLabel(item, t) {
+  return item.names.length ? item.names.join(", ") : t[item.kind === "skills" ? "skill" : "memory"];
+}
+function kindLabel(item, t) {
+  return item.kind !== "skills" ? t.memory : item.skill_action === "create" ? t.skillCreate : item.skill_action === "files" ? t.skillFiles : t.skill;
+}
+function originLabel(item, t) {
+  return item.origin === "background_review" ? t.auto : ["foreground", "refine_review"].includes(item.origin) ? t.manual : t.unknownOrigin;
+}
+function hashKey(value2) {
+  let hash = 2166136261;
+  for (let i = 0; i < value2.length; i++) hash = Math.imul(hash ^ value2.charCodeAt(i), 16777619);
+  return (hash >>> 0).toString(16);
+}
+function readable(value2) {
+  return text(value2).replace(/^\s{0,3}#{1,6}\s+/gm, "").replace(/^description:\s*/gm, "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435: ").replace(/`([^`]+)`/g, "$1").replace(/\*\*([^*]+)\*\*/g, "$1");
+}
+function changeLabel(change, t) {
+  return ["delete", "remove_file", "remove"].includes(change.action) ? t.deletion : change.full_replacement || ["edit", "replace"].includes(change.action) || change.action === "write_file" && change.before !== null ? t.replace : ["create", "add"].includes(change.action) ? t.create : t.change;
+}
+function Changes({ changes: changes2, t }) {
+  return h4(
+    "details",
+    { "data-hcv-activity-changes": "" },
+    h4("summary", null, t.changes),
+    changes2.map((change, index) => h4(
+      "section",
+      { key: index, "data-hcv-activity-change": "" },
+      h4("h3", null, `${changeLabel(change, t)} \xB7 ${change.name ? change.name + " / " : ""}${change.file}`),
+      change.fragments_unavailable && h4("p", null, t.fragmentsUnavailable),
+      change.fragments.map((fragment, fragmentIndex) => h4(
+        "div",
+        { key: fragmentIndex, "data-hcv-activity-fragment": "" },
+        fragment.before && h4("div", null, h4("strong", null, t.before), h4("p", null, readable(fragment.before))),
+        fragment.after && h4("div", null, h4("strong", null, t.after), h4("p", null, readable(fragment.after)))
+      )),
+      h4(
+        "details",
+        { "data-hcv-activity-full": "" },
+        h4("summary", null, t.fullFile),
+        h4("strong", null, t.before),
+        h4("pre", { tabIndex: 0 }, change.before === null ? t.empty : change.before || t.empty),
+        h4("strong", null, t.after),
+        h4("pre", { tabIndex: 0 }, change.after === null ? t.removed : change.after || t.empty)
+      )
+    ))
+  );
+}
+function ActivityEvents({ items: items2, t, empty }) {
+  if (!items2.length) return h4("p", { role: "status" }, empty);
+  const status2 = {
+    running: t.now,
+    completed: t.completed,
+    interrupted: t.interrupted,
+    failed: t.failed,
+    unknown: t.resultUnknown,
+    submitted: t.resultUnknown,
+    approved: t.decisionApproved,
+    rejected: t.decisionRejected,
+    not_applied: t.notApplied
+  };
+  return h4("ul", { "data-hcv-activity-list": "" }, items2.map((item) => h4(
+    "li",
+    {
+      key: item.id,
+      "data-hcv-activity-item": item.id
+    },
+    h4("h3", null, item.category === "review" ? t.review : `${item.kinds.includes("skills") ? t.skill : t.memory}${item.name ? " \xB7 " + item.name : ""}`),
+    item.description && h4("p", { "data-hcv-activity-summary": "" }, readable(item.description)),
+    h4("p", { "data-hcv-activity-meta": "" }, `${status2[item.status]} \xB7 ${dateLabel(item.finished_at || item.started_at)}`)
+  )));
+}
+function ActivityDialog({ model, controller }) {
+  const state = useValue(model);
+  const t = words();
+  if (!state.open) return null;
+  const selected2 = state.selected;
+  const detail = state.detail;
+  const loading2 = state.busy === "detail";
+  const mutating = ["approve", "reject"].includes(state.busy);
+  const listReady = state.listStatus === "ready" && state.snapshot;
+  const locked = selected2 && state.locked.includes(itemKey(selected2));
+  const title = selected2 ? nameLabel(detail || selected2, t) : t[state.section];
+  const snapshot = state.snapshot;
+  const creationMatches = detail?.missing_skill ? (snapshot?.items || []).filter((item) => item.kind === "skills" && item.skill_action === "create" && item.names.length === 1 && item.names[0] === detail.missing_skill && itemKey(item) !== itemKey(selected2)) : [];
+  const filteredItems = snapshot?.items.filter((item) => state.filter === "all" || item.kind === state.filter) || [];
+  const filteredEvents = (list) => list.filter((item) => state.filter === "all" || item.kinds.includes(state.filter));
+  const explanation2 = detail?.explanation ?? (loading2 && selected2 && controller.savedExplanation(selected2));
+  const unavailableFragments = detail?.changes.some((change) => change.fragments_unavailable);
+  const unavailableMessage = !detail?.changes.length ? detail?.preview && detail.preview !== detail.reason ? t.summaryUnavailableFull : t.summaryUnavailableOnly : unavailableFragments ? t.summaryUnavailableFull : t.summaryUnavailable;
+  const destructive = detail?.changes.some((change) => change.full_replacement || ["delete", "remove_file", "remove", "edit", "replace"].includes(change.action) || change.action === "write_file" && change.before !== null);
+  return h4(
+    Dialog,
+    { open: true, onOpenChange: (open) => {
+      if (!open) controller.close();
+    } },
+    h4(
+      DialogContent,
+      {
+        "data-hcv-activity": "",
+        "data-overlay-surface": "",
+        blurBackdrop: false,
+        onCloseAutoFocus: (event) => {
+          event.preventDefault();
+          controller.returnFocus();
+        }
+      },
+      h4(DialogHeader, null, h4(DialogTitle, null, t.title), h4(DialogDescription, null, t.description)),
+      h4("div", { "data-hcv-activity-meta": "" }, `${t.profile}: ${state.profile}`),
+      !selected2 && h4(
+        "div",
+        { "data-hcv-activity-nav": "", role: "group", "aria-label": t.title },
+        ["proposals", "now", "recent"].map((section2) => h4(Button, {
+          key: section2,
+          type: "button",
+          variant: "text",
+          "aria-pressed": state.section === section2,
+          onClick: () => controller.section(section2)
+        }, t[section2]))
+      ),
+      !selected2 && h4(
+        "div",
+        { "data-hcv-activity-filter": "", role: "group", "aria-label": t.filter },
+        [["all", "all"], ["skills", "skills"], ["memory", "memories"]].map(([filter, label4]) => h4(Button, {
+          key: filter,
+          type: "button",
+          variant: "text",
+          "aria-pressed": state.filter === filter,
+          onClick: () => controller.filter(filter)
+        }, t[label4]))
+      ),
+      h4(
+        "div",
+        { "data-hcv-activity-toolbar": "" },
+        selected2 && h4(Button, { type: "button", variant: "text", disabled: mutating, onClick: controller.back }, t.back),
+        h4("h2", { "data-hcv-activity-heading": "" }, title),
+        h4(Button, { type: "button", variant: "outline", disabled: Boolean(state.busy), onClick: () => controller.refresh(true) }, t.refresh)
+      ),
+      h4(
+        "div",
+        { "data-hcv-activity-body": "", "aria-busy": Boolean(state.busy) },
+        state.message && h4("p", { "data-hcv-activity-message": "", role: "status", tabIndex: -1 }, state.message),
+        selected2 ? h4(
+          "section",
+          { "data-hcv-activity-detail": "", "aria-label": title },
+          h4("p", { "data-hcv-activity-kind": "" }, kindLabel(detail || selected2, t)),
+          h4("p", { "data-hcv-activity-meta": "" }, `${originLabel(selected2, t)} \xB7 ${dateLabel(selected2.created_at)}`),
+          explanation2 ? h4(
+            "div",
+            { "data-hcv-activity-explanation": "" },
+            detail && !detail.applicable && h4("p", { "data-hcv-activity-warning": "", role: "status" }, text(detail.reason) || t.unavailable),
+            detail?.missing_skill && h4("p", null, creationMatches.length ? t.missingSkillCreate : t.missingSkillNext),
+            creationMatches.length === 1 && h4(Button, {
+              type: "button",
+              variant: "outline",
+              disabled: Boolean(state.busy),
+              onClick: () => controller.inspect(creationMatches[0])
+            }, t.openCreate),
+            detail?.proposed_files.length ? h4("p", { "data-hcv-activity-summary": "" }, t.proposedFiles) : explanation2.status === "ready" ? h4("p", { "data-hcv-activity-summary": "" }, explanation2.text) : h4("p", { role: "status" }, explanation2.status === "pending" ? t.waitingSummary : explanation2.status === "error" ? t.summaryError : unavailableMessage),
+            explanation2.status === "ready" && h4("p", { "data-hcv-activity-meta": "" }, t.summaryHint),
+            explanation2.status === "error" && h4(Button, {
+              type: "button",
+              variant: "outline",
+              disabled: Boolean(state.busy),
+              onClick: controller.retryExplanation
+            }, t.retry),
+            destructive && h4("p", { "data-hcv-activity-warning": "" }, t.destructive)
+          ) : h4("p", { role: "status" }, loading2 ? t.previewLoading : state.detailError || t.previewError),
+          locked && h4("p", { "data-hcv-activity-warning": "", role: "status" }, t.locked),
+          detail?.proposed_files.length > 0 && h4(
+            "div",
+            { "data-hcv-activity-proposed-files": "" },
+            detail.proposed_files.map((file, index) => h4(
+              "details",
+              { key: index, "data-hcv-activity-full": "" },
+              h4("summary", null, file.heading ? `${file.heading} \xB7 ${file.file}` : file.file),
+              h4("pre", { tabIndex: 0 }, file.content)
+            ))
+          ),
+          detail && h4(
+            "div",
+            { "data-hcv-activity-actions": "" },
+            h4(Button, {
+              type: "button",
+              variant: "outline",
+              disabled: Boolean(state.busy) || locked || explanation2.status === "pending",
+              onClick: () => controller.decide("reject")
+            }, mutating ? t.working : t.reject),
+            h4(Button, {
+              type: "button",
+              disabled: Boolean(state.busy) || locked || !detail.applicable || explanation2.status === "pending",
+              onClick: () => controller.decide("approve")
+            }, mutating ? t.working : t.accept)
+          ),
+          detail?.changes.length > 0 && h4(Changes, { changes: detail.changes, t }),
+          detail && !detail.changes.length && detail.preview && detail.preview !== detail.reason && h4(
+            "details",
+            { "data-hcv-activity-fallback": "" },
+            h4("summary", null, t.preview),
+            h4("pre", { "data-hcv-activity-preview": "", tabIndex: 0 }, detail.preview)
+          )
+        ) : state.listStatus === "loading" ? h4("p", { role: "status" }, t.loading) : state.listStatus === "error" ? h4(
+          "div",
+          null,
+          h4("p", { role: "status" }, state.listError || t.loadError),
+          h4(Button, { type: "button", variant: "outline", disabled: Boolean(state.busy), onClick: () => controller.refresh(true) }, t.retry)
+        ) : listReady && state.section !== "proposals" ? !snapshot.history_available ? h4("p", { role: "status" }, t.historyError) : h4(ActivityEvents, {
+          items: filteredEvents(state.section === "now" ? snapshot.running : snapshot.recent),
+          t,
+          empty: state.section === "now" ? t.noRunning : t.noRecent
+        }) : listReady && h4(
+          "div",
+          null,
+          state.snapshot.invalid_count > 0 && h4("p", { "data-hcv-activity-warning": "", role: "status" }, t.invalid),
+          !filteredItems.length ? state.snapshot.invalid_count === 0 ? h4("p", { role: "status" }, t.noItems) : null : h4("ul", { "data-hcv-activity-list": "" }, filteredItems.map((item) => h4(
+            "li",
+            { key: itemKey(item), "data-hcv-activity-item": itemKey(item) },
+            h4(
+              "div",
+              { "data-hcv-activity-item-title": "" },
+              h4("span", { "data-hcv-activity-kind": "" }, kindLabel(item, t)),
+              h4("h3", null, nameLabel(item, t))
+            ),
+            h4("p", { "data-hcv-activity-meta": "" }, `${originLabel(item, t)} \xB7 ${dateLabel(item.created_at)}`),
+            item.summary && h4("p", { "data-hcv-activity-summary": "" }, `${t.excerpt}: ${readable(item.summary)}`),
+            h4(Button, {
+              type: "button",
+              variant: "outline",
+              disabled: Boolean(state.busy),
+              onClick: () => controller.inspect(item)
+            }, item.skill_action === "create" ? t.inspectCreate : t.inspect)
+          )))
+        )
+      )
+    )
+  );
+}
+function registerActivityCenter(ctx, active3) {
+  const root = document.documentElement;
+  const model = atom({
+    open: false,
+    profile: host6.state.profile.get() || "default",
+    snapshot: null,
+    listStatus: "loading",
+    listError: "",
+    selected: null,
+    detail: null,
+    detailError: "",
+    section: "proposals",
+    filter: "all",
+    busy: null,
+    locked: [],
+    message: ""
+  });
+  let disposed = false, epoch = 0, identity = "", socket = null, gatewayState = "";
+  const busyScopes = /* @__PURE__ */ new Set();
+  const networkBusy = () => busyScopes.has(identity);
+  let pendingRefresh = null, button6 = null, buttonBadge = null;
+  let originFocus = null, scanQueued = false, summaryPoll = null, listPoll = null;
+  let stopPush = null, pushLease = null;
+  const locked = /* @__PURE__ */ new Set();
+  const memorySeen = /* @__PURE__ */ new Map();
+  const explanations = /* @__PURE__ */ new Map();
+  const enabled2 = () => !disposed && root.matches(active3);
+  let nativeHidden = null;
+  const windowIsVisible = () => !document.hidden && !(nativeHidden === null ? root.hasAttribute("data-renderer-animations-paused") : nativeHidden);
+  let windowVisible = windowIsVisible();
+  const identityNow = () => JSON.stringify([host6.state.connectionId.get() || null, host6.state.profile.get() || "default"]);
+  const current = (token) => enabled2() && token === epoch && identityNow() === identity && host6.getGateway() === socket && gatewayState === "open" && host6.state.gateway.get() === "open";
+  const canWatchActivity = () => windowIsVisible() && enabled2() && gatewayState === "open";
+  const write = (patch) => model.set({ ...model.get(), ...patch, locked: [...locked] });
+  const controller = {
+    open(from) {
+      if (!enabled2()) return;
+      scopeChanged();
+      originFocus = from?.isConnected ? from : button6;
+      write({ open: true, section: "proposals", filter: "all", selected: null, detail: null, detailError: "", message: "" });
+      void refresh(false);
+    },
+    close() {
+      stopSummaryPoll();
+      write({ open: false, selected: null, detail: null, detailError: "" });
+    },
+    returnFocus() {
+      const target = originFocus?.isConnected ? originFocus : button6;
+      if (enabled2() && target?.isConnected) target.focus({ preventScroll: true });
+    },
+    back() {
+      if (!["approve", "reject"].includes(model.get().busy)) {
+        stopSummaryPoll();
+        write({ selected: null, detail: null, detailError: "", message: "" });
+      }
+    },
+    section: (section2) => write({ section: section2, message: "" }),
+    filter: (filter) => write({ filter, message: "" }),
+    refresh: (explicit) => refresh(explicit),
+    savedExplanation(item) {
+      const saved = explanations.get(itemKey(item));
+      return saved?.version === item.version ? saved.explanation : null;
+    },
+    inspect: (item) => inspect(item),
+    decide: (action) => decide(action),
+    retryExplanation: () => retryExplanation()
+  };
+  function stopSummaryPoll() {
+    if (summaryPoll !== null) clearTimeout(summaryPoll);
+    summaryPoll = null;
+  }
+  function syncListPoll(readStartedAt = null) {
+    const interval = 1e4;
+    if (!canWatchActivity() || pushLease !== null && model.get().listStatus !== "error") {
+      if (listPoll !== null) clearTimeout(listPoll.timer);
+      listPoll = null;
+    } else if (listPoll === null || readStartedAt !== null && listPoll.deadline < readStartedAt + interval) {
+      if (listPoll !== null) clearTimeout(listPoll.timer);
+      const now = performance.now();
+      const deadline = (readStartedAt ?? now) + interval;
+      const timer = setTimeout(() => {
+        listPoll = null;
+        if (windowIsVisible() && enabled2() && !networkBusy()) void refresh(false);
+        syncListPoll();
+      }, Math.max(0, deadline - now));
+      listPoll = { timer, deadline };
+    }
+  }
+  function stopActivityPush() {
+    stopPush?.();
+    stopPush = null;
+    clearTimeout(pushLease);
+    pushLease = null;
+  }
+  function syncActivityPush() {
+    if (!canWatchActivity()) {
+      stopActivityPush();
+      return;
+    }
+    const snapshot = model.get().snapshot;
+    if (snapshot && snapshot.change_feed !== true) {
+      stopActivityPush();
+      return;
+    }
+    if (!snapshot || stopPush || typeof ctx.socket !== "function") return;
+    const token = epoch;
+    stopPush = ctx.socket("/activity/events", (message) => {
+      if (!current(token) || !windowIsVisible() || message?.schema !== 1 || !["ready", "changed", "heartbeat"].includes(message.kind)) return;
+      const needsRead = pushLease === null || message.kind !== "heartbeat";
+      clearTimeout(pushLease);
+      pushLease = setTimeout(() => {
+        pushLease = null;
+        if (!current(token) || !windowIsVisible()) return;
+        syncListPoll();
+        void refresh(false);
+      }, 9e3);
+      syncListPoll();
+      if (needsRead) void refresh(false);
+    });
+  }
+  function syncWindowVisibility() {
+    const visible2 = windowIsVisible(), changed = visible2 !== windowVisible;
+    windowVisible = visible2;
+    syncActivityPush();
+    syncListPoll();
+    if (changed && visible2 && enabled2()) void refresh(false);
+  }
+  function finishRequest(token, route, refreshAfter = false) {
+    busyScopes.delete(route);
+    if (route !== identity) return;
+    const stillCurrent = current(token);
+    if (stillCurrent) write({ busy: null });
+    const queued = pendingRefresh;
+    pendingRefresh = null;
+    if (enabled2() && (queued !== null || refreshAfter && stillCurrent)) void refresh(queued === true);
+  }
+  function scheduleSummaryPoll(item) {
+    stopSummaryPoll();
+    summaryPoll = setTimeout(() => {
+      summaryPoll = null;
+      const state = model.get();
+      if (!state.open || itemKey(state.selected || {}) !== itemKey(item) || state.selected?.version !== item.version || state.detail?.explanation.status !== "pending") return;
+      if (networkBusy()) scheduleSummaryPoll(item);
+      else void inspect(item, true);
+    }, 2e3);
+  }
+  function paintButton() {
+    if (!button6) return;
+    const state = model.get(), t = words();
+    const ready = state.listStatus === "ready" && state.snapshot && state.snapshot.invalid_count === 0;
+    const count = ready ? state.snapshot.items.length : null;
+    buttonBadge.textContent = count === null ? "?" : String(count);
+    buttonBadge.hidden = count === 0 && state.snapshot.invalid_count === 0;
+    buttonBadge.dataset.hcvActivityUnknown = String(count === null || state.snapshot?.invalid_count > 0);
+    const unknownMessage = state.snapshot?.invalid_count > 0 ? t.invalid : t.unknown;
+    button6.setAttribute("aria-label", count === null ? `${t.title}: ${unknownMessage}` : `${t.title}: ${t.attention.toLowerCase()} ${count}${state.snapshot.invalid_count ? ". " + t.invalid : ""}`);
+    button6.title = count === null ? `${t.title}: ${unknownMessage}` : `${t.title} \xB7 ${count}`;
+    button6.setAttribute("aria-expanded", String(state.open));
+  }
+  function mountButton() {
+    scanQueued = false;
+    if (!enabled2()) {
+      button6?.remove();
+      return;
+    }
+    const next = document.querySelector("[data-hcv-sidebar-bar]");
+    const bell = next?.querySelector("[data-hcv-notifications]");
+    if (!bell) return;
+    if (!button6) {
+      button6 = document.createElement("button");
+      button6.type = "button";
+      button6.dataset.hcvActivityButton = "";
+      button6.setAttribute("aria-haspopup", "dialog");
+      const glyph3 = document.createElement("span");
+      glyph3.dataset.hcvActivityGlyph = "";
+      glyph3.setAttribute("aria-hidden", "true");
+      buttonBadge = document.createElement("span");
+      buttonBadge.dataset.hcvActivityCount = "";
+      buttonBadge.setAttribute("aria-hidden", "true");
+      button6.append(glyph3, buttonBadge);
+      button6.addEventListener("click", () => controller.open(button6));
+    }
+    if (button6.parentElement !== next || button6.nextElementSibling !== bell) next.insertBefore(button6, bell);
+    paintButton();
+  }
+  function scheduleMount() {
+    if (scanQueued || disposed) return;
+    scanQueued = true;
+    queueMicrotask(mountButton);
+  }
+  function scopeChanged() {
+    const nextIdentity = identityNow(), nextSocket = host6.getGateway(), nextGatewayState = host6.state.gateway.get();
+    if (nextIdentity === identity && nextSocket === socket && nextGatewayState === gatewayState && enabled2()) return false;
+    identity = nextIdentity;
+    socket = nextSocket;
+    gatewayState = nextGatewayState;
+    epoch++;
+    stopSummaryPoll();
+    stopActivityPush();
+    syncListPoll();
+    locked.clear();
+    explanations.clear();
+    pendingRefresh = null;
+    write({
+      open: false,
+      profile: host6.state.profile.get() || "default",
+      snapshot: null,
+      listStatus: gatewayState === "open" ? "loading" : "error",
+      listError: gatewayState === "open" ? "" : words().disconnected,
+      section: "proposals",
+      filter: "all",
+      selected: null,
+      detail: null,
+      detailError: "",
+      busy: null,
+      message: ""
+    });
+    syncActivityPush();
+    scheduleMount();
+    return true;
+  }
+  function announce(snapshot) {
+    const route = identity, backendScope = snapshot.scope, seenScope = `${route}\0${backendScope}`;
+    const key2 = `hermes-codex-visual:activity-seen:v1:${hashKey(seenScope)}`;
+    let seen = memorySeen.get(seenScope);
+    if (!seen) {
+      try {
+        const stored = JSON.parse(localStorage.getItem(key2) || "null");
+        if (Array.isArray(stored)) seen = stored.filter((item) => typeof item === "string");
+      } catch {
+      }
+      seen ||= [];
+    }
+    const previous = new Set(seen);
+    const fresh = snapshot.items.filter((item) => !previous.has(`${itemKey(item)}:${item.version}`));
+    const next = [.../* @__PURE__ */ new Set([...seen, ...snapshot.items.map((item) => `${itemKey(item)}:${item.version}`)])].slice(-512);
+    memorySeen.set(seenScope, next);
+    try {
+      localStorage.setItem(key2, JSON.stringify(next));
+    } catch {
+    }
+    if (!fresh.length) return;
+    const t = words();
+    try {
+      host6.notify({
+        id: `hcv-activity-${hashKey(seenScope)}`,
+        kind: "info",
+        title: t.title,
+        message: `${t.attention}: ${snapshot.items.length} \xB7 ${model.get().profile}`,
+        durationMs: 5e3,
+        action: { label: t.inspect, onClick: () => {
+          if (route === identityNow() && model.get().snapshot?.scope === backendScope && enabled2()) controller.open(button6);
+        } }
+      });
+    } catch {
+    }
+  }
+  async function refresh(explicit = false) {
+    if (!enabled2()) return;
+    scopeChanged();
+    if (gatewayState !== "open") return;
+    if (networkBusy()) {
+      pendingRefresh = Boolean(explicit || pendingRefresh);
+      return;
+    }
+    const token = epoch, route = identity;
+    busyScopes.add(route);
+    if (explicit) {
+      stopSummaryPoll();
+      write({ selected: null, detail: null, detailError: "", message: "" });
+    }
+    write({ busy: "list", listStatus: model.get().snapshot ? model.get().listStatus : "loading", listError: "" });
+    const readStartedAt = performance.now();
+    try {
+      const response5 = await ctx.rest("/activity", { timeoutMs: 12e3 });
+      if (!current(token)) return;
+      const snapshot = activitySnapshot(response5);
+      if (!snapshot) throw new Error("Invalid activity snapshot");
+      const previous = model.get();
+      if (previous.snapshot?.scope && previous.snapshot.scope !== snapshot.scope) {
+        locked.clear();
+        explanations.clear();
+        write({ selected: null, detail: null, detailError: "", message: "" });
+      }
+      const versions = new Map(snapshot.items.map((item) => [itemKey(item), item.version]));
+      for (const [key2, saved] of explanations) if (versions.get(key2) !== saved.version) explanations.delete(key2);
+      if (explicit) locked.clear();
+      const selected2 = model.get().selected;
+      const selectedNow = selected2 && snapshot.items.find((item) => itemKey(item) === itemKey(selected2));
+      write({
+        snapshot,
+        listStatus: "ready",
+        listError: "",
+        ...selected2 && (!selectedNow || selectedNow.version !== selected2.version) ? { selected: null, detail: null, detailError: "", message: words().stale } : {}
+      });
+      syncActivityPush();
+      syncListPoll(readStartedAt);
+      announce(snapshot);
+    } catch {
+      if (current(token)) {
+        write({
+          snapshot: null,
+          listStatus: "error",
+          listError: words().loadError,
+          selected: null,
+          detail: null,
+          detailError: ""
+        });
+        syncListPoll();
+      }
+    } finally {
+      finishRequest(token, route);
+    }
+  }
+  async function inspect(item, silent = false) {
+    if (!enabled2()) return;
+    scopeChanged();
+    if (networkBusy()) return;
+    const snapshot = model.get().snapshot;
+    const fresh = snapshot?.items.find((candidate2) => itemKey(candidate2) === itemKey(item) && candidate2.version === item.version);
+    if (!fresh) return;
+    const token = epoch, route = identity;
+    busyScopes.add(route);
+    if (!silent) stopSummaryPoll();
+    write(silent ? { busy: "summary" } : { selected: fresh, detail: null, detailError: "", busy: "detail", message: "" });
+    try {
+      const response5 = await ctx.rest(proposalPath(fresh), { timeoutMs: 12e3 });
+      if (!current(token)) return;
+      if (itemKey(model.get().selected || {}) !== itemKey(fresh) || model.get().selected?.version !== fresh.version || model.get().snapshot?.scope !== snapshot.scope) return;
+      const detail = activityDetail(response5, fresh, snapshot.scope);
+      if (!detail) throw new Error("Invalid activity detail");
+      const key2 = itemKey(fresh);
+      if (detail.explanation.status === "ready") explanations.set(key2, { version: fresh.version, explanation: detail.explanation });
+      else explanations.delete(key2);
+      write({ detail, detailError: "" });
+      if (detail.explanation.status === "pending") scheduleSummaryPoll(fresh);
+    } catch {
+      if (current(token) && itemKey(model.get().selected || {}) === itemKey(fresh) && model.get().selected?.version === fresh.version) {
+        if (silent && model.get().detail) write({ detail: { ...model.get().detail, explanation: { status: "error", text: "" } } });
+        else write({ detail: null, detailError: words().previewError });
+      }
+    } finally {
+      finishRequest(token, route);
+    }
+  }
+  async function retryExplanation() {
+    if (!enabled2()) return;
+    scopeChanged();
+    if (networkBusy()) return;
+    const state = model.get(), item = state.selected, detail = state.detail;
+    if (!item || !detail || !state.snapshot) return;
+    const token = epoch, route = identity;
+    busyScopes.add(route);
+    write({ busy: "summary" });
+    try {
+      const response5 = await ctx.rest(`${proposalPath(item)}/explanation`, {
+        method: "POST",
+        timeoutMs: 12e3,
+        body: { scope: state.snapshot.scope, version: detail.version, signature: detail.signature }
+      });
+      if (!current(token)) return;
+      if (itemKey(model.get().selected || {}) !== itemKey(item) || model.get().selected?.version !== item.version || model.get().snapshot?.scope !== state.snapshot.scope) return;
+      if (response5?.scope !== state.snapshot.scope || !response5.explanation || !["pending", "ready", "error", "unavailable"].includes(response5.explanation.status) || typeof response5.explanation.text !== "string") throw new Error("Invalid explanation");
+      if (response5.explanation.status === "ready") {
+        explanations.set(itemKey(item), { version: item.version, explanation: response5.explanation });
+      }
+      write({ detail: { ...detail, explanation: response5.explanation } });
+      if (response5.explanation.status === "pending") scheduleSummaryPoll(item);
+    } catch {
+      if (current(token) && itemKey(model.get().selected || {}) === itemKey(item) && model.get().selected?.version === item.version)
+        write({ detail: { ...detail, explanation: { status: "error", text: "" } } });
+    } finally {
+      finishRequest(token, route);
+    }
+  }
+  async function decide(action) {
+    if (!enabled2() || !["approve", "reject"].includes(action)) return;
+    scopeChanged();
+    if (networkBusy()) return;
+    const state = model.get(), item = state.selected, detail = state.detail;
+    if (!state.snapshot || !item || !detail || detail.explanation.status === "pending" || locked.has(itemKey(item)) || action === "approve" && !detail.applicable) return;
+    const token = epoch, route = identity;
+    const key2 = itemKey(item);
+    busyScopes.add(route);
+    write({ busy: action, message: "" });
+    try {
+      const response5 = await ctx.rest(`${proposalPath(item)}/${action}`, {
+        method: "POST",
+        timeoutMs: 3e4,
+        body: { scope: state.snapshot.scope, version: detail.version, signature: detail.signature }
+      });
+      if (!current(token)) return;
+      if (response5?.scope !== state.snapshot.scope || response5.status !== (action === "approve" ? "approved" : "rejected"))
+        throw new Error("Unconfirmed decision");
+      explanations.delete(key2);
+      write({
+        selected: null,
+        detail: null,
+        detailError: "",
+        snapshot: {
+          ...state.snapshot,
+          items: state.snapshot.items.filter((candidate2) => itemKey(candidate2) !== key2)
+        },
+        message: action === "approve" ? words().approved : words().rejected
+      });
+      stopSummaryPoll();
+    } catch (error) {
+      if (!current(token)) return;
+      locked.add(key2);
+      write({ message: /\b409\b|stale|conflict/i.test(String(error?.message)) ? words().stale : words().uncertain });
+    } finally {
+      finishRequest(token, route, true);
+    }
+  }
+  const unsubscribe = model.listen(paintButton);
+  ctx.addEventListener(window, sidebarHeaderEvent, scheduleMount);
+  const theme2 = new MutationObserver(() => {
+    scopeChanged();
+    scheduleMount();
+    syncActivityPush();
+    syncListPoll();
+    if (enabled2()) void refresh(false);
+  });
+  theme2.observe(root, { attributes: true, attributeFilter: ["data-hermes-codex-visual", "data-hermes-theme", "lang"] });
+  const scopeSubscriptions = [host6.state.connectionId, host6.state.profile, host6.state.gateway].filter(Boolean).map((value2) => value2.listen(() => {
+    scopeChanged();
+    if (enabled2()) void refresh(false);
+  }));
+  const stopWindowState = window.hermesDesktop?.onWindowStateChanged?.((state) => {
+    if (typeof state?.isMinimized !== "boolean" && typeof state?.isVisible !== "boolean") return;
+    nativeHidden = state.isMinimized === true || state.isVisible === false;
+    syncWindowVisibility();
+  });
+  const visibility = new MutationObserver(syncWindowVisibility);
+  visibility.observe(root, { attributes: true, attributeFilter: ["data-renderer-animations-paused"] });
+  ctx.addEventListener(window, "focus", () => {
+    if (enabled2() && windowIsVisible()) void refresh(false);
+  });
+  ctx.addEventListener(document, "visibilitychange", syncWindowVisibility);
+  ctx.onEvent?.("review.summary", () => {
+    if (enabled2()) void refresh(false);
+  });
+  ctx.register({ id: "activity-center", area: TITLEBAR_AREAS.center, render: () => h4(ActivityDialog, { model, controller }) });
+  mountCSS(ctx, "data-hcv-activity-style", activityStyles(active3), { surface: "[data-hcv-activity-button], [data-hcv-activity]" });
+  scopeChanged();
+  mountButton();
+  if (enabled2()) void refresh(false);
+  ctx.onDispose(() => {
+    disposed = true;
+    epoch++;
+    stopSummaryPoll();
+    stopActivityPush();
+    syncListPoll();
+    visibility.disconnect();
+    stopWindowState?.();
+    theme2.disconnect();
+    unsubscribe();
+    scopeSubscriptions.forEach((stop) => stop());
+    button6?.remove();
+    model.set({ ...model.get(), open: false, snapshot: null, selected: null, detail: null });
+    memorySeen.clear();
+    explanations.clear();
+    locked.clear();
+  });
+  return controller;
+}
+function activityStyles(active3) {
+  const dialog3 = `${active3} [data-hcv-activity]`;
+  return `
+    ${active3} [data-hcv-activity-button] { position: relative; flex: none; inline-size: 30px; block-size: 30px; display: grid; place-items: center; border: 0; border-radius: 8px; background: transparent; color: var(--hcv-muted); cursor: pointer; }
+    ${active3} [data-hcv-activity-button]:is(:hover, [aria-expanded="true"]) { background: var(--hcv-hover); color: var(--hcv-text); }
+    ${active3} [data-hcv-activity-button]:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }
+    ${active3} [data-hcv-activity-glyph] { inline-size: 18px; block-size: 18px; background: currentColor; mask: ${codexMask("bolt")} center / contain no-repeat; }
+    ${active3} [data-hcv-activity-count] { position: absolute; inset-block-start: -2px; inset-inline-end: -3px; min-inline-size: 15px; block-size: 15px; padding-inline: 3px; border-radius: 8px; background: var(--hcv-action); color: var(--hcv-ink); font: 600 10px/15px var(--hcv-ui-font); text-align: center; }
+    ${active3} [data-hcv-activity-count][data-hcv-activity-unknown="true"] { background: var(--hcv-hover); color: var(--hcv-text); }
+    ${active3} [data-hcv-activity-count][hidden] { display: none; }
+    ${dialog3} { inline-size: min(760px, calc(100vw - 32px)); max-inline-size: none; max-block-size: calc(100dvh - 48px); display: flex; flex-direction: column; gap: 12px; overflow: hidden; border-radius: 16px; background: var(--hcv-menu); color: var(--hcv-text); font-family: var(--hcv-ui-font); }
+    /* Codex 26.1111.2228.0: Sm6l/L4lx default, cardAction and dialogAction
+       use rounded-full; 66582da7ee6b.css defines --radius-full as 9999px. */
+    ${dialog3} [data-slot="button"] { border-radius: 9999px; }
+    ${dialog3} [data-slot="dialog-header"] { flex: none; padding-inline-end: 28px; text-align: start; }
+    ${dialog3} [data-slot="dialog-title"] { font-size: 20px; line-height: 28px; font-weight: 600; }
+    ${dialog3} [data-slot="dialog-description"] { color: var(--hcv-muted); font-size: 14px; line-height: 21px; }
+    ${dialog3} [data-hcv-activity-meta] { margin: 0; color: var(--hcv-muted); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
+    ${dialog3} [data-hcv-activity-nav], ${dialog3} [data-hcv-activity-filter] { display: flex; flex-wrap: wrap; gap: 4px; }
+    ${dialog3} :is([data-hcv-activity-nav], [data-hcv-activity-filter]) [aria-pressed="true"] { background: var(--hcv-hover); color: var(--hcv-text); }
+    ${dialog3} [data-hcv-activity-toolbar] { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; flex: none; }
+    ${dialog3} [data-hcv-activity-heading] { flex: 1; min-inline-size: 0; margin: 0; font-size: 14px; line-height: 21px; font-weight: 600; overflow-wrap: anywhere; }
+    ${dialog3} [data-hcv-activity-body] { min-block-size: 0; min-inline-size: 0; overflow: auto; overscroll-behavior: contain; font-size: 14px; line-height: 21px; }
+    ${dialog3} [data-hcv-activity-list] { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+    ${dialog3} [data-hcv-activity-item] { display: grid; gap: 8px; min-inline-size: 0; padding: 14px 16px; border: 1px solid var(--hcv-stroke); border-radius: 14px; background: var(--hcv-panel); }
+    ${dialog3} [data-hcv-activity-item] > button { justify-self: start; }
+    ${dialog3} [data-hcv-activity-item-title] { display: grid; gap: 2px; }
+    ${dialog3} [data-hcv-activity-item-title] h3 { margin: 0; font-size: 14px; line-height: 21px; font-weight: 600; overflow-wrap: anywhere; }
+    ${dialog3} [data-hcv-activity-kind] { color: var(--hcv-muted); font-size: 12px; }
+    ${dialog3} [data-hcv-activity-summary], ${dialog3} [data-hcv-activity-message], ${dialog3} [data-hcv-activity-warning] { margin: 0 0 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+    ${dialog3} [data-hcv-activity-detail] { display: grid; gap: 12px; }
+    ${dialog3} [data-hcv-activity-explanation] { display: grid; gap: 8px; }
+    ${dialog3} [data-hcv-activity-explanation] > p { margin: 0; }
+    ${dialog3} [data-hcv-activity-explanation] > button { justify-self: start; }
+    ${dialog3} :is([data-hcv-activity-changes], [data-hcv-activity-full], [data-hcv-activity-fallback]) > summary { cursor: pointer; color: var(--hcv-text); font-weight: 600; }
+    ${dialog3} [data-hcv-activity-change] { margin-block: 12px; padding: 12px; border: 1px solid var(--hcv-stroke); border-radius: 8px; }
+    ${dialog3} [data-hcv-activity-change] h3 { margin: 0 0 8px; font-size: 14px; line-height: 21px; overflow-wrap: anywhere; }
+    ${dialog3} [data-hcv-activity-fragment] { display: grid; gap: 8px; margin-block: 10px; }
+    ${dialog3} [data-hcv-activity-fragment] p { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+    ${dialog3} [data-hcv-activity-full] pre { max-block-size: 45dvh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/20px var(--hcv-ui-font); user-select: text; }
+    ${dialog3} [data-hcv-activity-proposed-files] { display: grid; gap: 8px; min-inline-size: 0; }
+    ${dialog3} [data-hcv-activity-proposed-files] summary { overflow-wrap: anywhere; }
+    ${dialog3} [data-hcv-activity-preview] { margin: 8px 0; padding: 12px; border: 1px solid var(--hcv-stroke); border-radius: 8px; max-block-size: min(52dvh, 460px); overflow: auto; overscroll-behavior: contain; background: var(--hcv-chat); white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/20px var(--hcv-ui-font); user-select: text; }
+    ${dialog3} [data-hcv-activity-preview]:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }
+    ${dialog3} [data-hcv-activity-actions] { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+    @media (max-width: 520px) { ${dialog3} { inline-size: calc(100vw - 16px); max-block-size: calc(100dvh - 24px); } ${dialog3} [data-hcv-activity-item] { padding: 12px; } }
+  `;
+}
+
 // source/chrome.js
 function icon(name) {
-  return h4("span", { "aria-hidden": true, "data-hcv-icon": name, style: codexIconStyle(name) });
+  return h5("span", { "aria-hidden": true, "data-hcv-icon": name, style: codexIconStyle(name) });
 }
 var sideSelector = '[data-tour="sessions-sidebar"]';
 var filterButton = "button:has(> .codicon-list-filter)";
@@ -3276,7 +4268,7 @@ function visibleControl(selector, root = document) {
 function newChat() {
   const native2 = visibleControl(newChatSelector);
   if (native2) native2.click();
-  else host6.newChat();
+  else host7.newChat();
 }
 function openGrouping() {
   const trigger2 = visibleControl(filterSelector);
@@ -3285,7 +4277,7 @@ function openGrouping() {
   trigger2.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
 }
 function edit(command2) {
-  const focused = readFocusedSession({ state: host6.state });
+  const focused = readFocusedSession({ state: host7.state });
   const form = focused && composerForSurface(focused.surface);
   const input = form && visibleControl(composerRichInput, form);
   if (!input) return;
@@ -3333,15 +4325,15 @@ function WindowMenus({ menus: menus3, label: label4 }) {
     if (openMenu.current) show(id2);
     else triggers.current.get(id2)?.focus();
   }
-  return h4("nav", { "aria-label": label4, "data-hcv-window-menu": "" }, menus3.map(([id2, label5, items2], index) => {
+  return h5("nav", { "aria-label": label4, "data-hcv-window-menu": "" }, menus3.map(([id2, label5, items2], index) => {
     const open = current === id2;
     const change = (next) => {
       if (next || openMenu.current === id2) show(next ? id2 : null);
     };
-    return h4(
+    return h5(
       DropdownMenu,
       { key: id2, modal: false, open, onOpenChange: change },
-      h4(DropdownMenuTrigger, { asChild: true }, h4("button", {
+      h5(DropdownMenuTrigger, { asChild: true }, h5("button", {
         type: "button",
         ref: (node4) => {
           if (node4) triggers.current.set(id2, node4);
@@ -3356,7 +4348,7 @@ function WindowMenus({ menus: menus3, label: label4 }) {
           if (event.detail === 0) change(!open);
         }
       }, label5)),
-      open && h4(DropdownMenuContent, {
+      open && h5(DropdownMenuContent, {
         align: "start",
         sideOffset: 0,
         collisionPadding: 6,
@@ -3368,7 +4360,7 @@ function WindowMenus({ menus: menus3, label: label4 }) {
         onInteractOutside: (event) => {
           if (event.target.closest?.("[data-hcv-menu-button]")) event.preventDefault();
         }
-      }, items2.map(([title, run, disabled, shortcut], position2) => title === null ? h4(DropdownMenuSeparator, { key: position2 }) : h4(
+      }, items2.map(([title, run, disabled, shortcut], position2) => title === null ? h5(DropdownMenuSeparator, { key: position2 }) : h5(
         DropdownMenuItem,
         {
           key: title,
@@ -3376,8 +4368,8 @@ function WindowMenus({ menus: menus3, label: label4 }) {
           disabled: typeof disabled === "function" ? disabled() : disabled,
           onSelect: () => setTimeout(run, 0)
         },
-        h4("span", { "data-hcv-window-menu-label": "" }, title),
-        shortcut && h4("span", { "data-hcv-window-menu-shortcut": "", "aria-hidden": true }, shortcut())
+        h5("span", { "data-hcv-window-menu-label": "" }, title),
+        shortcut && h5("span", { "data-hcv-window-menu-shortcut": "", "aria-hidden": true }, shortcut())
       )))
     );
   }));
@@ -3389,12 +4381,6 @@ function WindowChrome({ themeName: themeName2, recentRows, projectRows }) {
   const selected2 = useTheme().themeName === themeName2;
   const { locale: locale3 } = useI18n();
   const [historyState, setHistoryState] = useState({ back: false, forward: false });
-  useLayoutEffect2(() => {
-    if (!selected2) return;
-    const root = document.documentElement;
-    root.setAttribute("data-hcv-window-chrome", "");
-    return () => root.removeAttribute("data-hcv-window-chrome");
-  }, [selected2]);
   useEffect(() => {
     if (!selected2 || !window.navigation) return;
     const update = () => {
@@ -3449,9 +4435,9 @@ function WindowChrome({ themeName: themeName2, recentRows, projectRows }) {
   const menus3 = [
     ["file", text7.file, [
       [text7.newChat, newChat, false, windowMenuShortcut("session.new", "mod+n")],
-      [text7.projectFiles, () => host6.revealPane("files")],
+      [text7.projectFiles, () => host7.revealPane("files")],
       [null],
-      [text7.settings, () => host6.navigate("/settings"), false, windowMenuShortcut("nav.settings", "mod+,")]
+      [text7.settings, () => host7.navigate("/settings"), false, windowMenuShortcut("nav.settings", "mod+,")]
     ]],
     ["edit", text7.edit, [
       [text7.undo, () => edit("undo")],
@@ -3460,26 +4446,26 @@ function WindowChrome({ themeName: themeName2, recentRows, projectRows }) {
       [text7.selectAll, () => edit("selectAll")]
     ]],
     ["view", text7.view, [
-      [text7.sessions, () => host6.revealPane("sessions")],
-      [text7.bots, () => host6.revealPane("hermes-bots:pane")],
+      [text7.sessions, () => host7.revealPane("sessions")],
+      [text7.bots, () => host7.revealPane("hermes-bots:pane")],
       [null],
       [text7.grouping, openGrouping, () => !visibleControl(filterSelector)],
       [text7.right, () => visibleControl('[data-tour="right-pane-toggle"]')?.click(), false, windowMenuShortcut("view.toggleRightSidebar", "mod+j")]
     ]],
-    ["help", text7.help, [[text7.about, () => host6.navigate("/settings?tab=about")]]]
+    ["help", text7.help, [[text7.about, () => host7.navigate("/settings?tab=about")]]]
   ];
-  return h4(
+  return h5(
     Fragment,
     null,
-    h4(
+    h5(
       "div",
       { "data-hcv-history": "" },
-      h4("button", { type: "button", "aria-label": text7.back, title: text7.back, disabled: !historyState.back, onClick: () => history.back() }, icon("back")),
-      h4("button", { type: "button", "aria-label": text7.forward, title: text7.forward, disabled: !historyState.forward, onClick: () => history.forward() }, icon("forward"))
+      h5("button", { type: "button", "aria-label": text7.back, title: text7.back, disabled: !historyState.back, onClick: () => history.back() }, icon("back")),
+      h5("button", { type: "button", "aria-label": text7.forward, title: text7.forward, disabled: !historyState.forward, onClick: () => history.forward() }, icon("forward"))
     ),
-    h4(WindowMenus, { menus: menus3, label: text7.menu }),
-    h4(NativeRecentRows, { rows: recentRows }),
-    h4(NativeProjectRows, { rows: projectRows })
+    h5(WindowMenus, { menus: menus3, label: text7.menu }),
+    h5(NativeRecentRows, { rows: recentRows }),
+    h5(NativeProjectRows, { rows: projectRows })
   );
 }
 function element3(tag, attrs = {}, text7) {
@@ -3542,21 +4528,93 @@ function recentsControl(groupId, rows2, t) {
     dismiss();
     const source = rows2.get();
     if (source?.container === list && source.refresh) {
-      void Promise.resolve().then(source.refresh).catch((error) => host6.notifyError(error, t("recentRefreshError")));
+      void Promise.resolve().then(source.refresh).catch((error) => host7.notifyError(error, t("recentRefreshError")));
     } else void show();
   });
   all.addEventListener("click", () => {
     dismiss();
-    host6.navigate("/command-center?section=sessions");
+    host7.navigate("/command-center?section=sessions");
   });
   popup.append(refresh, all);
   actions.append(more, add);
   header3.append(button6, actions);
   let generation = 0;
   let nativeUpdates;
+  let nativeCommitTree;
+  let nativeHidden = null, visibilityPaused, visibilityObserver, unsubscribeWindowState;
+  const nativeCommitEvent = "hermes:sidebar-sessions-commit";
+  const pauseAttribute = "data-renderer-animations-paused";
+  const windowHidden = () => document.hidden || (nativeHidden === null ? document.documentElement.hasAttribute(pauseAttribute) : nativeHidden);
+  const update = () => rows2.update(area.parentElement, list, t("recentEmpty"));
+  const stopNativeUpdates = () => {
+    if (nativeUpdates !== void 0) clearTimeout(nativeUpdates);
+    nativeUpdates = void 0;
+  };
+  function onNativeCommit(event) {
+    if (event.target === nativeCommitTree && event.currentTarget === area.parentElement && nativeCommitTree.dataset.sessionsMode === "projects") syncNativeRows();
+  }
+  function unwatchNativeCommits() {
+    nativeCommitTree?.removeEventListener(nativeCommitEvent, onNativeCommit);
+    nativeCommitTree = void 0;
+  }
+  function watchNativeCommits() {
+    const tree = area.parentElement;
+    if (tree === nativeCommitTree) return;
+    unwatchNativeCommits();
+    if (!tree?.matches('[data-sessions-mode="projects"][data-sessions-list-commit="1"]')) return;
+    nativeCommitTree = tree;
+    tree.addEventListener(nativeCommitEvent, onNativeCommit);
+  }
+  function syncWindowVisibility() {
+    if (!visibilityObserver) return;
+    const paused = windowHidden();
+    if (paused === visibilityPaused) return;
+    visibilityPaused = paused;
+    if (paused) stopNativeUpdates();
+    else if (area.hasAttribute("data-hcv-recents-open")) syncNativeRows();
+  }
+  function watchWindowVisibility() {
+    if (visibilityObserver) return;
+    visibilityPaused = windowHidden();
+    document.addEventListener("visibilitychange", syncWindowVisibility);
+    visibilityObserver = new MutationObserver(syncWindowVisibility);
+    visibilityObserver.observe(document.documentElement, { attributes: true, attributeFilter: [pauseAttribute] });
+    unsubscribeWindowState = window.hermesDesktop?.onWindowStateChanged?.((state) => {
+      if (typeof state?.isMinimized !== "boolean" && typeof state?.isVisible !== "boolean") return;
+      nativeHidden = state.isMinimized === true || state.isVisible === false;
+      syncWindowVisibility();
+    });
+  }
+  function unwatchWindowVisibility() {
+    document.removeEventListener("visibilitychange", syncWindowVisibility);
+    visibilityObserver?.disconnect();
+    visibilityObserver = void 0;
+    unsubscribeWindowState?.();
+    unsubscribeWindowState = void 0;
+    nativeHidden = null;
+    visibilityPaused = void 0;
+  }
+  function scheduleNativeUpdates() {
+    if (!nativeCommitTree && !windowHidden()) nativeUpdates = setTimeout(syncNativeRows, 400);
+  }
+  function syncNativeRows() {
+    stopNativeUpdates();
+    if (windowHidden() || !area.isConnected || body2.inert) return;
+    if (update()) {
+      if (list.hidden) {
+        ++generation;
+        list.hidden = false;
+        fallback.hidden = true;
+        fallback.removeAttribute("aria-busy");
+      }
+      scheduleNativeUpdates();
+    } else if (!list.hidden) void show();
+  }
   const close2 = () => {
     ++generation;
-    clearInterval(nativeUpdates);
+    stopNativeUpdates();
+    unwatchNativeCommits();
+    unwatchWindowVisibility();
     area.removeAttribute("data-hcv-recents-open");
     body2.inert = true;
     fallback.removeAttribute("aria-busy");
@@ -3570,17 +4628,16 @@ function recentsControl(groupId, rows2, t) {
   async function show() {
     if (!area.isConnected) return;
     const request = ++generation;
-    clearInterval(nativeUpdates);
+    stopNativeUpdates();
+    watchNativeCommits();
+    watchWindowVisibility();
     area.setAttribute("data-hcv-recents-open", "");
     body2.inert = false;
     button6.setAttribute("aria-expanded", "true");
-    const update = () => rows2.update(area.parentElement, list, t("recentEmpty"));
     if (update()) {
       list.hidden = false;
       fallback.hidden = true;
-      nativeUpdates = setInterval(() => {
-        if (!update()) void show();
-      }, 400);
+      scheduleNativeUpdates();
       return;
     }
     rows2.clear(list);
@@ -3588,9 +4645,9 @@ function recentsControl(groupId, rows2, t) {
     fallback.hidden = false;
     fallback.textContent = t("recentLoading");
     fallback.setAttribute("aria-busy", "true");
-    const profile2 = host6.state.profile.get();
-    const connection2 = host6.state.connectionId.get();
-    const current = () => request === generation && fallback.isConnected && host6.state.profile.get() === profile2 && host6.state.connectionId.get() === connection2;
+    const profile2 = host7.state.profile.get();
+    const connection2 = host7.state.connectionId.get();
+    const current = () => request === generation && fallback.isConnected && host7.state.profile.get() === profile2 && host7.state.connectionId.get() === connection2;
     try {
       if (!profile2 || !connection2) {
         fallback.textContent = t("recentProfile");
@@ -3613,7 +4670,7 @@ function recentsControl(groupId, rows2, t) {
         row5.addEventListener("click", async () => {
           if (!current()) return;
           try {
-            await host6.openSession(session.id);
+            await host7.openSession(session.id);
           } catch {
             if (current()) fallback.textContent = t("recentOpenError");
           }
@@ -3719,12 +4776,12 @@ function newTerminalShortcut() {
 }
 function attachSidebarHeader(group2, t) {
   const bar = element3("header", { "data-hcv-sidebar-bar": "" });
-  const search = sidebarButton("\u041F\u043E\u0438\u0441\u043A \u0447\u0430\u0442\u043E\u0432", "search");
-  const bell = sidebarButton("\u0423\u0432\u0435\u0434\u043E\u043C\u043B\u0435\u043D\u0438\u044F", "bell", () => host6.navigate("/settings?tab=notifications"));
-  search.dataset.hcvSearchToggle = "";
+  const search2 = sidebarButton("\u041F\u043E\u0438\u0441\u043A \u0447\u0430\u0442\u043E\u0432", "search");
+  const bell = sidebarButton("\u0423\u0432\u0435\u0434\u043E\u043C\u043B\u0435\u043D\u0438\u044F", "bell", () => host7.navigate("/settings?tab=notifications"));
+  search2.dataset.hcvSearchToggle = "";
   bell.dataset.hcvNotifications = "";
-  search.setAttribute("aria-expanded", "false");
-  bar.append(element3("span", { "data-hcv-brand": "" }, "Hermes"), bell, search);
+  search2.setAttribute("aria-expanded", "false");
+  bar.append(element3("span", { "data-hcv-brand": "" }, "Hermes"), bell, search2);
   group2.setAttribute("data-hcv-sidebar-shell", "");
   let terminalEmpty;
   function syncTerminal() {
@@ -3747,15 +4804,19 @@ function attachSidebarHeader(group2, t) {
   }
   return {
     group: group2,
-    search,
+    search: search2,
     sync(content3) {
       const parent = group2.querySelector(":scope > [data-panel-header]") || content3;
-      if (parent && bar.parentElement !== parent) parent.prepend(bar);
-      if (search.hidden !== !content3) search.hidden = !content3;
+      if (parent && bar.parentElement !== parent) {
+        parent.prepend(bar);
+        window.dispatchEvent(new Event(sidebarHeaderEvent));
+      }
+      if (search2.hidden !== !content3) search2.hidden = !content3;
       syncTerminal();
     },
     remove() {
       bar.remove();
+      window.dispatchEvent(new Event(sidebarHeaderEvent));
       terminalEmpty?.remove();
       group2.removeAttribute("data-hcv-sidebar-shell");
     }
@@ -3797,7 +4858,7 @@ function flatRecents(recentRows, t) {
   }
   return { sync: syncFlatList, localize: localizeFlatHeader };
 }
-function attachSidebar(content3, group2, recentRows, t, { search }) {
+function attachSidebar(content3, group2, recentRows, t, { search: search2 }) {
   let searchField;
   let searchOpen = false;
   let chooseGrouping;
@@ -3807,7 +4868,7 @@ function attachSidebar(content3, group2, recentRows, t, { search }) {
     if (searchOpen) closeSearch(true);
     else openSearch();
   };
-  search.addEventListener("click", toggleSearch);
+  search2.addEventListener("click", toggleSearch);
   const recent = recentsControl(group2.dataset.treeGroup, recentRows, t);
   const sidebarMenu2 = sidebarMenuBehavior(content3);
   const projectsLabel = document.createTextNode("");
@@ -3836,12 +4897,12 @@ function attachSidebar(content3, group2, recentRows, t, { search }) {
     projectRequest = void 0;
     recent.reset();
   };
-  const stopProfile = host6.state.profile.subscribe(reset);
-  const stopConnection = host6.state.connectionId.subscribe(reset);
+  const stopProfile = host7.state.profile.subscribe(reset);
+  const stopConnection = host7.state.connectionId.subscribe(reset);
   function showSearch(open) {
     searchOpen = open && Boolean(searchField);
     searchField?.toggleAttribute("data-hcv-search-open", searchOpen);
-    search.setAttribute("aria-expanded", String(searchOpen));
+    search2.setAttribute("aria-expanded", String(searchOpen));
   }
   function openSearch() {
     showSearch(true);
@@ -3857,13 +4918,13 @@ function attachSidebar(content3, group2, recentRows, t, { search }) {
       input.dispatchEvent(new Event("input", { bubbles: true }));
     }
     showSearch(false);
-    if (restoreFocus) search.focus({ preventScroll: true });
+    if (restoreFocus) search2.focus({ preventScroll: true });
   }
   function clearSearchField() {
     searchField?.removeAttribute("data-hcv-search-field");
     searchField?.removeAttribute("data-hcv-search-open");
     if (searchField?.id === searchFieldId) searchField.removeAttribute("id");
-    search.removeAttribute("aria-controls");
+    search2.removeAttribute("aria-controls");
   }
   function onSearchKey(event) {
     if (!searchOpen || event.key !== "Escape" || event.isComposing || event.defaultPrevented) return;
@@ -3898,11 +4959,11 @@ function attachSidebar(content3, group2, recentRows, t, { search }) {
         if (field) {
           field.setAttribute("data-hcv-search-field", "");
           if (!field.id) field.id = searchFieldId;
-          search.setAttribute("aria-controls", field.id);
+          search2.setAttribute("aria-controls", field.id);
         }
         showSearch(searchOpen || input === document.activeElement || Boolean(input?.value));
       }
-      search.disabled = !searchField;
+      search2.disabled = !searchField;
       const tree = content3.querySelector('[data-sessions-mode="projects"]');
       if (tree && recent.area.parentElement !== tree) {
         recent.reset();
@@ -3924,8 +4985,8 @@ function attachSidebar(content3, group2, recentRows, t, { search }) {
       sidebarMenu2.sync();
     },
     remove() {
-      search.removeEventListener("click", toggleSearch);
-      search.setAttribute("aria-expanded", "false");
+      search2.removeEventListener("click", toggleSearch);
+      search2.setAttribute("aria-expanded", "false");
       clearSearchField();
       content3.removeEventListener("click", onSearchResult);
       group2.removeEventListener("keydown", onSearchKey, true);
@@ -3997,27 +5058,27 @@ function registerSidebar(ctx, active3, recentRows, projectRows) {
       cancelAnimationFrame(activityFrame);
       activityFrame = 0;
     }
-    const enabled = contrast.matches && document.documentElement.matches(active3);
-    const sidebar3 = enabled ? [...document.querySelectorAll(`${sideSelector} > [data-slot="sidebar-content"]`)].find(
+    const enabled2 = contrast.matches && document.documentElement.matches(active3);
+    const sidebar6 = enabled2 ? [...document.querySelectorAll(`${sideSelector} > [data-slot="sidebar-content"]`)].find(
       (node4) => !node4.closest("[data-pane-hidden], [hidden]") && node4.getClientRects().length
     ) : null;
-    if (projectContent !== sidebar3) {
+    if (projectContent !== sidebar6) {
       projectLabels.disconnect();
       projects2?.dispose();
       chatPreview?.dispose();
       cron?.dispose();
-      projectContent = sidebar3;
-      if (sidebar3) projectLabels.observe(sidebar3, { characterData: true, subtree: true });
-      projects2 = sidebar3 ? attachProjects(sidebar3, ctx.i18n.t, ctx.storage, projectRows) : void 0;
-      chatPreview = sidebar3 ? attachChatPreview(sidebar3) : void 0;
-      cron = sidebar3 ? attachSidebarCron(sidebar3, ctx.storage) : void 0;
+      projectContent = sidebar6;
+      if (sidebar6) projectLabels.observe(sidebar6, { characterData: true, subtree: true });
+      projects2 = sidebar6 ? attachProjects(sidebar6, ctx.i18n.t, ctx.storage, projectRows) : void 0;
+      chatPreview = sidebar6 ? attachChatPreview(sidebar6) : void 0;
+      cron = sidebar6 ? attachSidebarCron(sidebar6, ctx.storage) : void 0;
     }
-    syncFills(sidebar3);
+    syncFills(sidebar6);
     projects2?.sync();
     chatPreview?.sync();
     cron?.sync();
-    const content3 = wide.matches ? sidebar3 : null;
-    const group2 = enabled && wide.matches ? content3?.closest("[data-tree-group]") ?? document.querySelector('[data-tree-tab="sessions"]')?.closest("[data-tree-group]") ?? document.querySelector('[data-tree-group="grp-sessions"][data-window-top]:not([data-pane-host])') : null;
+    const content3 = wide.matches ? sidebar6 : null;
+    const group2 = enabled2 && wide.matches ? content3?.closest("[data-tree-group]") ?? document.querySelector('[data-tree-tab="sessions"]')?.closest("[data-tree-group]") ?? document.querySelector('[data-tree-group="grp-sessions"][data-window-top]:not([data-pane-host])') : null;
     const workspace = group2 && document.querySelector('[data-tree-group="grp-main"][data-window-top]');
     const targets = [...new Set([content3, group2, workspace].filter(Boolean))];
     if (targets.length !== anchors.length || targets.some((node4, index) => node4 !== anchors[index])) {
@@ -4046,14 +5107,14 @@ function registerSidebar(ctx, active3, recentRows, projectRows) {
     if (compatible && !header3) header3 = attachSidebarHeader(group2, ctx.i18n.t);
     header3?.sync(content3);
     if (header3 && content3 && !mounted) mounted = attachSidebar(content3, group2, recentRows, ctx.i18n.t, header3);
-    const flat2 = sidebar3?.querySelector(flatSelector);
+    const flat2 = sidebar6?.querySelector(flatSelector);
     mounted?.sync(flat2);
     flatList.sync(flat2);
   };
   const schedule = () => {
     if (queued === void 0) queued = requestAnimationFrame(sync);
   };
-  const stopBusy = host6.state.busyBySession.listen(() => {
+  const stopBusy = host7.state.busyBySession.listen(() => {
     if (queued !== void 0 || activityFrame || !projectContent?.isConnected) return;
     activityFrame = requestAnimationFrame(() => {
       activityFrame = 0;
@@ -4080,12 +5141,12 @@ function registerSidebar(ctx, active3, recentRows, projectRows) {
   const mounts = `${sideSelector}, [data-tree-group], [data-tree-tab="sessions"], [data-persistent-terminal], [data-chat-surface]`;
   const visibility = /* @__PURE__ */ new Set(["data-window-top", "inert", "hidden", "data-pane-hidden"]);
   const observer = new MutationObserver((records) => {
-    const enabled = root.matches(active3);
+    const enabled2 = root.matches(active3);
     let needsSync = false;
     for (const record2 of records) {
       const { target, type, attributeName } = record2;
       if (target === root) return measureAndSync();
-      if (!enabled || !(target instanceof Element)) continue;
+      if (!enabled2 || !(target instanceof Element)) continue;
       if (type === "attributes") {
         if (visibility.has(attributeName) && anchors.some((node4) => target.contains(node4))) return measureAndSync();
       } else if (target.matches("[data-tree-split]") || !target.closest("[data-chat-surface], [data-catalog-results]") && movedElementMatches(record2, mounts)) {
@@ -4130,7 +5191,14 @@ function registerWorkspaceChrome(ctx, themeName2) {
   ctx.i18n.register(sidebarCopy);
   registerChatPreviewMarker(ctx);
   const active3 = `html[data-hermes-codex-visual][data-hermes-theme="${themeName2}"]`;
+  const root = document.documentElement;
+  const windowKind = new URLSearchParams(location.search).get("win");
+  if (windowKind !== "hud" && windowKind !== "browser") {
+    root.setAttribute("data-hcv-window-chrome", "");
+    ctx.onDispose(() => root.removeAttribute("data-hcv-window-chrome"));
+  }
   const shell = `${active3}[data-hcv-window-chrome]`;
+  const workspace = '[data-tree-group="grp-main"][data-window-top]:not([data-pane-host])';
   const side = `${shell} [data-hcv-sidebar-shell]`;
   const sidebarTrack = `${active3} [data-tree-split].flex-row > div[style*="min-width: 237px"]:has(> [data-tree-group="grp-sessions"]:not([data-pane-host]))`;
   const sidebarStrip = `${active3} :is([data-hcv-sidebar-shell] > [data-panel-header] [data-zone-tabstrip], [data-zone-tabstrip="grp-sessions"])`;
@@ -4234,14 +5302,33 @@ function registerWorkspaceChrome(ctx, themeName2) {
   }
 }
 @media (forced-colors: none) and (min-width: 800px) and (min-height: 480px) {
-  ${shell} [data-tree-split="spl-root"] { padding-block-start: 39px; }
+  ${shell} [data-contrib-shell] { background-color: var(--hcv-sidebar); }
+  ${shell} [data-tree-split="spl-root"] { padding-block-start: var(--hcv-window-menu-height); }
+  ${shell} ${workspace} {
+    background-color: var(--hcv-chat);
+    border-start-start-radius: 12px;
+    border-end-start-radius: 12px;
+  }
+  ${shell} ${workspace}::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    border-radius: inherit;
+    box-shadow: inset 0 0 0 0.5px light-dark(rgb(26 28 31 / 8%), rgb(255 255 255 / 8%));
+    pointer-events: none;
+  }
+  /* The frame draws this seam at rest. The resize handle keeps its hover and hit area. */
+  ${shell} [data-tree-split].flex-row > div:has(> ${workspace}) > [role="separator"]:not(:hover) > span:first-child {
+    opacity: 0;
+  }
   ${shell} [data-titlebar-cluster="left"] {
     inset-inline-start: 6px;
     inset-block-start: 4px;
     gap: 6px;
   }
   ${shell} [data-titlebar-cluster="right"] {
-    inset-block-start: 51px;
+    inset-block-start: calc(var(--hcv-window-menu-height) + 12px);
     right: calc(13px + var(--hcv-sidebar-right-offset, 0px));
   }
   ${shell} [data-hcv-history] { order: -1; display: flex; align-items: center; gap: 6px; }
@@ -4272,6 +5359,7 @@ function registerWorkspaceChrome(ctx, themeName2) {
 
   /* Windows application menu from Codex e6/eY/eJ, separate from contextual menus. */
   ${shell} {
+    --hcv-window-menu-height: 36px;
     --hcv-window-text: light-dark(#1a1c1f, #dfdfdf);
     --hcv-window-muted: light-dark(rgb(26 28 31 / .495), rgb(255 255 255 / .498));
     --hcv-window-ink: light-dark(#1a1c1f, #ffffff);
@@ -4407,9 +5495,7 @@ function registerWorkspaceChrome(ctx, themeName2) {
   }
   ${side} [data-hcv-sidebar-bar] button {
     position: relative;
-    border-radius: 50%;
     color: var(--hcv-muted);
-    transition: color 150ms var(--hcv-ease), background-color 150ms var(--hcv-ease);
   }
   ${side} [data-hcv-sidebar-bar] button:focus-visible {
     outline: 1px solid var(--hcv-focus);
@@ -4547,21 +5633,18 @@ function registerWorkspaceChrome(ctx, themeName2) {
   ${side} [data-hcv-recents-fallback] button { display: block; text-align: start; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   ${side} [data-hcv-recent-empty] { padding: 6px 8px; color: var(--hcv-muted); }
 }
-@media (prefers-reduced-motion: reduce) {
-  ${active3} [data-hcv-sidebar-bar] button { transition: none; }
-}
 @media (forced-colors: active), (max-width: 799px), (max-height: 479px) {
   ${active3} :is([data-hcv-history], [data-hcv-window-menu]) { display: none; }
 }
 `;
   mountStyle(ctx, stylesheet);
-  ctx.register({ id: "window-menu", area: TITLEBAR_AREAS.left, render: () => h4(WindowChrome, { themeName: themeName2, recentRows, projectRows }) });
+  ctx.register({ id: "window-menu", area: TITLEBAR_AREAS2.left, render: () => h5(WindowChrome, { themeName: themeName2, recentRows, projectRows }) });
   registerSidebar(ctx, active3, recentRows, projectRows);
 }
 
 // source/right-sidebar-toggle.js
-import { createElement as h5, useEffect as useEffect2, useLayoutEffect as useLayoutEffect3, useState as useState2 } from "react";
-import { TITLEBAR_AREAS as TITLEBAR_AREAS2, useI18n as useI18n2, useTheme as useTheme2 } from "@hermes/plugin-sdk";
+import { createElement as h6, useEffect as useEffect2, useLayoutEffect as useLayoutEffect3, useState as useState2 } from "react";
+import { TITLEBAR_AREAS as TITLEBAR_AREAS3, useI18n as useI18n2, useTheme as useTheme2 } from "@hermes/plugin-sdk";
 
 // source/right-sidebar-state.js
 var isStore = (value2) => value2 && typeof value2.get === "function" && typeof value2.listen === "function";
@@ -4729,11 +5812,11 @@ function subscribeRightBridge(bridge, notify) {
     return null;
   }
 }
-function correctedRightLabel(original, titlebar, open) {
-  if (typeof open !== "boolean" || typeof original !== "string" || !titlebar || typeof titlebar.showRightSidebar !== "string" || typeof titlebar.hideRightSidebar !== "string") return null;
-  const prefixes = [titlebar.showRightSidebar, titlebar.hideRightSidebar];
+function correctedRightLabel(original, titlebar2, open) {
+  if (typeof open !== "boolean" || typeof original !== "string" || !titlebar2 || typeof titlebar2.showRightSidebar !== "string" || typeof titlebar2.hideRightSidebar !== "string") return null;
+  const prefixes = [titlebar2.showRightSidebar, titlebar2.hideRightSidebar];
   const prefix = prefixes.find((value2) => original === value2 || original.startsWith(value2 + " \xB7 "));
-  return prefix ? (open ? titlebar.hideRightSidebar : titlebar.showRightSidebar) + original.slice(prefix.length) : null;
+  return prefix ? (open ? titlebar2.hideRightSidebar : titlebar2.showRightSidebar) + original.slice(prefix.length) : null;
 }
 function relevantRightMutation(record2, original) {
   const target = record2.target?.nodeType === 1 ? record2.target : record2.target?.parentElement;
@@ -4754,15 +5837,15 @@ function relevantRightMutation(record2, original) {
 // source/right-sidebar-toggle.js
 function nativeButton(element7) {
   const candidates2 = [];
-  let tooltip2 = false;
+  let tooltip = false;
   const domLabel = element7.getAttribute("aria-label");
   for (let fiber = committedFiber(element7); fiber; fiber = fiber.return) {
     const props = fiber.memoizedProps;
-    if (props?.placement === "toolbar" && props.label?.props?.actionId === "view.toggleRightSidebar" && props.label?.props?.text === domLabel) tooltip2 = true;
+    if (props?.placement === "toolbar" && props.label?.props?.actionId === "view.toggleRightSidebar" && props.label?.props?.text === domLabel) tooltip = true;
     if (typeof fiber.type === "function" && props?.tool?.id === "right-sidebar" && typeof props.tool.onSelect === "function" && typeof props.navigate === "function" && props.tool.actionId === "view.toggleRightSidebar" && props.tool.label === domLabel)
       candidates2.push({ type: fiber.type, props });
   }
-  return tooltip2 && candidates2.length === 1 ? candidates2[0] : null;
+  return tooltip && candidates2.length === 1 ? candidates2[0] : null;
 }
 var sameBridge = (a, b) => !!a && !!b && a.tree === b.tree && a.hidden === b.hidden && a.narrow === b.narrow && a.collapsed === b.collapsed && a.panes === b.panes;
 function RightSidebarMirror({ themeName: themeName2 }) {
@@ -4780,8 +5863,9 @@ function RightSidebarMirror({ themeName: themeName2 }) {
       return;
     }
     data.target.style.display = "contents";
+    data.target.toggleAttribute("data-hcv-right-open", data.open === true);
     data.original.setAttribute("data-hcv-right-original", "");
-  }, [data?.original, data?.target, data?.type, data?.props, data?.label, theme2.themeName, themeName2]);
+  }, [data?.original, data?.target, data?.type, data?.props, data?.label, data?.open, theme2.themeName, themeName2]);
   useLayoutEffect3(() => {
     if (theme2.themeName !== themeName2 || !data?.original || !data.target) return;
     const { original, target } = data;
@@ -4897,7 +5981,7 @@ function RightSidebarMirror({ themeName: themeName2 }) {
   const tool2 = { ...data.props.tool, label: data.label };
   if (tool2.title === data.props.tool.label) tool2.title = data.label;
   if (tool2.expanded !== void 0) tool2.expanded = data.open;
-  const component = h5(data.type, { ...data.props, tool: tool2 });
+  const component = h6(data.type, { ...data.props, tool: tool2 });
   return { $$typeof: /* @__PURE__ */ Symbol.for("react.portal"), key: null, children: component, containerInfo: data.target, implementation: null };
 }
 function registerRightSidebarMirror(ctx, themeName2) {
@@ -4908,19 +5992,19 @@ function registerRightSidebarMirror(ctx, themeName2) {
   mountStyle(ctx, sheet);
   ctx.register({
     id: "right-sidebar-mirror",
-    area: TITLEBAR_AREAS2.right,
-    render: () => h5(RightSidebarMirror, { themeName: themeName2 })
+    area: TITLEBAR_AREAS3.right,
+    render: () => h6(RightSidebarMirror, { themeName: themeName2 })
   });
   ctx.onDispose(() => sheet.remove());
 }
 
 // source/workspace-focus.js
 import { useEffect as useEffect3, useState as useState3 } from "react";
-import { host as host7, useValue } from "@hermes/plugin-sdk";
+import { host as host8, useValue as useValue2 } from "@hermes/plugin-sdk";
 function useFocusedWorkspace(markSurface = false) {
-  const selected2 = useValue(host7.state.focusedStoredSessionId);
-  const runtime = useValue(host7.state.focusedSessionId);
-  const sdkOwner = useValue(host7.state.focusedSessionOwner);
+  const selected2 = useValue2(host8.state.focusedStoredSessionId);
+  const runtime = useValue2(host8.state.focusedSessionId);
+  const sdkOwner = useValue2(host8.state.focusedSessionOwner);
   const [snapshot, setSnapshot] = useState3(null);
   useEffect3(() => {
     let current2 = null, stops = [], frame = 0, alive = true;
@@ -4933,7 +6017,7 @@ function useFocusedWorkspace(markSurface = false) {
     };
     function sync() {
       frame = 0;
-      const next = readFocusedSession({ state: host7.state });
+      const next = readFocusedSession({ state: host8.state });
       const safe = next?.surface.closest("[inert]") ? null : next;
       if (safe?.view !== current2?.view) {
         detach();
@@ -4956,11 +6040,11 @@ function useFocusedWorkspace(markSurface = false) {
       attributeFilter: ["hidden", "inert", "data-pane-hidden"]
     });
     const storeStops = [
-      host7.state.focusedStoredSessionId,
-      host7.state.focusedSessionId,
-      host7.state.focusedSessionOwner,
-      host7.state.connectionId,
-      host7.state.profile
+      host8.state.focusedStoredSessionId,
+      host8.state.focusedSessionId,
+      host8.state.focusedSessionOwner,
+      host8.state.connectionId,
+      host8.state.profile
     ].filter((store) => typeof store?.listen === "function").map((store) => store.listen(schedule));
     schedule();
     return () => {
@@ -4981,12 +6065,12 @@ function useFocusedWorkspace(markSurface = false) {
   return current;
 }
 function focusedWorkspaceSurface() {
-  const focused = readFocusedSession({ state: host7.state });
+  const focused = readFocusedSession({ state: host8.state });
   return focused && !focused.surface.closest("[inert]") ? focused.surface : null;
 }
 
 // source/chat-tile-turn-history.js
-import { host as host9 } from "@hermes/plugin-sdk";
+import { host as host10 } from "@hermes/plugin-sdk";
 
 // source/native-rendered-message.js
 var recordId = (value2) => Number.isSafeInteger(value2) && value2 > 0 ? value2 : null;
@@ -5072,7 +6156,7 @@ function nativeInterruptedDelegateActivity(node4, message, readFiber = committed
 }
 
 // source/turn-changes-card.js
-import { createElement as h6, useEffect as useEffect4, useRef as useRef2, useState as useState4 } from "react";
+import { createElement as h7, useEffect as useEffect4, useRef as useRef2, useState as useState4 } from "react";
 
 // source/turn-card-scroll.js
 var active = /* @__PURE__ */ new WeakMap();
@@ -5162,11 +6246,11 @@ function turnChangesTitle(files, lang) {
   return form === "one" ? "\u0418\u0437\u043C\u0435\u043D\u0435\u043D \u043E\u0434\u0438\u043D \u0444\u0430\u0439\u043B" : `\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u043E ${count} ${form === "few" || form === "other" ? "\u0444\u0430\u0439\u043B\u0430" : "\u0444\u0430\u0439\u043B\u043E\u0432"}`;
 }
 function Counts({ added, removed, format }) {
-  return h6(
+  return h7(
     "span",
     { "data-hcv-turn-card-counts": "" },
-    h6("span", { "data-hcv-turn-card-added": "" }, "+" + format.format(added)),
-    h6("span", { "data-hcv-turn-card-removed": "" }, "\u2212" + format.format(removed))
+    h7("span", { "data-hcv-turn-card-added": "" }, "+" + format.format(added)),
+    h7("span", { "data-hcv-turn-card-removed": "" }, "\u2212" + format.format(removed))
   );
 }
 function syncTurnChangesSpinner(node4) {
@@ -5270,32 +6354,32 @@ function TurnChangesCard({ snapshot, lang = "en", onReview, onApply, onResult, o
     }
   };
   const noun = (count) => !ru ? count === 1 ? "file" : "files" : new Intl.PluralRules("ru").select(count) === "one" ? "\u0444\u0430\u0439\u043B" : new Intl.PluralRules("ru").select(count) === "few" ? "\u0444\u0430\u0439\u043B\u0430" : "\u0444\u0430\u0439\u043B\u043E\u0432";
-  return h6(
+  return h7(
     "div",
     { "data-hcv-saved-turn-card": snapshot.turnId, "data-snapshot-id": snapshot.snapshotId },
-    h6(
+    h7(
       "div",
       { "data-hcv-turn-card-header": "", ref: header3 },
-      h6("button", {
+      h7("button", {
         type: "button",
         "data-hcv-turn-card-open": "",
         disabled: !onReview,
         "aria-label": ru ? "\u041F\u043E\u0441\u043C\u043E\u0442\u0440\u0435\u0442\u044C \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u043D\u044B\u0435 \u0444\u0430\u0439\u043B\u044B" : "View changed files",
         onClick: () => open(single ? files[0].path : void 0)
       }),
-      h6("span", { "data-hcv-turn-card-icon": "", "aria-hidden": true }),
-      h6(
+      h7("span", { "data-hcv-turn-card-icon": "", "aria-hidden": true }),
+      h7(
         "div",
         { "data-hcv-turn-card-heading": "" },
-        h6("span", { "data-hcv-turn-card-title": "", title: turnChangesTitle(files, lang) }, turnChangesTitle(files, lang)),
-        h6(
+        h7("span", { "data-hcv-turn-card-title": "", title: turnChangesTitle(files, lang) }, turnChangesTitle(files, lang)),
+        h7(
           "span",
           { "data-hcv-turn-card-subtitle": "" },
-          h6(Counts, { ...totals, format }),
-          h6("span", { "data-hcv-turn-card-hover": "" }, ru ? "\u041F\u0440\u043E\u0441\u043C\u043E\u0442\u0440 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439" : "View changes")
+          h7(Counts, { ...totals, format }),
+          h7("span", { "data-hcv-turn-card-hover": "" }, ru ? "\u041F\u0440\u043E\u0441\u043C\u043E\u0442\u0440 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439" : "View changes")
         )
       ),
-      h6("button", {
+      h7("button", {
         type: "button",
         "data-hcv-turn-card-apply": action,
         ref: applyButton,
@@ -5303,7 +6387,7 @@ function TurnChangesCard({ snapshot, lang = "en", onReview, onApply, onResult, o
         "aria-busy": busy,
         onClick: apply
       }, label4),
-      h6("button", {
+      h7("button", {
         type: "button",
         "data-hcv-turn-card-review": "",
         disabled: !onReview,
@@ -5313,13 +6397,13 @@ function TurnChangesCard({ snapshot, lang = "en", onReview, onApply, onResult, o
         }
       }, review)
     ),
-    !single && h6(
+    !single && h7(
       "div",
       { "data-hcv-turn-card-files": "" },
       shown.map((file) => {
         const path = file.path.replaceAll("\\", "/");
         const slash2 = path.lastIndexOf("/") + 1;
-        return h6(
+        return h7(
           "button",
           {
             key: file.path,
@@ -5330,16 +6414,16 @@ function TurnChangesCard({ snapshot, lang = "en", onReview, onApply, onResult, o
             disabled: !onReview,
             onClick: () => open(file.path)
           },
-          h6(
+          h7(
             "span",
             { "data-hcv-turn-card-path": "", "aria-hidden": true },
-            h6("span", { "data-hcv-turn-card-directory": "" }, path.slice(0, slash2)),
-            h6("span", { "data-hcv-turn-card-basename": "" }, path.slice(slash2))
+            h7("span", { "data-hcv-turn-card-directory": "" }, path.slice(0, slash2)),
+            h7("span", { "data-hcv-turn-card-basename": "" }, path.slice(slash2))
           ),
-          h6(Counts, { added: file.added, removed: file.removed, format })
+          h7(Counts, { added: file.added, removed: file.removed, format })
         );
       }),
-      files.length > 3 && h6(
+      files.length > 3 && h7(
         "button",
         {
           type: "button",
@@ -5359,8 +6443,8 @@ function turnChangesCardStyles(scope4) {
   const card2 = scope4 + " [data-hcv-saved-turn-card]";
   const header3 = card2 + " > [data-hcv-turn-card-header]";
   return `
-${card2} { --hcv-card-stroke:light-dark(rgb(26 28 31 / 12%),rgb(255 255 255 / 16%)); --hcv-card-border:light-dark(rgb(26 28 31 / 8%),rgb(255 255 255 / 8%)); --hcv-card-hover:light-dark(rgb(26 28 31 / 5%),rgb(255 255 255 / 8%)); --hcv-card-text:light-dark(#1a1c1f,#dfdfdf); --hcv-card-description:color-mix(in srgb,var(--hcv-card-text) 70%,transparent); --hcv-card-radius:10px; position:relative; margin:14px .5px 8px; border:0; border-radius:var(--hcv-card-radius); overflow:hidden; box-shadow:0 0 0 .5px var(--hcv-card-stroke); background:light-dark(#fff,#222); color:var(--hcv-card-text); font:430 14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; min-inline-size:0; }
-${card2}::after { content:''; position:absolute; inset:0; z-index:2; border-radius:inherit; box-shadow:inset 0 0 0 .5px var(--hcv-card-stroke); pointer-events:none; }
+/* Leave room for the outer stroke inside Hermes' clipped assistant message. */
+${card2} { --hcv-card-stroke:light-dark(rgb(26 28 31 / 12%),rgb(255 255 255 / 16%)); --hcv-card-border:light-dark(rgb(26 28 31 / 8%),rgb(255 255 255 / 8%)); --hcv-card-hover:light-dark(rgb(26 28 31 / 5%),rgb(255 255 255 / 8%)); --hcv-card-text:light-dark(#1a1c1f,#dfdfdf); --hcv-card-description:color-mix(in srgb,var(--hcv-card-text) 70%,transparent); --hcv-card-radius:10px; position:relative; margin:14px 1px 8px; border:0; border-radius:var(--hcv-card-radius); overflow:hidden; box-shadow:0 0 0 .5px var(--hcv-card-stroke); background:light-dark(#fff,#222); color:var(--hcv-card-text); font:430 14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; min-inline-size:0; }
 ${header3} { position:relative; display:flex; align-items:center; gap:10px; min-inline-size:0; padding:12px; }
 ${card2} button { cursor:pointer; color:inherit; font:inherit; border:0; background:transparent; }
 ${card2} button:disabled { opacity:.5; cursor:default; }
@@ -5414,7 +6498,7 @@ var attr = (node4, name, value2) => {
   const text7 = value2 === true ? "" : String(value2);
   if (node4.getAttribute(name) !== text7) node4.setAttribute(name, text7);
 };
-var text = (node4, value2) => {
+var text2 = (node4, value2) => {
   if (node4.textContent !== value2) node4.textContent = value2;
 };
 var marker2 = (name) => {
@@ -5432,8 +6516,8 @@ function counts() {
   const root = marker2("counts"), added = marker2("added"), removed = marker2("removed");
   root.append(added, removed);
   return { root, update(plus, minus, format) {
-    text(added, "+" + format.format(plus));
-    text(removed, "\u2212" + format.format(minus));
+    text2(added, "+" + format.format(plus));
+    text2(removed, "\u2212" + format.format(minus));
   } };
 }
 function createTurnChangesCard(initial) {
@@ -5507,13 +6591,13 @@ function createTurnChangesCard(initial) {
     attr(element7, "data-hcv-saved-turn-card", snapshot.turnId);
     attr(element7, "data-snapshot-id", snapshot.snapshotId);
     const name = turnChangesTitle(files, lang);
-    text(title, name);
+    text2(title, name);
     attr(title, "title", name);
-    text(hover, ru ? "\u041F\u0440\u043E\u0441\u043C\u043E\u0442\u0440 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439" : "View changes");
+    text2(hover, ru ? "\u041F\u0440\u043E\u0441\u043C\u043E\u0442\u0440 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439" : "View changes");
     totals.update(files.reduce((n, f) => n + f.added, 0), files.reduce((n, f) => n + f.removed, 0), format);
     attr(open, "aria-label", ru ? "\u041F\u043E\u0441\u043C\u043E\u0442\u0440\u0435\u0442\u044C \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u043D\u044B\u0435 \u0444\u0430\u0439\u043B\u044B" : "View changed files");
     attr(open, "disabled", !config.onReview);
-    text(review, ru ? "\u041F\u0440\u043E\u0441\u043C\u043E\u0442\u0440\u0435\u0442\u044C \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F" : "View changes");
+    text2(review, ru ? "\u041F\u0440\u043E\u0441\u043C\u043E\u0442\u0440\u0435\u0442\u044C \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F" : "View changes");
     attr(review, "disabled", !config.onReview);
     const state = currentState(), action = state.nextAction || "undo";
     attr(apply, "data-hcv-turn-card-apply", action);
@@ -5524,7 +6608,7 @@ function createTurnChangesCard(initial) {
       stopSpinner = null;
     }
     attr(apply, "disabled", pending || !config.onApply || !snapshot.canApply || state.status !== "ready");
-    text(apply, action === "undo" ? ru ? "\u041E\u0442\u043C\u0435\u043D\u0438\u0442\u044C" : "Undo" : ru ? "\u041F\u043E\u0432\u0442\u043E\u0440\u043D\u043E \u043F\u0440\u0438\u043C\u0435\u043D\u0438\u0442\u044C" : "Reapply");
+    text2(apply, action === "undo" ? ru ? "\u041E\u0442\u043C\u0435\u043D\u0438\u0442\u044C" : "Undo" : ru ? "\u041F\u043E\u0432\u0442\u043E\u0440\u043D\u043E \u043F\u0440\u0438\u043C\u0435\u043D\u0438\u0442\u044C" : "Reapply");
     if (files.length <= 1) {
       list.remove();
       return;
@@ -5548,8 +6632,8 @@ function createTurnChangesCard(initial) {
         rows2.set(file.path, row5);
       }
       const path = file.path.replaceAll("\\", "/"), slash2 = path.lastIndexOf("/") + 1;
-      text(row5.directory, path.slice(0, slash2));
-      text(row5.basename, path.slice(slash2));
+      text2(row5.directory, path.slice(0, slash2));
+      text2(row5.basename, path.slice(slash2));
       attr(row5.button, "title", file.path);
       attr(row5.button, "aria-label", file.path);
       attr(row5.button, "disabled", !config.onReview);
@@ -5559,7 +6643,7 @@ function createTurnChangesCard(initial) {
     if (files.length > 3) {
       const remaining = files.length - shown.length;
       const noun = !ru ? remaining === 1 ? "file" : "files" : new Intl.PluralRules("ru").select(remaining) === "one" ? "\u0444\u0430\u0439\u043B" : new Intl.PluralRules("ru").select(remaining) === "few" ? "\u0444\u0430\u0439\u043B\u0430" : "\u0444\u0430\u0439\u043B\u043E\u0432";
-      text(more, expanded2 ? ru ? "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0444\u0430\u0439\u043B\u044B" : "Collapse files" : ru ? `\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0435\u0449\u0435 ${format.format(remaining)} ${noun}` : `Show ${format.format(remaining)} more ${noun}`);
+      text2(more, expanded2 ? ru ? "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0444\u0430\u0439\u043B\u044B" : "Collapse files" : ru ? `\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0435\u0449\u0435 ${format.format(remaining)} ${noun}` : `Show ${format.format(remaining)} more ${noun}`);
       attr(more, "aria-expanded", String(expanded2));
       if (list.lastElementChild !== more) list.append(more);
     } else more.remove();
@@ -5588,14 +6672,14 @@ function createTurnChangesCard(initial) {
 }
 
 // source/turn-history-client.js
-import { host as host8, MessageTextContent } from "@hermes/plugin-sdk";
-import { createElement as h7 } from "react";
+import { host as host9, MessageTextContent } from "@hermes/plugin-sdk";
+import { createElement as h8 } from "react";
 var diffWorkspaces = /* @__PURE__ */ new Map();
 var ownerContext;
 var normalize = (value2) => (value2 || "default").trim().toLowerCase();
 function turnHistoryScope() {
-  const parent = host8.state.activeSessionId.get();
-  return parent ? JSON.stringify([host8.state.connectionId.get() || null, normalize(host8.state.profile.get()), parent]) : null;
+  const parent = host9.state.activeSessionId.get();
+  return parent ? JSON.stringify([host9.state.connectionId.get() || null, normalize(host9.state.profile.get()), parent]) : null;
 }
 function sameTurnHistoryOwner(scope4, owner) {
   return owner ? owner.scope === scope4 && owner.isCurrent() : scope4 != null && turnHistoryScope() === scope4;
@@ -5703,7 +6787,7 @@ async function applySavedTurnChanges(scope4, sessionId, parentId, snapshot, acti
 }
 function notifySavedTurnOutcome(outcome, action) {
   if (outcome?.status === "success") {
-    host8.notify({
+    host9.notify({
       id: "turnDiffPatchAction",
       kind: "success",
       message: action === "undo" ? "Changes reverted" : "Changes reapplied"
@@ -5712,10 +6796,10 @@ function notifySavedTurnOutcome(outcome, action) {
   }
   const ru = document.documentElement.lang.startsWith("ru");
   const title = outcome?.status === "partial" ? action === "undo" ? ru ? "\u041D\u0435\u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u043E\u0442\u043C\u0435\u043D\u0435\u043D\u044B" : "Some changes reverted" : ru ? "\u041D\u0435\u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u043F\u0440\u0438\u043C\u0435\u043D\u0435\u043D\u044B \u043F\u043E\u0432\u0442\u043E\u0440\u043D\u043E" : "Some changes reapplied" : action === "undo" ? ru ? "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u043E\u0442\u043C\u0435\u043D\u0438\u0442\u044C \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F" : "Failed to revert changes" : ru ? "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u043F\u043E\u0432\u0442\u043E\u0440\u043D\u043E \u043F\u0440\u0438\u043C\u0435\u043D\u0438\u0442\u044C \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F" : "Failed to reapply changes";
-  host8.notify({ id: "turnDiffPatchAction", kind: "error", message: title });
+  host9.notify({ id: "turnDiffPatchAction", kind: "error", message: title });
 }
 function openSavedTurnDiff(scope4, snapshot, path, owner) {
-  if (!ownerContext || !sameTurnHistoryOwner(scope4, owner) || typeof host8.openWorkspace !== "function") return;
+  if (!ownerContext || !sameTurnHistoryOwner(scope4, owner) || typeof host9.openWorkspace !== "function") return;
   const title = path || (document.documentElement.lang.startsWith("ru") ? "\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F" : "Changes");
   const diff = path ? snapshot.files?.find((file) => file.path === path)?.unifiedDiff || snapshot.unifiedDiff : snapshot.unifiedDiff;
   if (typeof diff !== "string" || !diff) return;
@@ -5724,14 +6808,14 @@ function openSavedTurnDiff(scope4, snapshot, path, owner) {
   const fence = "`".repeat(fenceLength);
   const key2 = "hermes-codex-visual:turn-diff:" + snapshot.snapshotId;
   diffWorkspaces.get(key2)?.();
-  const dispose = host8.openWorkspace(key2, {
+  const dispose = host9.openWorkspace(key2, {
     title,
     dock: { pane: "workspace", pos: "right" },
     onClose: () => diffWorkspaces.delete(key2),
-    render: () => h7(
+    render: () => h8(
       "div",
       { "data-hcv-saved-turn-diff": "", style: { padding: "16px", minWidth: 0, overflow: "auto", height: "100%" } },
-      h7(MessageTextContent, { text: fence + "diff\n" + diff + "\n" + fence, previewOnly: true })
+      h8(MessageTextContent, { text: fence + "diff\n" + diff + "\n" + fence, previewOnly: true })
     )
   });
   diffWorkspaces.set(key2, dispose);
@@ -5767,10 +6851,9 @@ function placeSavedTurnCard(card2, anchor) {
 }
 
 // source/chat-tile-turn-history.js
-var surfaceSelector = '[data-chat-surface][data-composer-target^="tile:"][data-session-anchor^="session-tile:"]';
+var tileHistorySurface = '[data-chat-surface][data-composer-target^="tile:"][data-session-anchor^="session-tile:"]';
 var pair = '[data-slot="aui_turn-pair"]';
 var user = '[data-slot="aui_user-message-root"]';
-var generated = "[data-hcv-turn-history-generated]";
 var normalize2 = (value2) => typeof value2 === "string" && value2.trim() ? value2.trim() : null;
 function tileTurnHistoryTarget(surface5) {
   const native2 = nativeSessionView(surface5);
@@ -5795,7 +6878,7 @@ function registerTileTurnHistory(ctx, active3, onChange = () => {
   const controllers = /* @__PURE__ */ new Map();
   const contrast = matchMedia("(forced-colors: none)");
   let disposed = false, frame = 0;
-  const enabled = () => !disposed && contrast.matches && document.documentElement.matches(active3);
+  const enabled2 = () => !disposed && contrast.matches && document.documentElement.matches(active3);
   const schedule = () => {
     if (!frame && !disposed) frame = requestAnimationFrame(() => {
       frame = 0;
@@ -5808,7 +6891,7 @@ function registerTileTurnHistory(ctx, active3, onChange = () => {
     let alive = true, history2 = null, changes2 = null, timer, reading = false, reload = false;
     const current = () => {
       const next = tileTurnHistoryTarget(surface5);
-      return alive && enabled() && surface5.isConnected && next?.view === target.view && next.scope === target.scope && next.sessionId === target.sessionId;
+      return alive && enabled2() && surface5.isConnected && next?.view === target.view && next.scope === target.scope && next.sessionId === target.sessionId;
     };
     const owner = { ...target, isCurrent: current };
     const clear = () => {
@@ -5913,7 +6996,7 @@ function registerTileTurnHistory(ctx, active3, onChange = () => {
   }
   function sync() {
     const present = /* @__PURE__ */ new Set();
-    for (const surface5 of enabled() ? document.querySelectorAll(surfaceSelector) : []) {
+    for (const surface5 of enabled2() ? document.querySelectorAll(tileHistorySurface) : []) {
       const target = tileTurnHistoryTarget(surface5);
       if (!target) continue;
       present.add(surface5);
@@ -5934,29 +7017,10 @@ function registerTileTurnHistory(ctx, active3, onChange = () => {
       controllers.delete(surface5);
     }
   }
-  const observer = new MutationObserver((records) => {
-    if (!enabled()) return;
-    let rescan = false;
-    const reread = /* @__PURE__ */ new Set();
-    for (const record2 of records) {
-      const target = record2.target;
-      if (!(target instanceof Element) || target.closest(generated)) continue;
-      const surface5 = target.closest(surfaceSelector);
-      if (surface5) {
-        const change = savedTurnMutation(record2);
-        rescan ||= Boolean(change);
-        if (change === "read") reread.add(surface5);
-      } else if (record2.type === "childList" && movedElementMatches(record2, surfaceSelector)) rescan = true;
-    }
+  function processMutations(reread, rescan) {
     for (const surface5 of reread) controllers.get(surface5)?.refresh();
     if (rescan) schedule();
-  });
-  observer.observe(document.body, {
-    childList: true,
-    subtree: true,
-    attributes: true,
-    attributeFilter: ["data-message-streaming", "data-state"]
-  });
+  }
   const theme2 = new MutationObserver(schedule);
   theme2.observe(document.documentElement, { attributes: true, attributeFilter: ["data-hermes-theme", "data-hermes-mode", "lang"] });
   contrast.addEventListener("change", schedule);
@@ -5969,39 +7033,38 @@ function registerTileTurnHistory(ctx, active3, onChange = () => {
       controllers.forEach((controller) => controller.refresh());
     }
   });
-  const storeStops = [host9.state.connectionId, host9.state.profile].map((atom8) => atom8.listen(schedule));
+  const storeStops = [host10.state.connectionId, host10.state.profile].map((atom8) => atom8.listen(schedule));
   schedule();
   ctx.onDispose(() => {
     disposed = true;
     cancelAnimationFrame(frame);
-    observer.disconnect();
     theme2.disconnect();
     contrast.removeEventListener("change", schedule);
     storeStops.forEach((stop) => stop());
     controllers.forEach((controller) => controller.dispose());
     controllers.clear();
   });
-  return { current(surface5) {
+  return { observing: enabled2, processMutations, current(surface5) {
     return controllers.get(surface5)?.current() || null;
   } };
 }
 
 // source/workspace-card.js
 import {
-  atom as atom4,
+  atom as atom5,
   DropdownMenu as DropdownMenu4,
   DropdownMenuContent as DropdownMenuContent4,
   DropdownMenuItem as DropdownMenuItem4,
   DropdownMenuSeparator as DropdownMenuSeparator3,
   DropdownMenuTrigger as DropdownMenuTrigger4,
-  host as host15,
-  TITLEBAR_AREAS as TITLEBAR_AREAS4,
+  host as host16,
+  TITLEBAR_AREAS as TITLEBAR_AREAS5,
   Tip,
   useI18n as useI18n6,
   useTheme as useTheme3,
-  useValue as useValue5
+  useValue as useValue6
 } from "@hermes/plugin-sdk";
-import { createElement as h17, Fragment as Fragment2, useEffect as useEffect10, useId as useId4, useLayoutEffect as useLayoutEffect5, useRef as useRef6, useState as useState12 } from "react";
+import { createElement as h18, Fragment as Fragment2, useEffect as useEffect10, useId as useId4, useLayoutEffect as useLayoutEffect5, useRef as useRef6, useState as useState12 } from "react";
 
 // source/summary-sources.js
 import { useEffect as useEffect5, useState as useState6 } from "react";
@@ -6125,9 +7188,8 @@ function attachPlayer(card2, audio) {
     }
   };
 }
-function registerChatAudio(ctx, active3, selector) {
+function registerChatAudio(ctx, active3, selector, forcedColors) {
   const root = document.documentElement;
-  const forcedColors = window.matchMedia("(forced-colors: active)");
   const players = /* @__PURE__ */ new Map();
   const card2 = `${active3} [${mark}]`;
   const waveform = localAssets?.icons.resourceAudioLight && localAssets?.icons.resourceAudioDark ? `background: light-dark(${svgMask(localAssets.icons.resourceAudioLight)}, ${svgMask(localAssets.icons.resourceAudioDark)}) center / contain no-repeat;` : `background: var(--hcv-focus); mask: ${codexMask("audio")} center / contain no-repeat;`;
@@ -6282,27 +7344,22 @@ function registerChatAudio(ctx, active3, selector) {
     collect();
     changes2.observe(document.body, { childList: true, subtree: true });
   }
-  const theme2 = new MutationObserver((records) => {
-    if (records.some((record2) => record2.attributeName === "data-hermes-theme")) reconcile();
-    if (records.some((record2) => record2.attributeName === "lang")) {
-      for (const player of players.values()) player.sync();
-    }
-  });
-  theme2.observe(root, { attributes: true, attributeFilter: ["data-hermes-theme", "lang"] });
-  forcedColors.addEventListener("change", reconcile);
-  reconcile();
   ctx.onDispose(() => {
-    theme2.disconnect();
     changes2.disconnect();
-    forcedColors.removeEventListener("change", reconcile);
     clear();
   });
+  return {
+    reconcile,
+    localize() {
+      for (const player of players.values()) player.sync();
+    }
+  };
 }
 
 // source/chat-video.js
 var cardSelector = "[data-hcv-video]";
 var rates = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
-var labels = {
+var labels2 = {
   ru: {
     play: "\u0412\u043E\u0441\u043F\u0440\u043E\u0438\u0437\u0432\u0435\u0441\u0442\u0438 \u0432\u0438\u0434\u0435\u043E",
     pause: "\u041F\u0440\u0438\u043E\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u044C \u0432\u043E\u0441\u043F\u0440\u043E\u0438\u0437\u0432\u0435\u0434\u0435\u043D\u0438\u0435 \u0432\u0438\u0434\u0435\u043E",
@@ -6408,7 +7465,7 @@ function attachPlayer2(card2, video) {
   const controller = new AbortController();
   const { signal } = controller;
   let locale3 = /^ru\b/i.test(document.documentElement.lang) ? "ru" : "en";
-  let copy11 = labels[locale3];
+  let copy11 = labels2[locale3];
   let formatPercent = new Intl.NumberFormat(locale3, { style: "percent" });
   let formatRate = new Intl.NumberFormat(locale3);
   const nativeTitle = card2.firstElementChild;
@@ -6492,7 +7549,7 @@ function attachPlayer2(card2, video) {
   }
   function localize() {
     locale3 = /^ru\b/i.test(document.documentElement.lang) ? "ru" : "en";
-    copy11 = labels[locale3];
+    copy11 = labels2[locale3];
     formatPercent = new Intl.NumberFormat(locale3, { style: "percent" });
     formatRate = new Intl.NumberFormat(locale3);
     status2.textContent = copy11.error;
@@ -6599,10 +7656,10 @@ function attachPlayer2(card2, video) {
   const toggleFullscreen = () => run(() => document.fullscreenElement === card2 ? document.exitFullscreen() : card2.requestFullscreen());
   listen(fullscreen, "click", toggleFullscreen);
   listen(card2, "fullscreenchange", () => {
-    const enabled = document.fullscreenElement === card2;
-    fullscreen.dataset.icon = enabled ? "exitFullscreen" : "fullscreen";
-    fullscreen.setAttribute("aria-label", enabled ? copy11.exitFullscreen : copy11.fullscreen);
-    if (enabled) {
+    const enabled2 = document.fullscreenElement === card2;
+    fullscreen.dataset.icon = enabled2 ? "exitFullscreen" : "fullscreen";
+    fullscreen.setAttribute("aria-label", enabled2 ? copy11.exitFullscreen : copy11.fullscreen);
+    if (enabled2) {
       card2.setAttribute("role", "dialog");
       card2.setAttribute("aria-label", filename());
       video.focus({ preventScroll: true });
@@ -6611,7 +7668,7 @@ function attachPlayer2(card2, video) {
       card2.removeAttribute("role");
       card2.removeAttribute("aria-label");
     }
-    wasFullscreen = enabled;
+    wasFullscreen = enabled2;
   });
   listen(card2, "keydown", (event) => {
     if (event.key !== "Escape") return;
@@ -6654,7 +7711,7 @@ function attachPlayer2(card2, video) {
     }
   };
 }
-function registerChatVideo(ctx, active3, selector) {
+function registerChatVideo(ctx, active3, selector, forcedColors) {
   if (!HTMLElement.prototype.showPopover || !CSS.supports("bottom", "anchor(top)")) return;
   const card2 = `${active3} ${cardSelector}`;
   const iconRules2 = Object.entries({
@@ -6901,7 +7958,6 @@ function registerChatVideo(ctx, active3, selector) {
   }
   `, { surface: cardSelector });
   const root = document.documentElement;
-  const forcedColors = window.matchMedia("(forced-colors: active)");
   const players = /* @__PURE__ */ new Map();
   function collect() {
     for (const [video, player] of players) {
@@ -6931,21 +7987,16 @@ function registerChatVideo(ctx, active3, selector) {
     collect();
     changes2.observe(document.body, { childList: true, subtree: true });
   }
-  const theme2 = new MutationObserver((records) => {
-    if (records.some((record2) => record2.attributeName === "data-hermes-theme")) reconcile();
-    if (records.some((record2) => record2.attributeName === "lang")) {
-      for (const player of players.values()) player.localize();
-    }
-  });
-  theme2.observe(root, { attributes: true, attributeFilter: ["data-hermes-theme", "lang"] });
-  forcedColors.addEventListener("change", reconcile);
-  reconcile();
   ctx.onDispose(() => {
-    theme2.disconnect();
     changes2.disconnect();
-    forcedColors.removeEventListener("change", reconcile);
     clear();
   });
+  return {
+    reconcile,
+    localize() {
+      for (const player of players.values()) player.localize();
+    }
+  };
 }
 
 // source/chat-resources.js
@@ -6960,6 +8011,7 @@ function registerChatResources(ctx, active3) {
   const site = `${preview3}:has(> span[title]:is([title^="http://" i], [title^="https://" i]))`;
   const directory = `${preview3}${directoryCard}`;
   const file = `${preview3}:not(${site}, ${directory})`;
+  const fileCard = `${file}:not([data-hcv-file-reference], [data-hcv-skill-card])`;
   const artifact = `${answer2} [data-slot="aui_artifact-card"]`;
   const icon8 = `:is(${preview3}, ${artifact}) > span:first-child`;
   const withPreview = `${preview3}:not(${directoryCard})`;
@@ -6969,8 +8021,8 @@ function registerChatResources(ctx, active3) {
   const reveal = `${preview3} > button:has(> ${revealIcon})`;
   const media2 = `${answer2} .aui-md span[class~="bg-muted/35"]`;
   const image = `${thread} :is([data-slot="aui_embedded-images"], [data-slot="aui_markdown-image"])`;
-  const generated4 = `${answer2} [data-slot="aui_generated-image"]`;
-  const imageDownload = `:is(${image}, ${generated4}) button:has(> svg.tabler-icon-download)`;
+  const generated3 = `${answer2} [data-slot="aui_generated-image"]`;
+  const imageDownload = `:is(${image}, ${generated3}) button:has(> svg.tabler-icon-download)`;
   const imageFocus = `${image} button:focus-visible > img`;
   const forcedColors = window.matchMedia("(forced-colors: active)");
   function openFromCard(event) {
@@ -6982,6 +8034,8 @@ function registerChatResources(ctx, active3) {
   const style = document.createElement("style");
   style.dataset.hcvChatResources = "";
   style.textContent = `
+/* Keep the native actions available to Results and inline file links. */
+${fileCard} { display: none !important; }
 @media (forced-colors: none) {
   /* fLcv and qO6B in 739301.37a39f26d6.js, Desktop tokens in 9ec44337a842.css. */
   :is(${preview3}, ${artifact}) {
@@ -7122,13 +8176,13 @@ function registerChatResources(ctx, active3) {
   }
   ${withPreview}:has(> button:last-child:focus-visible),
   :is(${artifact}, ${secondary2}, ${reveal}, ${imageDownload}):focus-visible,
-  ${generated4} > button:first-of-type:focus-visible {
+  ${generated3} > button:first-of-type:focus-visible {
     outline: 2px solid var(--hcv-focus);
     outline-offset: -2px;
   }
   ${open}:focus-visible { outline: none; }
 
-  ${image} img, ${generated4} { border-radius: 12px; }
+  ${image} img, ${generated3} { border-radius: 12px; }
   ${image} img {
     border: 0;
     outline: 1px solid light-dark(oklch(0 0 0 / 0.1), oklch(1 0 0 / 0.1));
@@ -7152,10 +8206,28 @@ function registerChatResources(ctx, active3) {
 }
 `;
   mountStyle(ctx, style, { surface: '[data-slot="aui_assistant-message-content"], [data-slot="aui_user-message-root"]', retainAcrossChatTabs: true });
-  registerChatAudio(ctx, active3, `${media2} > audio`);
-  registerChatVideo(ctx, active3, `${media2} > video`);
+  const players = [
+    registerChatAudio(ctx, active3, `${media2} > audio`, forcedColors),
+    registerChatVideo(ctx, active3, `${media2} > video`, forcedColors)
+  ].filter(Boolean);
+  const reconcileMedia = () => {
+    for (const player of players) player.reconcile();
+  };
+  const mediaAppearance = new MutationObserver((records) => {
+    if (records.some((record2) => record2.attributeName === "data-hermes-theme")) reconcileMedia();
+    if (records.some((record2) => record2.attributeName === "lang")) {
+      for (const player of players) player.localize();
+    }
+  });
+  mediaAppearance.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["data-hermes-theme", "lang"]
+  });
+  ctx.addEventListener(forcedColors, "change", reconcileMedia);
+  reconcileMedia();
   document.addEventListener("click", openFromCard);
   ctx.onDispose(() => {
+    mediaAppearance.disconnect();
     document.removeEventListener("click", openFromCard);
     style.remove();
   });
@@ -7163,19 +8235,19 @@ function registerChatResources(ctx, active3) {
 
 // source/summary-sources-view.js
 import { DropdownMenu as DropdownMenu2, DropdownMenuContent as DropdownMenuContent2, DropdownMenuItem as DropdownMenuItem2, DropdownMenuTrigger as DropdownMenuTrigger2, useI18n as useI18n3 } from "@hermes/plugin-sdk";
-import { createElement as h9, useId as useId2, useRef as useRef3, useState as useState5 } from "react";
+import { createElement as h10, useId as useId2, useRef as useRef3, useState as useState5 } from "react";
 
 // source/summary-section.js
-import { createElement as h8, useId } from "react";
+import { createElement as h9, useId } from "react";
 function SummarySection({ kind, title, expanded: expanded2, onToggle, action, children, ...props }) {
   const id2 = useId();
-  return h8(
+  return h9(
     "section",
     { ...props, "data-hcv-summary-section": kind, "data-collapsed": !expanded2 || void 0, "aria-label": title },
-    h8(
+    h9(
       "header",
       null,
-      h8(
+      h9(
         "button",
         {
           type: "button",
@@ -7184,15 +8256,15 @@ function SummarySection({ kind, title, expanded: expanded2, onToggle, action, ch
           "aria-expanded": expanded2,
           onClick: onToggle
         },
-        h8("span", { title, dir: "auto" }, title),
-        h8("span", { "aria-hidden": true, "data-hcv-summary-chevron": "", style: codexIconStyle("down") })
+        h9("span", { title, dir: "auto" }, title),
+        h9("span", { "aria-hidden": true, "data-hcv-summary-chevron": "", style: codexIconStyle("down") })
       ),
       action
     ),
-    h8(
+    h9(
       "div",
       { id: id2, "data-hcv-summary-disclosure": "", inert: !expanded2, "aria-hidden": !expanded2 },
-      h8("div", { "data-hcv-summary-contents": "" }, children)
+      h9("div", { "data-hcv-summary-contents": "" }, children)
     )
   );
 }
@@ -7234,7 +8306,7 @@ ${section2} [data-hcv-summary-contents] { min-inline-size: 0; min-block-size: 0;
 }
 
 // source/summary-sources-view.js
-var labels2 = {
+var labels3 = {
   ru: {
     title: "\u0418\u0441\u0442\u043E\u0447\u043D\u0438\u043A\u0438",
     outputs: "\u0420\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442\u044B",
@@ -7286,13 +8358,13 @@ var labels2 = {
 };
 var composerAdd = '[data-slot="composer-root"] button[aria-haspopup="menu"]:has(> .codicon-add)';
 function icon2(name) {
-  return h9("span", { "aria-hidden": true, className: "hcv-source-glyph", style: codexIconStyle(name) });
+  return h10("span", { "aria-hidden": true, className: "hcv-source-glyph", style: codexIconStyle(name) });
 }
 function viewAllIcon() {
-  return h9(
+  return h10(
     "svg",
     { "aria-hidden": true, className: "hcv-sources-all-icon", viewBox: "0 0 20 20", fill: "currentColor" },
-    h9("path", { d: "M16.6345 5.83331C16.6345 4.81987 15.813 3.99835 14.7996 3.99835C13.7863 3.99855 12.9646 4.81999 12.9646 5.83331C12.9646 6.84663 13.7863 7.66808 14.7996 7.66827C15.813 7.66827 16.6345 6.84676 16.6345 5.83331ZM3.36499 14.1663C3.36499 15.1798 4.18651 16.0013 5.19995 16.0013C6.21339 16.0013 7.03491 15.1798 7.03491 14.1663C7.03471 13.153 6.21327 12.3314 5.19995 12.3314C4.18663 12.3314 3.36519 13.153 3.36499 14.1663ZM17.9646 5.83331C17.9646 7.58129 16.5475 8.99835 14.7996 8.99835C13.2785 8.99818 12.0078 7.92497 11.7039 6.49445L11.6667 6.49835H11.3347C10.5362 6.49835 9.96426 6.49872 9.54565 6.52081C9.21098 6.53848 9.04089 6.56873 8.96069 6.59113L8.90796 6.60968C8.41777 6.86301 8.2248 7.46527 8.47632 7.95636L8.50757 8.00323C8.55968 8.068 8.68066 8.19148 8.94312 8.4007C9.27097 8.66203 9.73648 8.99501 10.3865 9.45929L11.239 10.0716C11.489 10.2539 11.7044 10.4155 11.8855 10.5599C12.2255 10.8309 12.5425 11.1144 12.7078 11.4368L12.8054 11.6536C13.206 12.6785 12.8306 13.8502 11.9089 14.4515L11.7029 14.5716C11.381 14.7379 10.9584 14.785 10.5242 14.8079C10.0619 14.8323 9.44766 14.8314 8.66479 14.8314H8.33276C8.31992 14.8314 8.30734 14.8282 8.29468 14.8275C7.9907 16.2581 6.72124 17.3314 5.19995 17.3314C3.45197 17.3314 2.03491 15.9143 2.03491 14.1663C2.03511 12.4185 3.45209 11.0013 5.19995 11.0013C6.72066 11.0013 7.99008 12.0743 8.29468 13.5042C8.30731 13.5035 8.31995 13.5013 8.33276 13.5013H8.66479C9.46362 13.5013 10.0362 13.5019 10.4548 13.4798C10.9013 13.4562 11.0544 13.4096 11.0925 13.39L11.1804 13.3382C11.5766 13.0799 11.7385 12.5765 11.5662 12.136L11.5242 12.0433C11.5046 12.0051 11.4062 11.8788 11.0564 11.5999C10.8925 11.4693 10.6943 11.3206 10.4558 11.1468L9.61304 10.5413C8.97593 10.0862 8.47599 9.72927 8.11401 9.44073C7.81659 9.20364 7.53702 8.95681 7.36108 8.68292L7.29272 8.56378C6.70695 7.42066 7.15568 6.0189 8.29663 5.42902L8.42163 5.3714C8.7241 5.25059 9.09524 5.21275 9.47534 5.19269C9.93756 5.16829 10.5518 5.16827 11.3347 5.16827H11.6667L11.7039 5.1712C12.0082 3.74114 13.2788 2.66845 14.7996 2.66827C16.5475 2.66827 17.9646 4.08533 17.9646 5.83331Z" })
+    h10("path", { d: "M16.6345 5.83331C16.6345 4.81987 15.813 3.99835 14.7996 3.99835C13.7863 3.99855 12.9646 4.81999 12.9646 5.83331C12.9646 6.84663 13.7863 7.66808 14.7996 7.66827C15.813 7.66827 16.6345 6.84676 16.6345 5.83331ZM3.36499 14.1663C3.36499 15.1798 4.18651 16.0013 5.19995 16.0013C6.21339 16.0013 7.03491 15.1798 7.03491 14.1663C7.03471 13.153 6.21327 12.3314 5.19995 12.3314C4.18663 12.3314 3.36519 13.153 3.36499 14.1663ZM17.9646 5.83331C17.9646 7.58129 16.5475 8.99835 14.7996 8.99835C13.2785 8.99818 12.0078 7.92497 11.7039 6.49445L11.6667 6.49835H11.3347C10.5362 6.49835 9.96426 6.49872 9.54565 6.52081C9.21098 6.53848 9.04089 6.56873 8.96069 6.59113L8.90796 6.60968C8.41777 6.86301 8.2248 7.46527 8.47632 7.95636L8.50757 8.00323C8.55968 8.068 8.68066 8.19148 8.94312 8.4007C9.27097 8.66203 9.73648 8.99501 10.3865 9.45929L11.239 10.0716C11.489 10.2539 11.7044 10.4155 11.8855 10.5599C12.2255 10.8309 12.5425 11.1144 12.7078 11.4368L12.8054 11.6536C13.206 12.6785 12.8306 13.8502 11.9089 14.4515L11.7029 14.5716C11.381 14.7379 10.9584 14.785 10.5242 14.8079C10.0619 14.8323 9.44766 14.8314 8.66479 14.8314H8.33276C8.31992 14.8314 8.30734 14.8282 8.29468 14.8275C7.9907 16.2581 6.72124 17.3314 5.19995 17.3314C3.45197 17.3314 2.03491 15.9143 2.03491 14.1663C2.03511 12.4185 3.45209 11.0013 5.19995 11.0013C6.72066 11.0013 7.99008 12.0743 8.29468 13.5042C8.30731 13.5035 8.31995 13.5013 8.33276 13.5013H8.66479C9.46362 13.5013 10.0362 13.5019 10.4548 13.4798C10.9013 13.4562 11.0544 13.4096 11.0925 13.39L11.1804 13.3382C11.5766 13.0799 11.7385 12.5765 11.5662 12.136L11.5242 12.0433C11.5046 12.0051 11.4062 11.8788 11.0564 11.5999C10.8925 11.4693 10.6943 11.3206 10.4558 11.1468L9.61304 10.5413C8.97593 10.0862 8.47599 9.72927 8.11401 9.44073C7.81659 9.20364 7.53702 8.95681 7.36108 8.68292L7.29272 8.56378C6.70695 7.42066 7.15568 6.0189 8.29663 5.42902L8.42163 5.3714C8.7241 5.25059 9.09524 5.21275 9.47534 5.19269C9.93756 5.16829 10.5518 5.16827 11.3347 5.16827H11.6667L11.7039 5.1712C12.0082 3.74114 13.2788 2.66845 14.7996 2.66827C16.5475 2.66827 17.9646 4.08533 17.9646 5.83331Z" })
   );
 }
 function connectorRows(connectors) {
@@ -7310,22 +8382,22 @@ function SourceRow({ row: row5, expanded: expanded2 = false, copy: copy11, onOpe
   const name = sourceLabel(row5, copy11);
   const open = row5.kind === "source" ? onConnectors && (() => onConnectors(row5.name)) : row5.action && onOpenSource && (() => onOpenSource(row5));
   const props = { className: "hcv-source-row", title: name };
-  const content3 = h9("span", { className: "hcv-source-leading", "aria-hidden": true }, row5.thumbnail ? h9("img", { className: "hcv-source-thumbnail", src: row5.thumbnail, alt: "", draggable: false }) : icon2(row5.kind));
-  const text7 = h9(
+  const content3 = h10("span", { className: "hcv-source-leading", "aria-hidden": true }, row5.thumbnail ? h10("img", { className: "hcv-source-thumbnail", src: row5.thumbnail, alt: "", draggable: false }) : icon2(row5.kind));
+  const text7 = h10(
     "span",
     { className: "hcv-source-text" },
-    h9("span", { className: "hcv-source-title", dir: "auto" }, name),
-    expanded2 && row5.meta && h9("span", { className: "hcv-source-meta", dir: "auto" }, row5.meta)
+    h10("span", { className: "hcv-source-title", dir: "auto" }, name),
+    expanded2 && row5.meta && h10("span", { className: "hcv-source-meta", dir: "auto" }, row5.meta)
   );
-  return h9(
+  return h10(
     "li",
     { "data-hcv-source-row": row5.kind },
-    h9(open ? "button" : "div", open ? { ...props, type: "button", "aria-label": name, onClick: open } : props, content3, text7),
-    expanded2 && h9("p", { className: "hcv-source-description" }, sourceDescription(row5, copy11))
+    h10(open ? "button" : "div", open ? { ...props, type: "button", "aria-label": name, onClick: open } : props, content3, text7),
+    expanded2 && h10("p", { className: "hcv-source-description" }, sourceDescription(row5, copy11))
   );
 }
 function sourceList(rows2, props) {
-  return rows2.map((row5) => h9(SourceRow, { ...props, key: `${row5.kind}:${row5.key}`, row: row5 }));
+  return rows2.map((row5) => h10(SourceRow, { ...props, key: `${row5.kind}:${row5.key}`, row: row5 }));
 }
 function openComposerMenu(getChat) {
   const chat3 = getChat?.();
@@ -7339,7 +8411,7 @@ function openComposerMenu(getChat) {
 }
 function CompactSources({ rows: rows2 = [], connectors, loading: loading2, onExpand, onConnectors, onOpenSource, getChat, disclosure: disclosure2 }) {
   const { locale: locale3 } = useI18n3();
-  const copy11 = labels2[locale3] || labels2.en;
+  const copy11 = labels3[locale3] || labels3.en;
   const [menuOpen, setMenuOpen] = useState5(false);
   const movingFocus = useRef3(false);
   const items2 = [...rows2, ...connectorRows(connectors)];
@@ -7348,16 +8420,16 @@ function CompactSources({ rows: rows2 = [], connectors, loading: loading2, onExp
     movingFocus.current = true;
     action();
   }
-  const add = h9(
+  const add = h10(
     DropdownMenu2,
     { open: menuOpen, onOpenChange: setMenuOpen, modal: false },
-    h9(DropdownMenuTrigger2, { asChild: true }, h9("button", {
+    h10(DropdownMenuTrigger2, { asChild: true }, h10("button", {
       type: "button",
       className: "hcv-sources-add",
       "aria-label": copy11.add,
       title: copy11.addHint
     }, icon2("plus"))),
-    h9(
+    h10(
       DropdownMenuContent2,
       {
         align: "end",
@@ -7368,27 +8440,27 @@ function CompactSources({ rows: rows2 = [], connectors, loading: loading2, onExp
           movingFocus.current = false;
         }
       },
-      h9(DropdownMenuItem2, { disabled: !onConnectors, onSelect: () => menuAction(() => onConnectors()) }, icon2("plugins"), copy11.plugins),
-      h9(DropdownMenuItem2, { disabled: !getChat, onSelect: () => menuAction(() => openComposerMenu(getChat)) }, icon2("attach"), copy11.attach)
+      h10(DropdownMenuItem2, { disabled: !onConnectors, onSelect: () => menuAction(() => onConnectors()) }, icon2("plugins"), copy11.plugins),
+      h10(DropdownMenuItem2, { disabled: !getChat, onSelect: () => menuAction(() => openComposerMenu(getChat)) }, icon2("attach"), copy11.attach)
     )
   );
-  return h9(
+  return h10(
     SummarySection,
     { ...disclosure2, kind: "sources", title: copy11.title, action: add, "data-hcv-sources-compact": "" },
     items2.length ? [
-      h9("ul", { key: "list", "aria-label": copy11.title }, sourceList(items2.slice(0, 3), { copy: copy11, onOpenSource, onConnectors })),
-      h9(
+      h10("ul", { key: "list", "aria-label": copy11.title }, sourceList(items2.slice(0, 3), { copy: copy11, onOpenSource, onConnectors })),
+      h10(
         "button",
         { key: "expand", type: "button", className: "hcv-source-row hcv-sources-all", onClick: onExpand },
-        h9("span", { className: "hcv-source-leading" }, viewAllIcon()),
-        h9("span", null, copy11.showAll)
+        h10("span", { className: "hcv-source-leading" }, viewAllIcon()),
+        h10("span", null, copy11.showAll)
       )
-    ] : loading2 ? h9("p", { role: "status", className: "hcv-sources-state" }, copy11.loading) : h9("button", { type: "button", className: "hcv-source-row hcv-sources-empty", onClick: showMenu }, copy11.addHint)
+    ] : loading2 ? h10("p", { role: "status", className: "hcv-sources-state" }, copy11.loading) : h10("button", { type: "button", className: "hcv-source-row hcv-sources-empty", onClick: showMenu }, copy11.addHint)
   );
 }
 function CompactSummaryItems({ kind, rows: rows2, onOpenSource, disclosure: disclosure2 }) {
   const { locale: locale3 } = useI18n3();
-  const copy11 = labels2[locale3] || labels2.en;
+  const copy11 = labels3[locale3] || labels3.en;
   const [visibleCount, setVisibleCount] = useState5(6);
   const listId = useId2();
   if (!rows2.length) return null;
@@ -7396,11 +8468,11 @@ function CompactSummaryItems({ kind, rows: rows2, onOpenSource, disclosure: disc
   const visibleRows = limited2 ? rows2.slice(0, visibleCount) : rows2;
   const remaining = rows2.length - visibleRows.length;
   const expanded2 = remaining === 0;
-  return h9(
+  return h10(
     SummarySection,
     { ...disclosure2, kind, title: copy11[kind], "data-hcv-summary-items": "" },
-    h9("ul", { id: listId, "aria-label": copy11[kind] }, sourceList(visibleRows, { copy: copy11, onOpenSource })),
-    limited2 && rows2.length > 6 && h9("button", {
+    h10("ul", { id: listId, "aria-label": copy11[kind] }, sourceList(visibleRows, { copy: copy11, onOpenSource })),
+    limited2 && rows2.length > 6 && h10("button", {
       type: "button",
       className: "hcv-summary-more",
       "aria-controls": listId,
@@ -7411,13 +8483,13 @@ function CompactSummaryItems({ kind, rows: rows2, onOpenSource, disclosure: disc
 }
 function SourcesPane({ rows: rows2 = [], connectors, loading: loading2, onConnectors, onOpenSource }) {
   const { locale: locale3 } = useI18n3();
-  const copy11 = labels2[locale3] || labels2.en;
+  const copy11 = labels3[locale3] || labels3.en;
   const items2 = [...rows2, ...connectorRows(connectors)];
-  return h9(
+  return h10(
     "div",
     { "data-hcv-sources-pane": "" },
-    items2.length ? h9("ul", { "aria-label": copy11.title }, ...sourceList(items2, { expanded: true, copy: copy11, onOpenSource, onConnectors })) : h9("p", { role: "status", className: "hcv-sources-state" }, loading2 ? copy11.loading : connectors == null ? copy11.unavailable : copy11.empty),
-    onConnectors && h9("button", { type: "button", className: "hcv-sources-connectors", onClick: () => onConnectors() }, icon2("source"), copy11.connectors)
+    items2.length ? h10("ul", { "aria-label": copy11.title }, ...sourceList(items2, { expanded: true, copy: copy11, onOpenSource, onConnectors })) : h10("p", { role: "status", className: "hcv-sources-state" }, loading2 ? copy11.loading : connectors == null ? copy11.unavailable : copy11.empty),
+    onConnectors && h10("button", { type: "button", className: "hcv-sources-connectors", onClick: () => onConnectors() }, icon2("source"), copy11.connectors)
   );
 }
 function registerSummarySources(ctx, active3) {
@@ -7550,10 +8622,10 @@ function sourceFrom(node4) {
   const section2 = isPullRequest(link2) ? "pullRequests" : !attached && node4.dataset.slot === "aui_artifact-card" ? "outputs" : void 0;
   return { kind, key: reference || link2?.href || name, name, meta: link2?.href || reference, attached, action, section: section2 };
 }
-function useChatSources(getChat, scopeKey3, enabled) {
+function useChatSources(getChat, scopeKey3, enabled2) {
   const [snapshot, setSnapshot] = useState6(null);
   useEffect5(() => {
-    if (!enabled) return;
+    if (!enabled2) return;
     let frame = 0;
     let chat3 = null;
     let body2 = null;
@@ -7611,13 +8683,50 @@ function useChatSources(getChat, scopeKey3, enabled) {
       labels13.disconnect();
       body2?.removeEventListener("load", queue, true);
     };
-  }, [getChat, scopeKey3, enabled]);
-  return enabled && snapshot?.scopeKey === scopeKey3 ? snapshot.rows : [];
+  }, [getChat, scopeKey3, enabled2]);
+  return enabled2 && snapshot?.scopeKey === scopeKey3 ? snapshot.rows : [];
+}
+
+// source/window-visibility.js
+function observeWindowVisibility(onChange) {
+  const root = document.documentElement;
+  const attribute = "data-renderer-animations-paused";
+  let nativeHidden = null;
+  let disposed = false;
+  let ready = false;
+  const hidden2 = () => document.hidden || (nativeHidden === null ? root.hasAttribute(attribute) : nativeHidden);
+  let paused = hidden2();
+  const sync = () => {
+    if (disposed) return;
+    const next = hidden2();
+    if (next === paused) return;
+    paused = next;
+    if (ready) onChange(next);
+  };
+  document.addEventListener("visibilitychange", sync);
+  const observer = new MutationObserver(sync);
+  observer.observe(root, { attributes: true, attributeFilter: [attribute] });
+  const unsubscribe = window.hermesDesktop?.onWindowStateChanged?.((state) => {
+    if (typeof state?.isMinimized !== "boolean" && typeof state?.isVisible !== "boolean") return;
+    nativeHidden = state.isMinimized === true || state.isVisible === false;
+    sync();
+  });
+  ready = true;
+  return {
+    hidden: hidden2,
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      observer.disconnect();
+      document.removeEventListener("visibilitychange", sync);
+      if (typeof unsubscribe === "function") unsubscribe();
+    }
+  };
 }
 
 // source/subagents.js
-import { atom, host as host12, useValue as useValue2 } from "@hermes/plugin-sdk";
-import { createElement as h13, useEffect as useEffect7 } from "react";
+import { atom as atom2, host as host13, useValue as useValue3 } from "@hermes/plugin-sdk";
+import { createElement as h14, useEffect as useEffect7 } from "react";
 
 // source/agent-avatars.js
 var shapes = [
@@ -7642,7 +8751,7 @@ var agentAvatars = localAssets?.avatars ?? shapes.flatMap(
 );
 
 // source/agent-display-name.js
-var text2 = (value2) => typeof value2 === "string" ? value2.trim() : "";
+var text3 = (value2) => typeof value2 === "string" ? value2.trim() : "";
 function pathName(value2) {
   if (typeof value2 !== "string") return "";
   const segment = value2.split("/").map((part) => part.trim()).filter((part) => part.length > 0 && part !== "root").at(-1);
@@ -7651,7 +8760,7 @@ function pathName(value2) {
   return name ? name[0].toUpperCase() + name.slice(1) : "";
 }
 function producerName(agent) {
-  const nickname = text2(agent?.agentNickname) || text2(agent?.displayName);
+  const nickname = text3(agent?.agentNickname) || text3(agent?.displayName);
   if (nickname) return nickname;
   for (const value2 of [agent?.agentPath, agent?.agent_path, agent?.task_name, agent?.taskName]) {
     const name = pathName(value2);
@@ -7664,7 +8773,7 @@ function agentDisplayName(agent, fallback) {
 }
 function createAgentNameRegistry() {
   const aliases = /* @__PURE__ */ new Map();
-  const identityKeys = (agent) => [...new Set([agent?.seed, agent?.subagentId, agent?.id].map(text2).filter(Boolean))];
+  const identityKeys = (agent) => [...new Set([agent?.seed, agent?.subagentId, agent?.id].map(text3).filter(Boolean))];
   let order = 0;
   let metadataOrder = 0;
   const owner = (entry) => {
@@ -7745,8 +8854,8 @@ function canonicalAgentReceipt(rowId, receipts) {
 }
 
 // source/summary-agents.js
-import { CopyButton, host as host11 } from "@hermes/plugin-sdk";
-import { createElement as h12, useEffect as useEffect6, useLayoutEffect as useLayoutEffect4, useRef as useRef4, useState as useState9 } from "react";
+import { CopyButton, host as host12 } from "@hermes/plugin-sdk";
+import { createElement as h13, useEffect as useEffect6, useLayoutEffect as useLayoutEffect4, useRef as useRef4, useState as useState9 } from "react";
 
 // source/agent-transcript-scroll.js
 function attachAgentTranscriptScroll(viewport, Observer = ResizeObserver) {
@@ -8337,12 +9446,12 @@ function describeActivity(part) {
   }
   return null;
 }
-function activityPresentation(parts, live2, russian, detail = false, summary2 = false) {
+function activityPresentation(parts, live2, russian, detail = false, summary3 = false) {
   const items2 = parts.map(describeActivity);
   const known = items2.filter(Boolean);
   const failed2 = known.some((item) => item.failed);
-  const failedRow = !summary2 && known.length === 1 && known.length === items2.length && known[0].failed && !known[0].pending && !parts[0].interrupted && !parts[0].automaticApprovalReviews?.length && (known[0].kind === "integration" && Boolean(known[0].action) || detail && known[0].kind === "command" && Boolean(known[0].command));
-  if (!known.length || known.some((item) => item.blocked) || failed2 && !summary2 && !failedRow) return null;
+  const failedRow = !summary3 && known.length === 1 && known.length === items2.length && known[0].failed && !known[0].pending && !parts[0].interrupted && !parts[0].automaticApprovalReviews?.length && (known[0].kind === "integration" && Boolean(known[0].action) || detail && known[0].kind === "command" && Boolean(known[0].command));
+  if (!known.length || known.some((item) => item.blocked) || failed2 && !summary3 && !failedRow) return null;
   const primary5 = known.find((item) => item.sources?.length) ?? known.find((item) => item.kind === "edit") ?? known.find((item) => item.kind === "browser" || item.kind === "chrome") ?? items2[0];
   if (!primary5) return null;
   const site = known.find((item) => item.kind === primary5.kind && item.origin)?.origin;
@@ -8369,12 +9478,12 @@ function activityPresentation(parts, live2, russian, detail = false, summary2 = 
   if (known.length === 1 && primary5.kind === "read") {
     const { path, query, folder, exploreTool } = primary5;
     if (exploreTool === "list_files") {
-      const label4 = live2 ? summary2 ? (russian ? "\u041F\u043E\u043B\u0443\u0447\u0435\u043D\u0438\u0435 \u0441\u043F\u0438\u0441\u043A\u0430 \u0444\u0430\u0439\u043B\u043E\u0432" : "Listing files") + (folder ? (russian ? " \u0432 \u043F\u0430\u043F\u043A\u0435 " : " in ") + folder : "") : (russian ? "\u041F\u0435\u0440\u0435\u0447\u0438\u0441\u043B\u0435\u043D\u0438\u0435 \u0444\u0430\u0439\u043B\u043E\u0432" : "Listing files") + (folder ? (russian ? " \u0432 " : " in ") + folder : "") : folder ? (russian ? "\u041F\u0435\u0440\u0435\u0447\u0438\u0441\u043B\u0438\u043B \u0444\u0430\u0439\u043B\u044B \u0432 " : "Listed files in ") + folder : russian ? "\u041F\u0435\u0440\u0435\u0447\u0438\u0441\u043B\u0435\u043D\u043D\u044B\u0435 \u0444\u0430\u0439\u043B\u044B" : "Listed files";
+      const label4 = live2 ? summary3 ? (russian ? "\u041F\u043E\u043B\u0443\u0447\u0435\u043D\u0438\u0435 \u0441\u043F\u0438\u0441\u043A\u0430 \u0444\u0430\u0439\u043B\u043E\u0432" : "Listing files") + (folder ? (russian ? " \u0432 \u043F\u0430\u043F\u043A\u0435 " : " in ") + folder : "") : (russian ? "\u041F\u0435\u0440\u0435\u0447\u0438\u0441\u043B\u0435\u043D\u0438\u0435 \u0444\u0430\u0439\u043B\u043E\u0432" : "Listing files") + (folder ? (russian ? " \u0432 " : " in ") + folder : "") : folder ? (russian ? "\u041F\u0435\u0440\u0435\u0447\u0438\u0441\u043B\u0438\u043B \u0444\u0430\u0439\u043B\u044B \u0432 " : "Listed files in ") + folder : russian ? "\u041F\u0435\u0440\u0435\u0447\u0438\u0441\u043B\u0435\u043D\u043D\u044B\u0435 \u0444\u0430\u0439\u043B\u044B" : "Listed files";
       return { ...fallback, label: label4 };
     }
     if (exploreTool === "search_files") {
       let label4;
-      if (live2 && summary2) label4 = folder ? (russian ? "\u041F\u043E\u0438\u0441\u043A \u0444\u0430\u0439\u043B\u043E\u0432 \u0432 \u043F\u0430\u043F\u043A\u0435 " : "Searching files in ") + folder : query ? (russian ? "\u041F\u043E\u0438\u0441\u043A \u043F\u043E \u0437\u0430\u043F\u0440\u043E\u0441\u0443 " : "Searching for ") + query : russian ? "\u041F\u043E\u0438\u0441\u043A \u0444\u0430\u0439\u043B\u043E\u0432" : "Searching files";
+      if (live2 && summary3) label4 = folder ? (russian ? "\u041F\u043E\u0438\u0441\u043A \u0444\u0430\u0439\u043B\u043E\u0432 \u0432 \u043F\u0430\u043F\u043A\u0435 " : "Searching files in ") + folder : query ? (russian ? "\u041F\u043E\u0438\u0441\u043A \u043F\u043E \u0437\u0430\u043F\u0440\u043E\u0441\u0443 " : "Searching for ") + query : russian ? "\u041F\u043E\u0438\u0441\u043A \u0444\u0430\u0439\u043B\u043E\u0432" : "Searching files";
       else if (live2) label4 = query ? (russian ? "\u041F\u043E\u0438\u0441\u043A \xAB" + query + "\xBB" : "Searching for " + query) + (folder ? (russian ? " \u0432 " : " in ") + folder : "") : russian ? "\u041F\u043E\u0438\u0441\u043A \u0444\u0430\u0439\u043B\u043E\u0432" : "Searching for files";
       else label4 = query ? (russian ? "\u0412\u044B\u043F\u043E\u043B\u043D\u0435\u043D \u043F\u043E\u0438\u0441\u043A " : "Searched for ") + query + (folder ? (russian ? " \u0432 " : " in ") + folder : "") : russian ? "\u0412\u044B\u043F\u043E\u043B\u043D\u0435\u043D \u043F\u043E\u0438\u0441\u043A \u0444\u0430\u0439\u043B\u043E\u0432" : "Searched for files";
       return { ...fallback, label: label4 };
@@ -8529,13 +9638,13 @@ ${scope4} [data-hcv-file-activity-marker="delete"] { background: color-mix(in ok
 }
 
 // source/agent-transcript.js
-import { createElement as h11, useMemo, useState as useState8 } from "react";
+import { createElement as h12, useMemo, useState as useState8 } from "react";
 
 // source/chat-activity-details.js
 import { writeClipboardText } from "@hermes/plugin-sdk";
 
 // source/message-actions.js
-import { host as host10 } from "@hermes/plugin-sdk";
+import { host as host11 } from "@hermes/plugin-sdk";
 var actionBar = '[data-slot="aui_user-bubble-actions"]';
 var bubbleSelector = "button.composer-human-message";
 var restoreButton = "button:has(> .codicon-discard)";
@@ -8548,7 +9657,7 @@ var replyLane = ":is(.aui-message-actions-desktop, .aui-message-actions-touch)";
 var replyCopy = 'button[data-size="icon"]:not(button[data-size="icon"] ~ button[data-size="icon"])';
 var replyTip = "[data-hcv-reply-copy-tip]";
 var copyIcon = ":is(.tabler-icon-copy, .lucide-copy)";
-var labels3 = {
+var labels4 = {
   ru: { copyMessage: "\u0421\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435", copyResponse: "\u0421\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u043E\u0442\u0432\u0435\u0442", messageCopied: "\u0421\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u043D\u043E", copyMessageError: "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0441\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435" },
   en: { copyMessage: "Copy message", copyResponse: "Copy response", messageCopied: "Copied", copyMessageError: "Could not copy the message" }
 };
@@ -8569,7 +9678,7 @@ function userMessage2(bubble, id2) {
   }
   return null;
 }
-function dateLabel(date) {
+function dateLabel2(date) {
   const locale3 = document.documentElement.lang || void 0;
   const options = { hour: "numeric", minute: "2-digit" };
   const localDay = (day) => Date.UTC(day.getFullYear(), day.getMonth(), day.getDate());
@@ -8874,13 +9983,13 @@ function registerReplyCopyTip(ctx, active3, transcript5, options = {}) {
     reset();
     tip2.remove();
   });
-  return (enabled) => {
-    if (!enabled || pointerButton && !pointerButton.isConnected) reset();
+  return (enabled2) => {
+    if (!enabled2 || pointerButton && !pointerButton.isConnected) reset();
     else if (button6 && !button6.checkVisibility()) hide();
   };
 }
 function registerMessageActions(ctx, active3, transcript5, promptSelector2) {
-  ctx.i18n.register(labels3);
+  ctx.i18n.register(labels4);
   const sheet = document.createElement("style");
   sheet.dataset.hcvMessageActionStyle = "";
   sheet.textContent = styles(active3, transcript5);
@@ -8935,7 +10044,7 @@ function registerMessageActions(ctx, active3, transcript5, promptSelector2) {
       const date = typeof seconds === "number" && seconds > 0 ? new Date(seconds * 1e3) : new Date(nativeDate);
       stamp.hidden = !Number.isFinite(date.getTime());
       if (!stamp.hidden) {
-        const label4 = dateLabel(date);
+        const label4 = dateLabel2(date);
         if (stamp.textContent !== label4) stamp.textContent = label4;
         stamp.dateTime = date.toISOString();
         stamp.title = date.toLocaleString(document.documentElement.lang || void 0);
@@ -8959,7 +10068,7 @@ function registerMessageActions(ctx, active3, transcript5, promptSelector2) {
         const success = await ctx.os.writeClipboard(text7);
         if (!row5.isConnected) return;
         if (!success) {
-          host10.notify({ kind: "error", message: ctx.i18n.t("copyMessageError") });
+          host11.notify({ kind: "error", message: ctx.i18n.t("copyMessageError") });
           return;
         }
         copy11.setAttribute("data-copied", "");
@@ -9016,9 +10125,9 @@ function registerMessageActions(ctx, active3, transcript5, promptSelector2) {
     menu.remove();
     sheet.remove();
   });
-  return function reconcile(enabled) {
-    reconcileReplyTip(enabled);
-    const current = new Set(enabled ? document.querySelectorAll(`${transcript5} ${promptSelector2} ${actionBar}`) : []);
+  return function reconcile(enabled2) {
+    reconcileReplyTip(enabled2);
+    const current = new Set(enabled2 ? document.querySelectorAll(`${transcript5} ${promptSelector2} ${actionBar}`) : []);
     for (const [bar, state] of rows2) {
       if (!current.has(bar) || !bar.contains(state.row) || !bar.contains(state.bubble) || state.prompt.dataset.messageId !== state.messageId) {
         state.remove();
@@ -9508,13 +10617,13 @@ function savedTimelineMetadata(row5) {
 }
 
 // source/agent-transcript-turns.js
-function text3(row5) {
+function text4(row5) {
   const value2 = row5.display_content ?? row5.content ?? row5.text;
   const raw = typeof value2 === "string" ? value2 : Array.isArray(value2) ? value2.filter((part) => part?.type === "text").map((part) => part.text || "").join("\n") : "";
   return agentTranscriptVisibleText(row5, raw);
 }
 var key = (row5, index) => String(row5.message_uid ?? row5.row_id ?? row5.id ?? index);
-var hasAssistantText = (row5) => row5.role === "assistant" && row5.display_kind !== "hidden" && (text3(row5).trim() || Array.isArray(row5.display_commentary) && row5.display_commentary.some((value2) => typeof value2 === "string" && value2.trim()));
+var hasAssistantText = (row5) => row5.role === "assistant" && row5.display_kind !== "hidden" && (text4(row5).trim() || Array.isArray(row5.display_commentary) && row5.display_commentary.some((value2) => typeof value2 === "string" && value2.trim()));
 function agentTranscriptTurns(rows2, { nowMs = Date.now(), historyComplete = true } = {}) {
   const groups2 = [];
   let current = null;
@@ -9528,7 +10637,7 @@ function agentTranscriptTurns(rows2, { nowMs = Date.now(), historyComplete = tru
     }
     const metadata = savedTimelineMetadata(row5);
     const role = agentTranscriptRole(row5);
-    const authoredUser = role === "user" && row5.display_kind !== "hidden" && text3(row5).trim();
+    const authoredUser = role === "user" && row5.display_kind !== "hidden" && text4(row5).trim();
     const opensNew = metadata ? current?.turnId !== metadata.turnId : authoredUser && current?.rows.length;
     if (!current || opensNew) {
       current = { key: metadata ? metadata.turnId + ":" + key(row5, index) : "legacy-" + key(row5, index), turnId: metadata?.turnId || null, rows: [] };
@@ -9539,7 +10648,7 @@ function agentTranscriptTurns(rows2, { nowMs = Date.now(), historyComplete = tru
   for (const group2 of groups2) {
     if (group2.descriptions === null) continue;
     const descriptions2 = [];
-    const user4 = group2.rows.find((row5) => agentTranscriptRole(row5) === "user" && row5.display_kind !== "hidden" && text3(row5).trim());
+    const user4 = group2.rows.find((row5) => agentTranscriptRole(row5) === "user" && row5.display_kind !== "hidden" && text4(row5).trim());
     const inputMetadata = user4 && savedTimelineMetadata(user4);
     if (user4) descriptions2.push({
       role: "user",
@@ -9561,12 +10670,12 @@ function agentTranscriptTurns(rows2, { nowMs = Date.now(), historyComplete = tru
 }
 
 // source/chat-timestamp.js
-import { createElement as h10, useState as useState7 } from "react";
+import { createElement as h11, useState as useState7 } from "react";
 function TimestampSeparator({ sentAtMs, nowMs, lang = "ru" }) {
   const [mountedAt] = useState7(Date.now);
   const value2 = timestampSeparatorParts(sentAtMs, lang, nowMs ?? mountedAt);
   if (!value2) return null;
-  return h10(
+  return h11(
     "div",
     {
       "data-hcv-timestamp-separator": "",
@@ -9574,7 +10683,7 @@ function TimestampSeparator({ sentAtMs, nowMs, lang = "ru" }) {
       role: "separator",
       "aria-label": value2.label
     },
-    h10("time", { dateTime: value2.iso }, h10("span", { "data-hcv-timestamp-day": "" }, value2.date), value2.join, value2.time)
+    h11("time", { dateTime: value2.iso }, h11("span", { "data-hcv-timestamp-day": "" }, value2.date), value2.join, value2.time)
   );
 }
 function timestampSeparatorStyles(scope4) {
@@ -9606,11 +10715,11 @@ var copy = {
   }
 };
 function Glyph({ name }) {
-  return h11("span", { "data-hcv-agent-transcript-icon": name, "aria-hidden": true, style: codexIconStyle(name) });
+  return h12("span", { "data-hcv-agent-transcript-icon": name, "aria-hidden": true, style: codexIconStyle(name) });
 }
 function Disclosure({ label: label4, icon: icon8, children, shell = false, repeatKey }) {
   const [open, setOpen] = useState8(false);
-  return h11(
+  return h12(
     "div",
     {
       "data-hcv-agent-tool": "",
@@ -9618,7 +10727,7 @@ function Disclosure({ label: label4, icon: icon8, children, shell = false, repea
       ...shell && { "data-hcv-terminal-row": "" },
       ...repeatKey && { "data-hcv-agent-tool-repeat": repeatKey }
     },
-    h11(
+    h12(
       "button",
       {
         type: "button",
@@ -9626,20 +10735,20 @@ function Disclosure({ label: label4, icon: icon8, children, shell = false, repea
         "aria-expanded": open,
         onClick: () => setOpen(!open)
       },
-      h11(
+      h12(
         "span",
         { "data-hcv-agent-tool-summary": "" },
-        h11(Glyph, { name: icon8 }),
-        h11("span", { "data-hcv-agent-tool-label": "" }, typeof label4 === "function" ? label4(open) : label4)
+        h12(Glyph, { name: icon8 }),
+        h12("span", { "data-hcv-agent-tool-label": "" }, typeof label4 === "function" ? label4(open) : label4)
       ),
-      h11("span", { "data-hcv-agent-tool-caret": "", "aria-hidden": true }, h11(Glyph, { name: "right" }))
+      h12("span", { "data-hcv-agent-tool-caret": "", "aria-hidden": true }, h12(Glyph, { name: "right" }))
     ),
     open && children
   );
 }
 function ToolCopy({ text: text7, target, lang }) {
   const title = lang === "ru" ? target === "command" ? "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u043A\u043E\u043C\u0430\u043D\u0434\u0443" : "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0432\u044B\u0432\u043E\u0434" : target === "command" ? "Copy command" : "Copy output";
-  return h11("button", {
+  return h12("button", {
     type: "button",
     "data-hcv-terminal-copy": target,
     "data-hcv-terminal-copy-owned": target,
@@ -9664,14 +10773,14 @@ function Shell({ part, lang }) {
   const exitCode = record2.exit_code ?? record2.exitCode;
   const status2 = typeof exitCode === "number" ? exitCode === 0 ? "success" : "error" : part.isError ? "error" : null;
   const reveal = () => setExpanded(true);
-  return h11(
+  return h12(
     "div",
     { "data-hcv-terminal-details": "shell" },
-    h11("div", { "data-hcv-terminal-header": "" }, "Shell"),
-    h11(
+    h12("div", { "data-hcv-terminal-header": "" }, "Shell"),
+    h12(
       "div",
       { "data-hcv-terminal-command": "" },
-      hasCommand && h11("code", {
+      hasCommand && h12("code", {
         "data-hcv-terminal-code": "",
         ...expanded2 && { "data-hcv-terminal-expanded": "" },
         role: "button",
@@ -9684,35 +10793,35 @@ function Shell({ part, lang }) {
           }
         },
         "aria-expanded": expanded2
-      }, h11("span", { "aria-hidden": true }, "$ "), command2),
-      status2 && h11(
+      }, h12("span", { "aria-hidden": true }, "$ "), command2),
+      status2 && h12(
         "span",
         { "data-hcv-terminal-status": status2 },
         status2 === "success" ? copy[lang].success : (lang === "ru" ? "\u041A\u043E\u0434 \u0432\u044B\u0445\u043E\u0434\u0430 " : "Exit code ") + (exitCode ?? (lang === "ru" ? "\u043D\u0435\u0438\u0437\u0432\u0435\u0441\u0442\u043D\u044B\u0439" : "unknown"))
       )
     ),
-    hasCommand && h11(ToolCopy, { text: command2, target: "command", lang }),
-    output && h11(
+    hasCommand && h12(ToolCopy, { text: command2, target: "command", lang }),
+    output && h12(
       "div",
       { "data-hcv-terminal-output": "" },
-      h11("pre", null, output)
+      h12("pre", null, output)
     ),
-    output && h11(ToolCopy, { text: output, target: "output", lang })
+    output && h12(ToolCopy, { text: output, target: "output", lang })
   );
 }
 function RawResult({ part, lang }) {
   const diff = agentPartDiff(part);
   const argsText = agentToolArgsText(part);
-  return h11(
+  return h12(
     "div",
     { "data-hcv-agent-tool-detail": "" },
-    diff && h11("pre", { "data-hcv-agent-file-diff": "", tabIndex: 0 }, diff.text),
-    argsText && h11("section", { "data-hcv-agent-tool-args": "" }, h11("p", null, copy[lang].args), h11("pre", null, argsText)),
-    part.outputText !== void 0 && h11(
+    diff && h12("pre", { "data-hcv-agent-file-diff": "", tabIndex: 0 }, diff.text),
+    argsText && h12("section", { "data-hcv-agent-tool-args": "" }, h12("p", null, copy[lang].args), h12("pre", null, argsText)),
+    part.outputText !== void 0 && h12(
       "section",
       null,
-      h11("p", null, copy[lang].result),
-      h11("pre", null, part.outputText)
+      h12("p", null, copy[lang].result),
+      h12("pre", null, part.outputText)
     )
   );
 }
@@ -9724,39 +10833,39 @@ function Tool({ part, lang, nested = false }) {
   const counts2 = diff?.added != null ? " +" + diff.added + " \u2212" + diff.removed : "";
   const fallback = data?.kind === "command" && data.failed && data.command ? "Command failed (" + data.command + ")" : part.toolName;
   const file = fileActivityData(part, lang === "ru");
-  const label4 = file ? (open) => fileActivityLabel(fileActivityData(part, lang === "ru", open), h11) : (view?.label || (view?.prefix && path ? view.prefix + path : fallback)) + counts2;
-  return h11(
+  const label4 = file ? (open) => fileActivityLabel(fileActivityData(part, lang === "ru", open), h12) : (view?.label || (view?.prefix && path ? view.prefix + path : fallback)) + counts2;
+  return h12(
     Disclosure,
     { label: label4, icon: view?.icon || data?.icon || "activityIntegration", shell: data?.kind === "command" },
-    data?.kind === "command" ? h11(Shell, { part, lang }) : h11(RawResult, { part, lang })
+    data?.kind === "command" ? h12(Shell, { part, lang }) : h12(RawResult, { part, lang })
   );
 }
 function RepeatedTools({ unit, lang }) {
-  return h11(
+  return h12(
     Disclosure,
     { label: unit.view.label, icon: unit.view.icon, repeatKey: unit.view.key },
-    h11(
+    h12(
       "div",
       { "data-hcv-agent-tool-children": "" },
-      unit.parts.map((part) => h11(Tool, { key: part.toolCallId, part, lang, nested: true }))
+      unit.parts.map((part) => h12(Tool, { key: part.toolCallId, part, lang, nested: true }))
     )
   );
 }
 function Tools({ parts, lang }) {
-  if (parts.length === 1) return h11(Tool, { part: parts[0], lang });
+  if (parts.length === 1) return h12(Tool, { part: parts[0], lang });
   const units = agentToolUnits(parts, lang === "ru");
   const live2 = parts.some((part) => describeActivity(part)?.pending);
   const view = activityPresentation(parts, live2, lang === "ru", false, true);
-  return h11(
+  return h12(
     Disclosure,
     {
       label: view?.label || parts.map((part) => part.toolName).join(", "),
       icon: view?.icon || "activityIntegration"
     },
-    h11(
+    h12(
       "div",
       { "data-hcv-agent-tool-children": "" },
-      units.map((unit) => unit.view ? h11(RepeatedTools, { key: unit.key, unit, lang }) : h11(Tool, { key: unit.key, part: unit.parts[0], lang, nested: true }))
+      units.map((unit) => unit.view ? h12(RepeatedTools, { key: unit.key, unit, lang }) : h12(Tool, { key: unit.key, part: unit.parts[0], lang, nested: true }))
     )
   );
 }
@@ -9777,7 +10886,7 @@ function AgentTranscript({
     ...group2,
     blocks: agentTranscriptBlocks(group2.rows, { lang })
   })), [rows2, nowMs, historyComplete, lang]);
-  return h11("div", { "data-hcv-agent-transcript": "" }, groups2.map((group2) => {
+  return h12("div", { "data-hcv-agent-transcript": "" }, groups2.map((group2) => {
     if (!group2.blocks.length) return null;
     const user4 = group2.rows.find((row5) => row5.role === "user" && row5.display_kind !== "hidden");
     const userKey = user4 && String(user4.message_uid ?? user4.row_id ?? user4.id);
@@ -9789,34 +10898,34 @@ function AgentTranscript({
     const minutes = seconds == null ? 0 : Math.floor(seconds / 60) % 60;
     const elapsed = seconds == null ? null : [hours && hours + "h", (hours || minutes) && minutes + "m", seconds % 60 + "s"].filter(Boolean).join(" ");
     const worked = elapsed ? (lang === "ru" ? "\u0420\u0430\u0431\u043E\u0442\u0430\u043B \u043D\u0430 \u043F\u0440\u043E\u0442\u044F\u0436\u0435\u043D\u0438\u0438 " : "Worked for ") + elapsed : groups2.filter((item) => item.blocks.length).length === 1 ? durationLabel : null;
-    return h11(
+    return h12(
       "div",
       { key: group2.key, "data-hcv-agent-turn": group2.turnId || group2.key },
-      group2.timestampSeparatorAtMs != null && h11(TimestampSeparator, {
+      group2.timestampSeparatorAtMs != null && h12(TimestampSeparator, {
         sentAtMs: group2.timestampSeparatorAtMs,
         nowMs,
         lang
       }),
-      h11("div", { "data-hcv-agent-turn-body": "" }, group2.blocks.map((block2) => {
-        if (block2.kind === "tools") return h11(Tools, { key: block2.key, parts: block2.parts, lang });
-        if (block2.kind === "compaction") return h11(
+      h12("div", { "data-hcv-agent-turn-body": "" }, group2.blocks.map((block2) => {
+        if (block2.kind === "tools") return h12(Tools, { key: block2.key, parts: block2.parts, lang });
+        if (block2.kind === "compaction") return h12(
           Disclosure,
           {
             key: block2.key,
             label: copy[lang].compacted,
             icon: "memory"
           },
-          h11("div", { "data-hcv-agent-tool-detail": "" }, h11(MessageTextContent2, { text: block2.text, previewOnly: true }))
+          h12("div", { "data-hcv-agent-tool-detail": "" }, h12(MessageTextContent2, { text: block2.text, previewOnly: true }))
         );
-        return h11(
+        return h12(
           "div",
           { key: block2.key, "data-hcv-agent-message": block2.kind, dir: "auto" },
-          block2.key === final3 && worked && h11("p", { "data-hcv-subagent-meta": "" }, worked),
+          block2.key === final3 && worked && h12("p", { "data-hcv-subagent-meta": "" }, worked),
           // Text is rendered by Hermes in preview mode, retaining child ownership.
-          h11(MessageTextContent2, { text: block2.text, previewOnly: true })
+          h12(MessageTextContent2, { text: block2.text, previewOnly: true })
         );
       })),
-      snapshot && h11(TurnChangesCard, { key: snapshot.snapshotId, snapshot, lang, sameOwner: sameOwner2, onReview, onApply, onResult, onError })
+      snapshot && h12(TurnChangesCard, { key: snapshot.snapshotId, snapshot, lang, sameOwner: sameOwner2, onReview, onApply, onResult, onError })
     );
   }));
 }
@@ -9897,7 +11006,9 @@ function uniqueTileRoute(routes, target) {
 }
 
 // source/summary-agents.js
-var labels4 = {
+var russianPlurals3 = new Intl.PluralRules("ru");
+var relativeTimeFormats = /* @__PURE__ */ new Map();
+var labels5 = {
   ru: {
     title: "\u0421\u0443\u0431\u0430\u0433\u0435\u043D\u0442\u044B",
     active: "\u0410\u043A\u0442\u0438\u0432\u043D\u044B\u0435",
@@ -9906,7 +11017,7 @@ var labels4 = {
     back: "\u041D\u0430\u0437\u0430\u0434 \u043A \u0441\u0443\u0431\u0430\u0433\u0435\u043D\u0442\u0430\u043C",
     fallback: "\u0421\u0443\u0431\u0430\u0433\u0435\u043D\u0442",
     task: "\u0417\u0430\u0434\u0430\u043D\u0438\u0435",
-    waitingCount: (count) => new Intl.PluralRules("ru").select(count) === "one" ? count + " \u043E\u0436\u0438\u0434\u0430\u0435\u0442" : count + " \u043E\u0436\u0438\u0434\u0430\u044E\u0442",
+    waitingCount: (count) => russianPlurals3.select(count) === "one" ? count + " \u043E\u0436\u0438\u0434\u0430\u0435\u0442" : count + " \u043E\u0436\u0438\u0434\u0430\u044E\u0442",
     more: (count) => "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0435\u0449\u0451 " + count,
     worked: (time) => "\u0420\u0430\u0431\u043E\u0442\u0430\u043B \u043D\u0430 \u043F\u0440\u043E\u0442\u044F\u0436\u0435\u043D\u0438\u0438 " + time,
     elapsed: (time) => "\u0420\u0430\u0431\u043E\u0442\u0430\u0435\u0442 \u0443\u0436\u0435 " + time,
@@ -9958,12 +11069,13 @@ function relativeTime(value2, now, lang) {
   const days = Math.floor(minutes / 1440);
   const weeks = Math.floor(days / 7);
   const [age, unit] = weeks ? [weeks, "week"] : days ? [days, "day"] : minutes >= 60 ? [Math.floor(minutes / 60), "hour"] : [minutes, "minute"];
-  return new Intl.RelativeTimeFormat(lang, { style: "narrow", numeric: "auto" }).format(-age, unit);
+  if (!relativeTimeFormats.has(lang)) relativeTimeFormats.set(lang, new Intl.RelativeTimeFormat(lang, { style: "narrow", numeric: "auto" }));
+  return relativeTimeFormats.get(lang).format(-age, unit);
 }
 function AgentAvatar({ agent, dark: dark2, avatarUrl: avatarUrl2 }) {
   const src = avatarUrl2(agent.visualSeed, dark2, agent.visualIndex);
   if (!src) return null;
-  return h12("img", {
+  return h13("img", {
     "data-hcv-subagent-avatar": "",
     src,
     alt: "",
@@ -9973,12 +11085,12 @@ function AgentAvatar({ agent, dark: dark2, avatarUrl: avatarUrl2 }) {
   });
 }
 function Glyph2({ name }) {
-  return h12("span", { "aria-hidden": true, "data-hcv-subagent-glyph": name, style: codexIconStyle(name) });
+  return h13("span", { "aria-hidden": true, "data-hcv-subagent-glyph": name, style: codexIconStyle(name) });
 }
 function trailingLabel(agent, now, lang, copy11) {
   if (agent.status === "running" && agent.startedAt) return formatDuration((now - agent.startedAt) / 1e3);
   if (agent.status === "completed" && agent.finishedAt) {
-    return h12("time", { dateTime: new Date(agent.finishedAt).toISOString() }, relativeTime(agent.finishedAt, now, lang));
+    return h13("time", { dateTime: new Date(agent.finishedAt).toISOString() }, relativeTime(agent.finishedAt, now, lang));
   }
   return copy11.status[agent.status] || null;
 }
@@ -9986,19 +11098,19 @@ function AgentGroup({ name, title, agents, limit, empty, copy: copy11, now, lang
   const [expanded2, setExpanded] = useState9(false);
   if (!agents.length && !empty) return null;
   const shown = expanded2 ? agents : agents.slice(0, limit);
-  return h12(
+  return h13(
     "section",
     { "data-hcv-subagent-group": name },
-    h12("h2", null, h12("span", null, title + " \xB7 " + agents.length), trailing && h12("small", null, trailing)),
-    agents.length ? h12("ul", null, shown.map((agent) => {
+    h13("h2", null, h13("span", null, title + " \xB7 " + agents.length), trailing && h13("small", null, trailing)),
+    agents.length ? h13("ul", null, shown.map((agent) => {
       const name2 = goalLabel(agent, copy11);
       const preview3 = !finished(agent) && (agent.activity?.at(-1) || (agent.status === "running" ? copy11.status.running : ""));
       const status2 = agent.status === "completed" ? copy11.done : copy11.status[agent.status];
       const accessibleName = [name2, agent.goal, status2, preview3 !== status2 && preview3].filter(Boolean).join(". ");
-      return h12(
+      return h13(
         "li",
         { key: agent.id },
-        h12(
+        h13(
           "button",
           {
             type: "button",
@@ -10007,22 +11119,22 @@ function AgentGroup({ name, title, agents, limit, empty, copy: copy11, now, lang
             "aria-label": accessibleName,
             onClick: () => select(agent.id)
           },
-          h12(AgentAvatar, { agent, dark: dark2, avatarUrl: avatarUrl2 }),
-          h12(
+          h13(AgentAvatar, { agent, dark: dark2, avatarUrl: avatarUrl2 }),
+          h13(
             "span",
             { "data-hcv-subagent-row-body": "" },
-            h12(
+            h13(
               "span",
               { "data-hcv-subagent-row-title": "" },
-              h12("span", { "data-hcv-subagent-name": "", title: agent.goal || name2, dir: "auto" }, name2),
-              h12("span", { "data-hcv-subagent-trailing": "" }, trailingLabel(agent, now, lang, copy11))
+              h13("span", { "data-hcv-subagent-name": "", title: agent.goal || name2, dir: "auto" }, name2),
+              h13("span", { "data-hcv-subagent-trailing": "" }, trailingLabel(agent, now, lang, copy11))
             ),
-            preview3 && h12("span", { "data-hcv-subagent-preview": "", title: preview3, dir: "auto" }, preview3)
+            preview3 && h13("span", { "data-hcv-subagent-preview": "", title: preview3, dir: "auto" }, preview3)
           )
         )
       );
-    })) : h12("p", { "data-hcv-subagent-empty": "" }, empty),
-    !expanded2 && agents.length > limit && h12("button", { type: "button", "data-hcv-subagent-more": "", onClick: () => setExpanded(true) }, copy11.more(agents.length - limit))
+    })) : h13("p", { "data-hcv-subagent-empty": "" }, empty),
+    !expanded2 && agents.length > limit && h13("button", { type: "button", "data-hcv-subagent-more": "", onClick: () => setExpanded(true) }, copy11.more(agents.length - limit))
   );
 }
 function textFromContent(value2) {
@@ -10036,9 +11148,14 @@ function savedResponse(rows2) {
     timestamp: message.timestamp
   })).filter((message) => message.text);
 }
-function useChildResponse({ subagentId, childSession, status: status2, model, effort: effort2 }, scope4, viewport, tileOwner) {
+function useChildResponse({ subagentId, childSession, status: status2, model, effort: effort2 }, scope4, viewport, tileOwner, shown) {
   const [snapshot, setSnapshot] = useState9(null);
+  const pane = useRef4({ shown, watch: null });
   const key2 = JSON.stringify([scope4, subagentId, childSession]);
+  useEffect6(() => {
+    pane.current.shown = shown;
+    pane.current.watch?.(shown);
+  }, [shown]);
   useEffect6(() => {
     if (!subagentId && !childSession || !scope4) return;
     const [connectionId, profile2, parent] = JSON.parse(scope4);
@@ -10048,7 +11165,10 @@ function useChildResponse({ subagentId, childSession, status: status2, model, ef
     let running = !finished({ status: status2 });
     let rows2 = [];
     let offset = 0;
-    let busy = false;
+    let activeRead;
+    let interrupted = false;
+    let windowVisibility;
+    let viewportVisibility;
     let complete = false;
     let partial = false;
     let targetProfile = profile2;
@@ -10058,8 +11178,9 @@ function useChildResponse({ subagentId, childSession, status: status2, model, ef
     let storedEffort = effort2;
     let metadataAttempted = false;
     const rowId = (row5) => row5?.message_uid ?? row5?.row_id ?? row5?.id;
-    const sameOwner2 = () => current && (tileOwner ? tileOwner.isCurrent() : host11.state.activeSessionId.get() === parent && (host11.state.connectionId.get() || null) === connectionId && normalizeProfile(host11.state.profile.get()) === profile2);
-    const visible2 = () => document.visibilityState !== "hidden" && viewport.current?.checkVisibility({ visibilityProperty: true });
+    const sameOwner2 = () => current && (tileOwner ? tileOwner.isCurrent() : host12.state.activeSessionId.get() === parent && (host12.state.connectionId.get() || null) === connectionId && normalizeProfile(host12.state.profile.get()) === profile2);
+    const visible2 = () => windowVisibility && !windowVisibility.hidden() && viewport.current?.checkVisibility({ visibilityProperty: true });
+    const isCurrent = (read2) => activeRead === read2 && sameOwner2() && visible2();
     const publish = (loaded = complete) => {
       complete = loaded;
       if (!sameOwner2()) return;
@@ -10080,10 +11201,9 @@ function useChildResponse({ subagentId, childSession, status: status2, model, ef
         partial
       });
     };
-    async function read() {
-      if (!sameOwner2() || !visible2()) return;
-      const routes = (tileOwner || connectionId && connectionId !== "local") && typeof host11.profileRoutes === "function" ? await host11.profileRoutes().catch(() => []) : [];
-      if (!sameOwner2()) return;
+    async function read(request) {
+      const routes = (tileOwner || connectionId && connectionId !== "local") && typeof host12.profileRoutes === "function" ? await host12.profileRoutes().catch(() => []) : [];
+      if (!isCurrent(request)) return;
       const route = tileOwner ? uniqueTileRoute(routes, tileOwner) : routes.find((entry) => entry.connectionId === connectionId && normalizeProfile(entry.profile) === profile2);
       if (tileOwner && !route) {
         partial = true;
@@ -10098,14 +11218,14 @@ function useChildResponse({ subagentId, childSession, status: status2, model, ef
         return;
       }
       const params = {
-        session_id: tileOwner?.storedId || (host11.state.focusedSessionId?.get() === parent ? host11.state.focusedStoredSessionId?.get() : null) || parent,
+        session_id: tileOwner?.storedId || (host12.state.focusedSessionId?.get() === parent ? host12.state.focusedStoredSessionId?.get() : null) || parent,
         profile: targetProfile,
         subagent_id: subagentId,
         order: "oldest",
         limit: 1
       };
-      const identity = tileOwner ? typeof host11.requestProfile === "function" ? await host11.requestProfile(route, "session.transcript", params, 8e3) : null : route && typeof host11.requestProfile === "function" ? await host11.requestProfile(route, "session.transcript", params, 8e3) : await host11.request("session.transcript", params, 8e3);
-      if (!sameOwner2()) return;
+      const identity = tileOwner ? typeof host12.requestProfile === "function" ? await host12.requestProfile(route, "session.transcript", params, 8e3) : null : route && typeof host12.requestProfile === "function" ? await host12.requestProfile(route, "session.transcript", params, 8e3) : await host12.request("session.transcript", params, 8e3);
+      if (!isCurrent(request)) return;
       const canonical = identity?.child_session_id;
       if (identity?.available !== true || identity.subagent_id !== subagentId || typeof canonical !== "string" || !canonical || canonical === parent || canonical === params.session_id) {
         rows2 = [];
@@ -10126,7 +11246,7 @@ function useChildResponse({ subagentId, childSession, status: status2, model, ef
       }
       let readOffset = offset && rowId(rows2.at(-1)) != null ? offset - 1 : offset;
       let restarts = 0;
-      while (sameOwner2() && visible2()) {
+      while (isCurrent(request)) {
         const query = new URLSearchParams({
           profile: targetProfile,
           order: "oldest",
@@ -10139,7 +11259,7 @@ function useChildResponse({ subagentId, childSession, status: status2, model, ef
           ...owner,
           path: "/api/sessions/" + encodeURIComponent(child) + "/messages?" + query
         });
-        if (!sameOwner2()) return;
+        if (!isCurrent(request)) return;
         const page = result?.messages ?? result?.data;
         const pagingProven = Array.isArray(page) && result.pagination?.order === "oldest" && result.pagination?.offset === readOffset && result.pagination?.limit === 100 && result.pagination?.returned === page.length && (!result.profile || normalizeProfile(result.profile) === normalizeProfile(targetProfile));
         if (!pagingProven) {
@@ -10170,15 +11290,15 @@ function useChildResponse({ subagentId, childSession, status: status2, model, ef
         if (caughtUp || stalled) break;
         readOffset = next;
       }
-      if (!sameOwner2() || !visible2()) return;
+      if (!isCurrent(request)) return;
       if ((!storedModel || !storedEffort) && !metadataAttempted && child) {
-        metadataAttempted = true;
         const query = new URLSearchParams({ profile: targetProfile });
         const details = await window.hermesDesktop.api({
           ...owner,
           path: "/api/sessions/" + encodeURIComponent(child) + "?" + query
         }).catch(() => null);
-        if (!sameOwner2()) return;
+        if (!isCurrent(request)) return;
+        metadataAttempted = true;
         const metadata = agentSessionMetadata(details);
         if (!metadata.profile || normalizeProfile(metadata.profile) === normalizeProfile(targetProfile)) {
           storedModel ||= metadata.model;
@@ -10187,48 +11307,78 @@ function useChildResponse({ subagentId, childSession, status: status2, model, ef
         }
       }
     }
-    const poll = async () => {
-      if (!sameOwner2() || busy) return;
+    const pause = () => {
       window.clearTimeout(timer);
-      busy = true;
+      timer = void 0;
+      if (activeRead) {
+        interrupted = true;
+        activeRead = void 0;
+      }
+    };
+    const poll = async () => {
+      if (!sameOwner2() || !visible2() || activeRead) return;
+      window.clearTimeout(timer);
+      timer = void 0;
+      const request = activeRead = {};
+      interrupted = false;
       let retry = false;
       try {
-        await read();
+        await read(request);
       } catch {
-        if (sameOwner2()) {
+        if (isCurrent(request)) {
           partial = true;
           publish(false);
-          retry = visible2();
+          retry = true;
         }
-      } finally {
-        busy = false;
       }
-      if (sameOwner2() && (!finished({ status: status2 }) || running || retry)) timer = window.setTimeout(poll, 2e3);
+      if (activeRead !== request) return;
+      if (!isCurrent(request)) {
+        pause();
+        return;
+      }
+      activeRead = void 0;
+      if (!finished({ status: status2 }) || running || retry) timer = window.setTimeout(poll, 2e3);
     };
     const reveal = () => {
-      if (sameOwner2() && visible2() && (!complete || !finished({ status: status2 }) || running)) void poll();
+      if (!sameOwner2() || !visible2()) {
+        pause();
+        return;
+      }
+      if (interrupted || !complete || !finished({ status: status2 }) || running) void poll();
     };
-    const visibility = new IntersectionObserver(reveal);
-    if (viewport.current) visibility.observe(viewport.current);
-    document.addEventListener("visibilitychange", reveal);
-    void poll();
+    const watchPane = (shown2) => {
+      if (Boolean(shown2) === Boolean(windowVisibility)) return;
+      if (shown2) {
+        windowVisibility = observeWindowVisibility(reveal);
+        viewportVisibility = new IntersectionObserver(reveal);
+        if (viewport.current) viewportVisibility.observe(viewport.current);
+        reveal();
+        return;
+      }
+      windowVisibility.dispose();
+      windowVisibility = void 0;
+      viewportVisibility.disconnect();
+      viewportVisibility = void 0;
+      pause();
+    };
+    pane.current.watch = watchPane;
+    watchPane(pane.current.shown);
     return () => {
       current = false;
-      window.clearTimeout(timer);
-      visibility.disconnect();
-      document.removeEventListener("visibilitychange", reveal);
+      pane.current.watch = null;
+      watchPane(false);
     };
   }, [subagentId, childSession, scope4, status2, key2, model, effort2, viewport, tileOwner?.storedId, tileOwner?.surface, tileOwner?.view, tileOwner?.connectionId, tileOwner?.profile]);
   return snapshot?.key === key2 ? snapshot : null;
 }
-function AgentDetail({ agent, scope: scope4, now, copy: copy11, lang, dark: dark2, avatarUrl: avatarUrl2, onBack, nativeActions: nativeActions2, openNativeAgent: openNativeAgent2, onIdentity, tileOwner }) {
+function AgentDetail({ agent, scope: scope4, now, copy: copy11, lang, dark: dark2, avatarUrl: avatarUrl2, onBack, nativeActions: nativeActions2, openNativeAgent: openNativeAgent2, onIdentity, tileOwner, shown }) {
   const back = useRef4(null);
   useLayoutEffect4(() => {
     back.current?.focus({ preventScroll: true });
   }, []);
   const viewport = useRef4(null);
   useLayoutEffect4(() => attachAgentTranscriptScroll(viewport.current), []);
-  const snapshot = useChildResponse(agent, scope4, viewport, tileOwner);
+  const snapshot = useChildResponse(agent, scope4, viewport, tileOwner, shown);
   useEffect6(() => {
     if (!agent.visualSeed && agent.subagentId && snapshot?.child) onIdentity?.(scope4, agent.subagentId, snapshot.child);
   }, [agent.visualSeed, agent.subagentId, snapshot?.child, scope4, onIdentity]);
@@ -10266,16 +11416,16 @@ function AgentDetail({ agent, scope: scope4, now, copy: copy11, lang, dark: dark
   const readsHistory = agent.subagentId || agent.childSession && window.hermesDesktop?.api;
   const loading2 = Boolean(readsHistory && (!snapshot || snapshot.status !== agent.status || !snapshot.complete));
   const label4 = goalLabel(agent, copy11);
-  const actions = (result.length > 0 || destinations.length > 0) && h12(
+  const actions = (result.length > 0 || destinations.length > 0) && h13(
     "div",
     { "data-hcv-subagent-actions": "" },
-    result.length > 0 && h12(CopyButton, {
+    result.length > 0 && h13(CopyButton, {
       label: copy11.copy,
       text: result.map(({ text: text7 }) => text7).join("\n\n"),
       appearance: "icon",
       buttonSize: "icon-sm"
     }),
-    destinations.map((action) => h12(
+    destinations.map((action) => h13(
       "button",
       {
         key: action,
@@ -10285,37 +11435,37 @@ function AgentDetail({ agent, scope: scope4, now, copy: copy11, lang, dark: dark
         title: copy11[action],
         onClick: () => openNativeAgent2(openable, scope4, action)
       },
-      h12(Glyph2, { name: action === "native" ? "open" : "chatTab" })
+      h13(Glyph2, { name: action === "native" ? "open" : "chatTab" })
     ))
   );
-  return h12(
+  return h13(
     "div",
     { "data-hcv-subagent-detail": "" },
-    h12(
+    h13(
       "header",
       { "data-hcv-subagent-header": "" },
-      h12("button", {
+      h13("button", {
         ref: back,
         type: "button",
         "aria-label": copy11.back,
         title: copy11.back,
         "data-hcv-subagent-back": "",
         onClick: onBack
-      }, h12(Glyph2, { name: "back" })),
-      h12(AgentAvatar, { agent, dark: dark2, avatarUrl: avatarUrl2 }),
-      h12("h2", { "data-hcv-subagent-name": "", title: label4, dir: "auto" }, label4),
-      model && h12("span", { "data-hcv-subagent-model": "", title: model }, model)
+      }, h13(Glyph2, { name: "back" })),
+      h13(AgentAvatar, { agent, dark: dark2, avatarUrl: avatarUrl2 }),
+      h13("h2", { "data-hcv-subagent-name": "", title: label4, dir: "auto" }, label4),
+      model && h13("span", { "data-hcv-subagent-model": "", title: model }, model)
     ),
-    h12(
+    h13(
       "div",
       { ref: viewport, "data-hcv-subagent-feed": "" },
-      h12(
+      h13(
         "div",
         { "data-hcv-subagent-column": "" },
-        h12(
+        h13(
           "div",
           { role: "group", "aria-label": copy11.result, "data-hcv-subagent-result": "", "data-source": source },
-          shownRows.length ? h12(AgentTranscript, {
+          shownRows.length ? h13(AgentTranscript, {
             rows: shownRows,
             lang,
             durationLabel,
@@ -10330,9 +11480,9 @@ function AgentDetail({ agent, scope: scope4, now, copy: copy11, lang, dark: dark
               setChangesRevision((value2) => value2 + 1);
             },
             onApply: (selected2, action) => applySavedTurnChanges(scope4, snapshot.child, snapshot.parentSessionId, selected2, action)
-          }) : h12("p", { role: "status", "data-hcv-subagent-empty": "" }, snapshot?.status === agent.status && snapshot.partial ? copy11.partial : loading2 ? copy11.loading : !completed && statusLabel ? statusLabel : copy11.noResult)
+          }) : h13("p", { role: "status", "data-hcv-subagent-empty": "" }, snapshot?.status === agent.status && snapshot.partial ? copy11.partial : loading2 ? copy11.loading : !completed && statusLabel ? statusLabel : copy11.noResult)
         ),
-        (loading2 || snapshot?.partial) && shownRows.length > 0 && h12(
+        (loading2 || snapshot?.partial) && shownRows.length > 0 && h13(
           "p",
           { role: "status", "data-hcv-subagent-meta": "" },
           snapshot?.partial ? copy11.partial : copy11.loading
@@ -10342,8 +11492,8 @@ function AgentDetail({ agent, scope: scope4, now, copy: copy11, lang, dark: dark
     )
   );
 }
-function AgentPane({ agents, scope: scope4, lang, dark: dark2, avatarUrl: avatarUrl2, nativeActions: nativeActions2, openNativeAgent: openNativeAgent2, selection, selectAgent, onIdentity, tileOwner }) {
-  const copy11 = labels4[lang];
+function AgentPane({ agents, scope: scope4, lang, dark: dark2, avatarUrl: avatarUrl2, nativeActions: nativeActions2, openNativeAgent: openNativeAgent2, selection, selectAgent, onIdentity, tileOwner, shown }) {
+  const copy11 = labels5[lang];
   const [localSelected, setLocalSelected] = useState9(null);
   const selected2 = selection?.scope === scope4 ? selection.id : selectAgent ? null : localSelected;
   const setSelected = (id2) => selectAgent ? selectAgent(id2) : setLocalSelected(id2);
@@ -10354,14 +11504,21 @@ function AgentPane({ agents, scope: scope4, lang, dark: dark2, avatarUrl: avatar
   const running = agents.some(({ status: status2, startedAt }) => status2 === "running" && startedAt);
   const clock3 = running ? 1e3 : agents.some(({ finishedAt }) => finishedAt) ? 6e4 : 0;
   useEffect6(() => {
-    if (!clock3) return;
+    if (!clock3 || !shown) return;
+    let timer;
     const update = () => {
-      if (document.visibilityState !== "hidden" && pane.current?.checkVisibility({ visibilityProperty: true })) setNow(Date.now());
+      window.clearTimeout(timer);
+      if (visibility.hidden()) return;
+      if (pane.current?.checkVisibility({ visibilityProperty: true })) setNow(Date.now());
+      timer = window.setTimeout(update, clock3);
     };
+    const visibility = observeWindowVisibility(update);
     update();
-    const timer = window.setInterval(update, clock3);
-    return () => window.clearInterval(timer);
-  }, [clock3]);
+    return () => {
+      window.clearTimeout(timer);
+      visibility.dispose();
+    };
+  }, [clock3, shown]);
   useLayoutEffect4(() => {
     if (!agent && returning.current !== null) {
       const rows2 = Array.from(pane.current?.querySelectorAll("[data-hcv-subagent-row]") || []);
@@ -10375,16 +11532,16 @@ function AgentPane({ agents, scope: scope4, lang, dark: dark2, avatarUrl: avatar
   const done = ordered2.filter(finished);
   const waiting2 = active3.filter(({ status: status2 }) => status2 === "queued").length;
   const group2 = { copy: copy11, now, lang, dark: dark2, avatarUrl: avatarUrl2, select: setSelected };
-  return h12(
+  return h13(
     "section",
     { ref: pane, "data-hcv-subagents-pane": "", "aria-label": copy11.title },
-    h12(
+    h13(
       "div",
       { "data-hcv-subagent-list": "", hidden: Boolean(agent) },
-      h12(
+      h13(
         "div",
         { "data-hcv-subagent-column": "" },
-        h12(AgentGroup, {
+        h13(AgentGroup, {
           ...group2,
           name: "active",
           title: copy11.active,
@@ -10393,10 +11550,10 @@ function AgentPane({ agents, scope: scope4, lang, dark: dark2, avatarUrl: avatar
           empty: copy11.noActive,
           trailing: waiting2 ? copy11.waitingCount(waiting2) : null
         }),
-        h12(AgentGroup, { ...group2, name: "done", title: copy11.done, agents: done, limit: 10 })
+        h13(AgentGroup, { ...group2, name: "done", title: copy11.done, agents: done, limit: 10 })
       )
     ),
-    agent && h12(AgentDetail, {
+    agent && h13(AgentDetail, {
       key: agent.id,
       agent,
       scope: scope4,
@@ -10409,6 +11566,7 @@ function AgentPane({ agents, scope: scope4, lang, dark: dark2, avatarUrl: avatar
       openNativeAgent: openNativeAgent2,
       onIdentity,
       tileOwner,
+      shown,
       onBack: () => {
         returning.current = agent.id;
         setSelected(null);
@@ -10526,9 +11684,10 @@ var response2 = '[data-slot="aui_response-group"]';
 var transcript3 = '[data-slot="aui_thread-content"]';
 var pair2 = '[data-slot="aui_turn-pair"]';
 var prompt = '[data-slot="aui_user-message-root"][data-message-id]';
-var generated2 = "[data-hcv-agent-rows]";
+var generated = "[data-hcv-agent-rows]";
 var agentAvatar = "data-hcv-delegate-avatar";
-var notice = '[data-slot="aui_system-message-root"] [data-slot="aui_background-result"]';
+var noticeBody = '[data-slot="aui_background-result"]';
+var notice = '[data-slot="aui_system-message-root"] ' + noticeBody;
 var final2 = (status2) => ["completed", "failed", "interrupted"].includes(status2);
 var isActive = ({ status: status2 }) => status2 === "running" || status2 === "queued";
 var tidy = (text7) => typeof text7 === "string" ? text7.trim().replace(/\s+/g, " ") : "";
@@ -10543,7 +11702,7 @@ var nameMetadata = (value2) => ({
 var getPrompt = (turn) => turn?.querySelector(":scope > " + prompt)?.dataset.messageId;
 var profile = (value2) => tidy(value2).toLowerCase() || "default";
 var scopeKey2 = (session, connection2, name) => session && JSON.stringify([connection2 || null, profile(name), session]);
-var labels5 = {
+var labels6 = {
   ru: {
     title: "\u0421\u0443\u0431\u0430\u0433\u0435\u043D\u0442\u044B",
     fallback: "\u0421\u0443\u0431\u0430\u0433\u0435\u043D\u0442",
@@ -10715,8 +11874,8 @@ function readCard(card2, cardIndex) {
     }];
   });
 }
-function applyStoredReceipts(rowsByCard, markReceipt, historyForSurface) {
-  const receipts = [...document.querySelectorAll(surface + " " + transcript3 + " " + notice)].map((node4) => [node4, tidy(node4.querySelector("[data-conversation-scaffold] span.truncate")?.textContent)]);
+function applyStoredReceipts(nodes, rowsByCard, markReceipt, historyForSurface) {
+  const receipts = nodes.map((node4) => [node4, tidy(node4.querySelector("[data-conversation-scaffold] span.truncate")?.textContent)]);
   const decisions = receipts.map(([target, heading]) => {
     const history2 = historyForSurface?.(target.closest(surface));
     const source = history2 && nativeRenderedMessageRecord(target);
@@ -10808,7 +11967,7 @@ function renderActivity(state, agents, lang, dark2, events = activityRows(state,
   const signature = JSON.stringify([activitySignature(agents, lang, dark2), events.map(({ agent, kind }) => [agent.id, kind])]);
   if (signature === state.signature) return;
   state.signature = signature;
-  const copy11 = labels5[lang];
+  const copy11 = labels6[lang];
   const groups2 = [];
   for (const event of events) {
     const prior = groups2.at(-1);
@@ -10971,7 +12130,7 @@ function nativeActions(agent, scope4) {
   ].filter(Boolean);
 }
 function openNativeAgent(agent, scope4, action = "native") {
-  if (!scope4 || scope4 !== scopeKey2(host12.state.activeSessionId.get(), host12.state.connectionId.get(), host12.state.profile.get())) return;
+  if (!scope4 || scope4 !== scopeKey2(host13.state.activeSessionId.get(), host13.state.connectionId.get(), host13.state.profile.get())) return;
   if (action === "native") {
     if (agent.canOpen && agent.button?.isConnected && !agent.button.disabled) {
       agent.button.click();
@@ -10982,7 +12141,7 @@ function openNativeAgent(agent, scope4, action = "native") {
       const errorTitle = language() === "ru" ? "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u043F\u043E\u0434\u0440\u043E\u0431\u043D\u043E\u0441\u0442\u0438 \u0441\u0443\u0431\u0430\u0433\u0435\u043D\u0442\u0430" : "Could not open subagent details";
       void window.hermesDesktop.openSessionWindow(agent.childSession, { ...owner, watch: true }).then((result) => {
         if (!result?.ok) throw new Error(result?.error || errorTitle);
-      }).catch((error) => host12.notifyError(error, errorTitle));
+      }).catch((error) => host13.notifyError(error, errorTitle));
       return;
     }
   }
@@ -10993,12 +12152,12 @@ function openNativeAgent(agent, scope4, action = "native") {
   }
 }
 function useScopedRoster(roster, focus) {
-  const value2 = useValue2(roster);
-  const session = useValue2(host12.state.activeSessionId);
-  const connection2 = useValue2(host12.state.connectionId);
-  const name = useValue2(host12.state.profile);
+  const value2 = useValue3(roster);
+  const session = useValue3(host13.state.activeSessionId);
+  const connection2 = useValue3(host13.state.connectionId);
+  const name = useValue3(host13.state.profile);
   const scope4 = scopeKey2(session, connection2, name);
-  const tileValues = useValue2(roster.tiles);
+  const tileValues = useValue3(roster.tiles);
   if (focus?.view.kind === "tile") {
     const target = tileTurnHistoryTarget(focus.surface);
     const tile = tileValues.get(focus.surface);
@@ -11007,34 +12166,29 @@ function useScopedRoster(roster, focus) {
   }
   return value2.scope === scope4 ? value2 : { ...value2, scope: scope4, agents: [] };
 }
-function useTileRefresh(roster, value2, gateway) {
+function useTileRefresh(roster, value2, gateway, shown) {
   const target = value2.target;
   useEffect7(() => {
-    if (!target || gateway !== "open") return;
-    const refresh = () => {
-      if (document.visibilityState !== "hidden") void roster.refreshTile(target);
-    };
-    refresh();
-    const timer = window.setInterval(refresh, 5e3);
-    return () => window.clearInterval(timer);
-  }, [roster, target?.surface, target?.view, target?.runtimeId, target?.sessionId, target?.connectionId, target?.profile, gateway]);
+    if (shown && target && gateway === "open") return roster.watchTile(target);
+  }, [roster, shown, target?.surface, target?.view, target?.runtimeId, target?.sessionId, target?.connectionId, target?.profile, gateway]);
 }
-function SubagentsPane({ roster, focus }) {
+function SubagentsPane({ roster, focus, shown }) {
   const value2 = useScopedRoster(roster, focus);
-  const gateway = useValue2(host12.state.gateway);
-  useTileRefresh(roster, value2, gateway);
+  const gateway = useValue3(host13.state.gateway);
+  useTileRefresh(roster, value2, gateway, shown);
   useEffect7(() => {
     if (!value2.target && value2.scope && gateway === "open") void roster.refresh(value2.scope);
   }, [roster, value2.scope, value2.target, gateway]);
-  const selection = useValue2(roster.selection);
-  const tileSelection = useValue2(roster.tileSelection);
+  const selection = useValue3(roster.selection);
+  const tileSelection = useValue3(roster.tileSelection);
   if (value2.target) {
     const target = value2.target;
     const current = () => roster.isCurrentTile(target);
-    return h13(AgentPane, {
+    return h14(AgentPane, {
       ...value2,
       key: JSON.stringify([value2.scope, target.sessionId]),
       avatarUrl,
+      shown,
       nativeActions: () => [],
       openNativeAgent: () => {
       },
@@ -11050,10 +12204,11 @@ function SubagentsPane({ roster, focus }) {
       selectAgent: (id2) => roster.selectTileAgent(target, id2)
     });
   }
-  return h13(AgentPane, {
+  return h14(AgentPane, {
     ...value2,
     key: value2.scope ?? "draft",
     avatarUrl,
+    shown,
     nativeActions,
     openNativeAgent,
     onIdentity: roster.recordIdentity,
@@ -11061,13 +12216,13 @@ function SubagentsPane({ roster, focus }) {
     selectAgent: (id2) => roster.selectAgent(id2)
   });
 }
-function SummarySubagents({ roster, onExpand, disclosure: disclosure2, focus }) {
+function SummarySubagents({ roster, onExpand, disclosure: disclosure2, focus, shown }) {
   const value2 = useScopedRoster(roster, focus);
-  const gateway = useValue2(host12.state.gateway);
-  useTileRefresh(roster, value2, gateway);
+  const gateway = useValue3(host13.state.gateway);
+  useTileRefresh(roster, value2, gateway, shown);
   if (!value2.agents.length) return null;
   const { agents, lang, dark: dark2 } = value2;
-  const copy11 = labels5[lang];
+  const copy11 = labels6[lang];
   const working = agents.filter(isActive);
   const done = agents.filter(({ status: status2 }) => status2 === "completed");
   const other = agents.filter(({ status: status2 }) => status2 === "dispatched");
@@ -11081,16 +12236,16 @@ function SummarySubagents({ roster, onExpand, disclosure: disclosure2, focus }) 
   ].filter(([, list]) => list.length).map(([label4, list]) => label4 + ": " + list.length);
   const image = (agent) => {
     const src = avatarUrl(agent.visualSeed, dark2, agent.visualIndex);
-    return src ? h13("img", { key: agent.id, src, alt: "", draggable: false }) : null;
+    return src ? h14("img", { key: agent.id, src, alt: "", draggable: false }) : null;
   };
   const previewContent = [
-    h13("span", { key: "avatars", "data-hcv-agent-icons": "", "aria-hidden": true }, preview3.map(image)),
-    h13("span", { key: "status", role: "status", "data-hcv-agent-counts": "" }, counts2.join(" \xB7 "))
+    h14("span", { key: "avatars", "data-hcv-agent-icons": "", "aria-hidden": true }, preview3.map(image)),
+    h14("span", { key: "status", role: "status", "data-hcv-agent-counts": "" }, counts2.join(" \xB7 "))
   ];
-  return h13(
+  return h14(
     SummarySection,
     { ...disclosure2, kind: "agents", title: copy11.title, "data-hcv-summary-agents": "" },
-    h13("button", {
+    h14("button", {
       type: "button",
       className: "hcv-context-row",
       title: copy11.open,
@@ -11103,7 +12258,7 @@ function SummarySubagents({ roster, onExpand, disclosure: disclosure2, focus }) 
 function css(active3) {
   const chat3 = active3 + " " + surface;
   const card2 = active3 + " [data-hcv-context-card] [data-hcv-summary-agents]";
-  const rows2 = chat3 + " " + generated2;
+  const rows2 = chat3 + " " + generated;
   const native2 = rows2 + " + " + delegate;
   const task = native2 + " > div";
   const line = task + " > [data-conversation-scaffold]";
@@ -11145,16 +12300,17 @@ function css(active3) {
 }
 function registerSubagents(ctx, active3, history2) {
   const empty = { scope: null, agents: [], lang: "en", dark: false };
-  const selection = atom(null);
-  const tiles = atom(/* @__PURE__ */ new Map());
-  const tileSelection = atom(null);
-  const roster = Object.assign(atom(empty), {
+  const selection = atom2(null);
+  const tiles = atom2(/* @__PURE__ */ new Map());
+  const tileSelection = atom2(null);
+  const roster = Object.assign(atom2(empty), {
     refresh,
     selection,
     tiles,
     tileSelection,
     refreshTile,
     isCurrentTile,
+    watchTile,
     selectTileAgent(target, id2) {
       if (isCurrentTile(target)) tileSelection.set({
         surface: target.surface,
@@ -11171,7 +12327,7 @@ function registerSubagents(ctx, active3, history2) {
       });
     },
     recordIdentity(owner, id2, child) {
-      if (disposed || !enabled() || !owner || owner !== getScope() || !id2 || !child || child === JSON.parse(owner)[2]) return;
+      if (disposed || !enabled2() || !owner || owner !== getScope() || !id2 || !child || child === JSON.parse(owner)[2]) return;
       const key2 = identityKey(owner, id2);
       if (childIdentities.get(key2)?.childSession === child) return;
       childIdentities.set(key2, { ...childIdentities.get(key2), childSession: child });
@@ -11188,8 +12344,8 @@ function registerSubagents(ctx, active3, history2) {
   });
   const root = document.documentElement;
   const contrast = matchMedia("(forced-colors: none)");
-  const enabled = () => root.matches(active3);
-  const getScope = () => scopeKey2(host12.state.activeSessionId.get(), host12.state.connectionId.get(), host12.state.profile.get());
+  const enabled2 = () => root.matches(active3);
+  const getScope = () => scopeKey2(host13.state.activeSessionId.get(), host13.state.connectionId.get(), host13.state.profile.get());
   const sheet = document.createElement("style");
   sheet.setAttribute("data-hcv-subagents-style", "");
   sheet.textContent = css(active3);
@@ -11209,6 +12365,7 @@ function registerSubagents(ctx, active3, history2) {
   let rosterSignature = "";
   let snapshot = null;
   let reading = null;
+  let tilePoll = null;
   let disposed = false;
   const childIdentities = /* @__PURE__ */ new Map();
   const identityReads = /* @__PURE__ */ new Map();
@@ -11220,17 +12377,17 @@ function registerSubagents(ctx, active3, history2) {
   };
   const identityKey = (owner, id2) => JSON.stringify([owner, id2]);
   const identityUnavailable = (key2) => childIdentities.set(key2, { retryAfter: Date.now() + 15e3 });
-  const identityOwnerCurrent = (request) => !disposed && !request.cancelled && enabled() && request.scope === getScope() && identityReads.get(request.key) === request;
+  const identityOwnerCurrent = (request) => !disposed && !request.cancelled && enabled2() && request.scope === getScope() && identityReads.get(request.key) === request;
   async function hydrateIdentity(owner, id2) {
     const key2 = identityKey(owner, id2);
     const cached = childIdentities.get(key2);
-    if (!id2 || owner !== getScope() || cached?.childSession || cached?.retryAfter > Date.now() || identityReads.has(key2) || !enabled()) return;
+    if (!id2 || owner !== getScope() || cached?.childSession || cached?.retryAfter > Date.now() || identityReads.has(key2) || !enabled2()) return;
     const request = { key: key2, scope: owner };
     identityReads.set(key2, request);
     try {
       const [connectionId, profile2, parent] = JSON.parse(owner);
-      const stored = host12.state.focusedSessionId?.get() === parent ? host12.state.focusedStoredSessionId?.get() : null;
-      const route = connectionId && connectionId !== "local" && typeof host12.profileRoutes === "function" ? (await host12.profileRoutes()).find((item) => item.connectionId === connectionId && (tidy(item.profile).toLowerCase() || "default") === profile2) : null;
+      const stored = host13.state.focusedSessionId?.get() === parent ? host13.state.focusedStoredSessionId?.get() : null;
+      const route = connectionId && connectionId !== "local" && typeof host13.profileRoutes === "function" ? (await host13.profileRoutes()).find((item) => item.connectionId === connectionId && (tidy(item.profile).toLowerCase() || "default") === profile2) : null;
       if (!identityOwnerCurrent(request)) return;
       const params = {
         session_id: stored || parent,
@@ -11239,7 +12396,7 @@ function registerSubagents(ctx, active3, history2) {
         order: "oldest",
         limit: 1
       };
-      const result = route && typeof host12.requestProfile === "function" ? await host12.requestProfile(route, "session.transcript", params, 5e3) : await host12.request("session.transcript", params, 5e3);
+      const result = route && typeof host13.requestProfile === "function" ? await host13.requestProfile(route, "session.transcript", params, 5e3) : await host13.request("session.transcript", params, 5e3);
       if (!identityOwnerCurrent(request)) return;
       const child = tidy(result?.child_session_id);
       if (result?.available === true && result.subagent_id === id2 && child && child !== parent && child !== stored) {
@@ -11283,7 +12440,7 @@ function registerSubagents(ctx, active3, history2) {
     }
   };
   document.addEventListener("visibilitychange", resumeVisibleIdentityReads);
-  const stopIdentityGateway = host12.state.gateway?.subscribe((status2) => {
+  const stopIdentityGateway = host13.state.gateway?.subscribe((status2) => {
     if (status2 !== "open") return;
     const owner = getScope();
     for (const [key2, entry] of childIdentities) {
@@ -11318,7 +12475,7 @@ function registerSubagents(ctx, active3, history2) {
     agent.visualSeed = avatar?.seed;
     agent.visualIndex = avatar?.index;
     if (agent.button && agent.id === agent.seed && !agent.subagentId && !final2(agent.status)) {
-      return agentDisplayName(supplied, labels5[lang].fallback);
+      return agentDisplayName(supplied, labels6[lang].fallback);
     }
     if (!nameRegistries.has(owner)) nameRegistries.set(owner, createAgentNameRegistry());
     if (nameRegistries.size > 32) nameRegistries.delete(nameRegistries.keys().next().value);
@@ -11329,27 +12486,66 @@ function registerSubagents(ctx, active3, history2) {
       ...!agent.nameProvisional && { seed: agent.seed }
     };
     const resolve = nameRegistries.get(owner);
-    const name = resolve(identity, labels5[lang].fallback);
+    const name = resolve(identity, labels6[lang].fallback);
     return name;
   };
   const tileScope = (target) => target && scopeKey2(target.runtimeId || target.sessionId, target.connectionId, target.profile);
   function isCurrentTile(target) {
-    if (disposed || !enabled() || !target?.surface?.isConnected || target.surface.closest("[inert]")) return false;
+    if (disposed || !enabled2() || !target?.surface?.isConnected || target.surface.closest("[inert]")) return false;
     const current = tileTurnHistoryTarget(target.surface);
-    const focus = readFocusedSession({ state: host12.state });
+    const focus = readFocusedSession({ state: host13.state });
     return sameTileTarget(target, current) && focus?.surface === target.surface && focus.view === target.view && focus.storedId === target.sessionId && focus.runtimeId === target.runtimeId && focus.owner?.connectionId === target.connectionId && focus.owner?.profile === target.profile;
   }
-  async function refreshTile(target) {
-    if (!target?.runtimeId || !isCurrentTile(target) || tileReads.has(target.surface) || typeof host12.requestProfile !== "function" || typeof host12.profileRoutes !== "function") return;
+  function forgetTilePollRead(poll) {
+    const { surface: surface5 } = poll.target;
+    if (tileReads.get(surface5)?.poll === poll) tileReads.delete(surface5);
+  }
+  function syncTilePoll() {
+    const poll = tilePoll;
+    if (!poll) return;
+    window.clearTimeout(poll.timer);
+    poll.timer = void 0;
+    if (poll.visibility.hidden()) {
+      forgetTilePollRead(poll);
+      return;
+    }
+    if (!enabled2()) return;
+    void refreshTile(poll.target, poll);
+    poll.timer = window.setTimeout(syncTilePoll, 5e3);
+  }
+  function stopTilePoll() {
+    const poll = tilePoll;
+    if (!poll) return;
+    tilePoll = null;
+    window.clearTimeout(poll.timer);
+    forgetTilePollRead(poll);
+    poll.visibility.dispose();
+  }
+  function watchTile(target) {
+    if (!target.runtimeId || !isCurrentTile(target)) return;
+    if (!sameTileTarget(tilePoll?.target, target)) {
+      stopTilePoll();
+      const visibility = observeWindowVisibility(syncTilePoll);
+      tilePoll = { target, visibility, readers: 0, timer: void 0 };
+      syncTilePoll();
+    }
+    const poll = tilePoll;
+    poll.readers++;
+    return () => {
+      if (--poll.readers === 0 && poll === tilePoll) stopTilePoll();
+    };
+  }
+  async function refreshTile(target, poll) {
+    if (!target?.runtimeId || !isCurrentTile(target) || tileReads.has(target.surface) || typeof host13.requestProfile !== "function" || typeof host13.profileRoutes !== "function") return;
     const ownerKey = tileScope(target);
-    const request = { target, version: eventVersions.get(ownerKey) || 0 };
+    const request = { target, poll, version: eventVersions.get(ownerKey) || 0 };
     tileReads.set(target.surface, request);
     try {
-      const routes = await host12.profileRoutes();
+      const routes = await host13.profileRoutes();
       if (!isCurrentTile(target) || tileReads.get(target.surface) !== request || request.version !== (eventVersions.get(ownerKey) || 0)) return;
       const route = uniqueTileRoute(routes, target);
       if (!route) return;
-      const result = await host12.requestProfile(route, "subagent.list", { session_id: target.runtimeId }, 5e3);
+      const result = await host13.requestProfile(route, "subagent.list", { session_id: target.runtimeId }, 5e3);
       if (!isCurrentTile(target) || tileReads.get(target.surface) !== request || request.version !== (eventVersions.get(ownerKey) || 0) || !Array.isArray(result?.subagents)) return;
       const agents = /* @__PURE__ */ new Map();
       for (const item of result.subagents) {
@@ -11380,11 +12576,11 @@ function registerSubagents(ctx, active3, history2) {
     }
   }
   async function refresh(scope4) {
-    if (disposed || scope4 !== getScope() || !enabled() || reading?.scope === scope4) return;
+    if (disposed || scope4 !== getScope() || !enabled2() || reading?.scope === scope4) return;
     const request = { scope: scope4 };
     reading = request;
     try {
-      const result = await host12.request("subagent.list", { session_id: host12.state.activeSessionId.get() }, 5e3);
+      const result = await host13.request("subagent.list", { session_id: host13.state.activeSessionId.get() }, 5e3);
       if (disposed || reading !== request || scope4 !== getScope() || !Array.isArray(result?.subagents)) return;
       const agents = /* @__PURE__ */ new Map();
       for (const item of result.subagents) {
@@ -11416,11 +12612,11 @@ function registerSubagents(ctx, active3, history2) {
   }
   for (const type of ["subagent.spawn_requested", "subagent.start", "subagent.tool", "subagent.progress", "subagent.complete"]) {
     ctx.onEvent(type, (event) => {
-      if (!event.session_id || !event.payload || !enabled()) return;
+      if (!event.session_id || !event.payload || !enabled2()) return;
       const scope4 = scopeKey2(
         event.session_id,
-        event.connectionId || host12.state.connectionId.get(),
-        event.profile || host12.state.profile.get()
+        event.connectionId || host13.state.connectionId.get(),
+        event.profile || host13.state.profile.get()
       );
       if (scope4 !== getScope() && !(event.connectionId && event.profile)) return;
       eventVersions.set(scope4, (eventVersions.get(scope4) || 0) + 1);
@@ -11493,7 +12689,7 @@ function registerSubagents(ctx, active3, history2) {
   }
   function reconcile() {
     frame = 0;
-    const on = enabled();
+    const on = enabled2();
     const dark2 = root.dataset.hermesMode === "dark";
     const lang = language();
     const scope4 = on ? getScope() : null;
@@ -11507,6 +12703,8 @@ function registerSubagents(ctx, active3, history2) {
     const live2 = snapshot ? new Map([...snapshot.agents, ...observed || []]) : observed;
     const claimed = /* @__PURE__ */ new Set();
     const activeCards = new Set(on ? document.querySelectorAll(surface + " " + transcript3 + " " + delegate) : []);
+    const notices2 = on ? Array.from(document.querySelectorAll(surface + " " + transcript3 + " " + notice)) : [];
+    watchNativeDetails([...activeCards, ...notices2]);
     const enhance = on && contrast.matches;
     for (const [card2, state] of cards) {
       if (!activeCards.has(card2)) {
@@ -11568,7 +12766,7 @@ function registerSubagents(ctx, active3, history2) {
       }
     }
     const currentReceipts = /* @__PURE__ */ new Map();
-    applyStoredReceipts(rowsByCard, (target, entries) => {
+    applyStoredReceipts(notices2, rowsByCard, (target, entries) => {
       if (!enhance) return;
       currentReceipts.set(target, entries);
     }, (node4) => history2?.forSurface?.(node4) || (node4?.matches('[data-session-anchor="workspace"]') ? history2?.current?.() : null));
@@ -11623,7 +12821,7 @@ function registerSubagents(ctx, active3, history2) {
       const owner = inPrimary ? scope4 : bucket ? tileRegistryKey(bucket.target) : null;
       for (let i = 0; i < entries.length; i++) {
         entries[i] = addTileRow(bucket, entries[i]);
-        entries[i].displayName = owner ? nameFor(owner, entries[i], lang) : agentDisplayName(entries[i], labels5[lang].fallback);
+        entries[i].displayName = owner ? nameFor(owner, entries[i], lang) : agentDisplayName(entries[i], labels6[lang].fallback);
       }
       if (inPrimary) for (const row5 of entries) agentsById.set(row5.id, row5);
       if (!enhance || !entries.length) {
@@ -11653,7 +12851,7 @@ function registerSubagents(ctx, active3, history2) {
       const owner = inPrimary ? scope4 : bucket ? tileRegistryKey(bucket.target) : null;
       for (let i = 0; i < entries.length; i++) {
         entries[i] = addTileRow(bucket, entries[i]);
-        entries[i].displayName = owner ? nameFor(owner, entries[i], lang) : agentDisplayName(entries[i], labels5[lang].fallback);
+        entries[i].displayName = owner ? nameFor(owner, entries[i], lang) : agentDisplayName(entries[i], labels6[lang].fallback);
         if (inPrimary) agentsById.set(entries[i].id, entries[i]);
       }
       const nativeButton3 = entries[0].receiptButton;
@@ -11777,36 +12975,53 @@ function registerSubagents(ctx, active3, history2) {
       roster.set({ scope: scope4, agents, lang, dark: dark2 });
     }
   }
+  const relevant = [delegate, primary, pair2, response2, noticeBody, messageRoot, messageBody, timelinePart].join(", ");
   const observer = new MutationObserver((records) => {
-    const relevant = [delegate, primary, pair2, response2, notice, messageRoot, messageBody, timelinePart].join(", ");
-    if (records.some(({ target, type, addedNodes, removedNodes }) => {
-      if (target === root) return true;
-      if (!enabled()) return false;
-      const element7 = target instanceof Element ? target : target.parentElement;
-      if (!element7 || element7.closest(generated2)) return false;
-      if (element7.closest(delegate) || element7.closest(notice)) return true;
-      if (type !== "childList") return false;
-      return [...addedNodes, ...removedNodes].some((node4) => node4 instanceof Element && !node4.matches(generated2) && (node4.matches(relevant) || node4.querySelector(relevant)));
+    if (enabled2() && records.some(({ target, addedNodes, removedNodes }) => {
+      if (target.closest(generated)) return false;
+      return [...addedNodes, ...removedNodes].some((node4) => node4 instanceof Element && !node4.matches(generated) && (node4.matches(relevant) || node4.querySelector(relevant)));
     })) queue();
   });
-  observer.observe(root, {
-    subtree: true,
-    childList: true,
-    characterData: true,
+  observer.observe(root, { subtree: true, childList: true });
+  const themeOptions = {
     attributes: true,
-    attributeFilter: ["aria-label", "aria-expanded", "disabled", "data-hermes-theme", "data-hermes-mode", "data-hermes-codex-visual", "lang"]
+    attributeFilter: ["data-hermes-theme", "data-hermes-mode", "data-hermes-codex-visual", "lang"]
+  };
+  const nativeDetails2 = new MutationObserver((records) => {
+    if (records.some(({ target }) => {
+      if (target === root) return true;
+      const element7 = target instanceof Element ? target : target.parentElement;
+      return enabled2() && element7 && !element7.closest(generated);
+    })) queue();
   });
-  const unsubscribers = [host12.state.activeSessionId, host12.state.connectionId, host12.state.profile].map((state) => state.subscribe(queue));
+  nativeDetails2.observe(root, themeOptions);
+  let observedDetails = [];
+  function watchNativeDetails(nodes) {
+    if (nodes.length === observedDetails.length && nodes.every((node4, index) => node4 === observedDetails[index])) return;
+    nativeDetails2.disconnect();
+    nativeDetails2.observe(root, themeOptions);
+    observedDetails = nodes;
+    for (const node4 of nodes) nativeDetails2.observe(node4, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ["aria-label", "aria-expanded", "disabled"]
+    });
+  }
+  const unsubscribers = [host13.state.activeSessionId, host13.state.connectionId, host13.state.profile].map((state) => state.subscribe(queue));
   if (history2?.subscribe) unsubscribers.push(history2.subscribe(queue));
   contrast.addEventListener("change", queue);
   ctx.onDispose(() => {
     disposed = true;
+    stopTilePoll();
     cancelIdentityReads();
     childVisibility?.disconnect();
     document.removeEventListener("visibilitychange", resumeVisibleIdentityReads);
     stopIdentityGateway();
     childIdentities.clear();
     observer.disconnect();
+    nativeDetails2.disconnect();
     for (const unsubscribe of unsubscribers) unsubscribe();
     contrast.removeEventListener("change", queue);
     cancelAnimationFrame(frame);
@@ -11832,19 +13047,20 @@ function registerSubagents(ctx, active3, history2) {
 
 // source/summary-panes.js
 import {
-  atom as atom2,
+  atom as atom3,
   DropdownMenu as DropdownMenu3,
   DropdownMenuContent as DropdownMenuContent3,
   DropdownMenuItem as DropdownMenuItem3,
   DropdownMenuSeparator as DropdownMenuSeparator2,
   DropdownMenuTrigger as DropdownMenuTrigger3,
-  host as host13,
+  host as host14,
   useI18n as useI18n4,
-  useValue as useValue3
+  useValue as useValue4
 } from "@hermes/plugin-sdk";
-import { createElement as h14 } from "react";
+import { createElement as h15 } from "react";
 var workspacePrefix = "hermes-codex-visual-summary-";
 var panePrefix = "plugin-workspace:" + workspacePrefix;
+var summaryPaneTab = '[role="tab"][data-tree-tab^="' + panePrefix + '"]';
 var names2 = {
   ru: { agents: "\u0421\u0443\u0431\u0430\u0433\u0435\u043D\u0442\u044B", sources: "\u0418\u0441\u0442\u043E\u0447\u043D\u0438\u043A\u0438", changes: "\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F", files: "\u0424\u0430\u0439\u043B\u044B \u043F\u0440\u043E\u0435\u043A\u0442\u0430", add: "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u0432\u043A\u043B\u0430\u0434\u043A\u0443" },
   en: { agents: "Subagents", sources: "Sources", changes: "Changes", files: "Project files", add: "Add tab" }
@@ -11855,25 +13071,25 @@ var paneId = (kind) => panePrefix + kind;
 var paneTab = (kind) => '[data-tree-tab="' + paneId(kind) + '"]';
 function icon3(kind) {
   const glyph3 = glyphs2[kind];
-  return h14("span", { "aria-hidden": true, "data-hcv-icon": glyph3, style: codexIconStyle(glyph3) });
+  return h15("span", { "aria-hidden": true, "data-hcv-icon": glyph3, style: codexIconStyle(glyph3) });
 }
 function Picker({ state, open }) {
-  const menu = useValue3(state);
+  const menu = useValue4(state);
   const { locale: locale3 } = useI18n4();
   const focus = useFocusedWorkspace();
   if (!menu) return null;
   const select = (kind) => () => open(kind);
-  return h14(
+  return h15(
     DropdownMenu3,
     { open: true, onOpenChange: (value2) => {
       if (!value2) state.set(null);
     } },
-    h14(DropdownMenuTrigger3, { asChild: true }, h14("span", {
+    h15(DropdownMenuTrigger3, { asChild: true }, h15("span", {
       "aria-hidden": true,
       tabIndex: -1,
       style: { position: "fixed", pointerEvents: "none", ...menu.rect }
     })),
-    h14(
+    h15(
       DropdownMenuContent3,
       {
         align: "start",
@@ -11884,7 +13100,7 @@ function Picker({ state, open }) {
           if (menu.trigger.isConnected) menu.trigger.focus({ preventScroll: true });
         }
       },
-      ...["agents", "sources"].map((kind) => h14(
+      ...["agents", "sources"].map((kind) => h15(
         DropdownMenuItem3,
         {
           key: kind,
@@ -11894,8 +13110,8 @@ function Picker({ state, open }) {
         icon3(kind),
         copy2(locale3)[kind]
       )),
-      h14(DropdownMenuSeparator2),
-      ...["changes", "files"].map((kind) => h14(
+      h15(DropdownMenuSeparator2),
+      ...["changes", "files"].map((kind) => h15(
         DropdownMenuItem3,
         { key: kind, onSelect: select(kind) },
         icon3(kind),
@@ -11905,34 +13121,36 @@ function Picker({ state, open }) {
   );
 }
 function registerSummaryPanes(ctx, active3, views) {
-  const menu = atom2(null);
+  const menu = atom3(null);
   const registrations = /* @__PURE__ */ new Map();
   let disposed = false;
   const open = (kind) => {
     if (kind === "files") {
-      host13.revealPane("files");
+      host14.revealPane("files");
       return;
     }
     const render = views[kind];
-    if (disposed || !render || !document.documentElement.matches(active3) || typeof host13.openWorkspace !== "function") return;
+    if (disposed || !render || !document.documentElement.matches(active3) || typeof host14.openWorkspace !== "function") return;
     const id2 = paneId(kind);
     if (registrations.has(kind)) {
-      host13.revealPane(id2);
+      host14.revealPane(id2);
       return;
     }
     const sibling = [...registrations.keys()].find((key2) => document.querySelector(paneTab(key2) + '[aria-selected="true"]')) || [...registrations.keys()].find((key2) => document.querySelector(paneTab(key2)));
     const dock2 = sibling ? { pane: paneId(sibling), pos: "center" } : { pane: "workspace", pos: "right" };
-    const dispose = host13.openWorkspace(workspacePrefix + kind, {
+    const dispose = host14.openWorkspace(workspacePrefix + kind, {
       dock: dock2,
       minWidth: "280px",
       title: copy2(document.documentElement.lang)[kind],
-      render: () => h14("div", { "data-hcv-summary-pane": kind }, render()),
+      render: () => h15("div", { "data-hcv-summary-pane": kind }, render()),
       onClose: () => {
         registrations.delete(kind);
+        if (!registrations.size) stopWatchingStrips();
         queue();
       }
     });
     registrations.set(kind, dispose);
+    if (registrations.size === 1) stripMounts.observe(document.body, { childList: true, subtree: true });
     queue();
   };
   const plus = document.createElement("button");
@@ -11955,13 +13173,17 @@ function registerSummaryPanes(ctx, active3, views) {
       return;
     }
     const language2 = copy2(document.documentElement.lang);
+    const strips = /* @__PURE__ */ new Set();
     for (const kind of registrations.keys()) {
       for (const tab2 of document.querySelectorAll(paneTab(kind))) {
+        const strip3 = tab2.closest("[data-zone-tabstrip]");
+        if (strip3) strips.add(strip3);
         const caption2 = tab2.querySelector(".pane-tab-content .truncate");
         if (caption2?.childNodes.length === 1 && caption2.firstChild.nodeType === Node.TEXT_NODE && caption2.firstChild.nodeValue !== language2[kind]) caption2.firstChild.nodeValue = language2[kind];
         if (tab2.getAttribute("aria-label") !== language2[kind]) tab2.setAttribute("aria-label", language2[kind]);
       }
     }
+    observeStrips(strips);
     const selected3 = document.querySelector('[data-tree-tab^="' + panePrefix + '"][aria-selected="true"]');
     const list = selected3?.closest("[data-zone-tabstrip]")?.querySelector('[role="tablist"]');
     if (!list || !document.documentElement.matches(active3)) {
@@ -11976,6 +13198,7 @@ function registerSummaryPanes(ctx, active3, views) {
     menu.set(null);
     for (const dispose of registrations.values()) dispose();
     registrations.clear();
+    stopWatchingStrips();
     plus.remove();
   };
   const observer = new MutationObserver(() => {
@@ -11983,19 +13206,29 @@ function registerSummaryPanes(ctx, active3, views) {
     else queue();
   });
   observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-hermes-theme", "lang"] });
-  const stripObserver = new MutationObserver((records) => {
-    if (!registrations.size) return;
-    if (records.some((record2) => {
-      const target = record2.target instanceof Element ? record2.target : record2.target.parentElement;
-      if (!(target instanceof Element)) return false;
-      if (record2.type === "attributes") return target.matches('[role="tab"][data-tree-tab]');
-      if (target.closest("[data-zone-tabstrip]")) return true;
-      if (target.closest('[data-slot="aui_thread-content"], [data-hcv-summary-pane]')) return false;
-      return movedElementMatches(record2, "[data-zone-tabstrip]");
-    })) queue();
+  const stripMounts = new MutationObserver((records) => {
+    if (records.some((record2) => !record2.target.closest('[data-slot="aui_thread-content"], [data-hcv-summary-pane]') && movedElementMatches(record2, summaryPaneTab))) queue();
   });
-  stripObserver.observe(document.body, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ["aria-selected", "aria-label"] });
-  const summaryTab = '[role="tab"][data-tree-tab^="' + panePrefix + '"]:not([data-vertical])';
+  const stripObserver = new MutationObserver(queue);
+  let watchedStrips = /* @__PURE__ */ new Set();
+  function observeStrips(strips) {
+    if (strips.size === watchedStrips.size && [...strips].every((strip3) => watchedStrips.has(strip3))) return;
+    stripObserver.disconnect();
+    watchedStrips = strips;
+    for (const strip3 of strips) stripObserver.observe(strip3, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["aria-selected", "aria-label"]
+    });
+  }
+  function stopWatchingStrips() {
+    stripMounts.disconnect();
+    stripObserver.disconnect();
+    watchedStrips.clear();
+  }
+  const summaryTab = summaryPaneTab + ":not([data-vertical])";
   const selectedTab = summaryTab + '[aria-selected="true"]';
   const sideStrip = '[data-zone-tabstrip]:not([data-zone-tabstrip="grp-main"], [data-zone-tabstrip="grp-sessions"])';
   const header3 = active3 + " [data-panel-header]:has(> " + sideStrip + " " + selectedTab + ")";
@@ -12044,7 +13277,6 @@ function registerSummaryPanes(ctx, active3, views) {
   ctx.onDispose(() => {
     disposed = true;
     observer.disconnect();
-    stripObserver.disconnect();
     if (frame) cancelAnimationFrame(frame);
     close2();
     style.remove();
@@ -12052,35 +13284,35 @@ function registerSummaryPanes(ctx, active3, views) {
   return {
     open,
     visibility: {
-      agents: host13.paneVisibility(paneId("agents")),
-      sources: host13.paneVisibility(paneId("sources")),
-      changes: host13.paneVisibility(paneId("changes"))
+      agents: host14.paneVisibility(paneId("agents")),
+      sources: host14.paneVisibility(paneId("sources")),
+      changes: host14.paneVisibility(paneId("changes"))
     },
-    renderPicker: () => h14(Picker, { state: menu, open })
+    renderPicker: () => h15(Picker, { state: menu, open })
   };
 }
 
 // source/summary-changes.js
 import { useI18n as useI18n5 } from "@hermes/plugin-sdk";
-import { createElement as h16, useEffect as useEffect9, useId as useId3, useState as useState11 } from "react";
+import { createElement as h17, useEffect as useEffect9, useId as useId3, useState as useState11 } from "react";
 
 // source/workspace-actions.js
 import {
-  atom as atom3,
-  Button,
-  Dialog,
-  DialogContent,
-  DialogDescription,
+  atom as atom4,
+  Button as Button2,
+  Dialog as Dialog2,
+  DialogContent as DialogContent2,
+  DialogDescription as DialogDescription2,
   DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  host as host14,
+  DialogHeader as DialogHeader2,
+  DialogTitle as DialogTitle2,
+  host as host15,
   Input,
-  TITLEBAR_AREAS as TITLEBAR_AREAS3,
-  useValue as useValue4
+  TITLEBAR_AREAS as TITLEBAR_AREAS4,
+  useValue as useValue5
 } from "@hermes/plugin-sdk";
-import { createElement as h15, useEffect as useEffect8, useRef as useRef5, useState as useState10 } from "react";
-var labels6 = {
+import { createElement as h16, useEffect as useEffect8, useRef as useRef5, useState as useState10 } from "react";
+var labels7 = {
   ru: {
     terminalFailed: "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u0442\u0435\u0440\u043C\u0438\u043D\u0430\u043B \u0432 \u043F\u0430\u043F\u043A\u0435 \u0447\u0430\u0442\u0430.",
     toTree: "\u041F\u0435\u0440\u0435\u043C\u0435\u0441\u0442\u0438\u0442\u044C \u0432 \u0440\u0430\u0431\u043E\u0447\u0435\u0435 \u0434\u0435\u0440\u0435\u0432\u043E",
@@ -12122,7 +13354,7 @@ var labels6 = {
     moved: "Chat moved"
   }
 };
-var copy3 = () => document.documentElement.matches(":lang(ru)") ? labels6.ru : labels6.en;
+var copy3 = () => document.documentElement.matches(":lang(ru)") ? labels7.ru : labels7.en;
 var workspacePathKey = (value2) => {
   const path = String(value2 || "").replaceAll("\\", "/").replace(/\/+$/, "");
   return /^[a-z]:|^\/\//i.test(path) ? path.toLowerCase() : path;
@@ -12209,8 +13441,8 @@ function workspaceTreeFor(trees, cwd) {
   }, null);
 }
 function ownsChat(target) {
-  const owner = host14.state.focusedSessionOwner.get();
-  return localOwner(target.owner) && owner?.connectionId === target.owner.connectionId && owner.profile === target.owner.profile && host14.state.activeSessionId.get() === target.runtime && host14.state.focusedSessionId.get() === target.runtime && host14.state.focusedStoredSessionId.get() === target.session && workspacePathKey(host14.state.cwd.get()) === workspacePathKey(target.cwd);
+  const owner = host15.state.focusedSessionOwner.get();
+  return localOwner(target.owner) && owner?.connectionId === target.owner.connectionId && owner.profile === target.owner.profile && host15.state.activeSessionId.get() === target.runtime && host15.state.focusedSessionId.get() === target.runtime && host15.state.focusedStoredSessionId.get() === target.session && workspacePathKey(host15.state.cwd.get()) === workspacePathKey(target.cwd);
 }
 var terminalSelector = '[data-pane-host="terminal"]';
 var newTerminal = () => document.querySelector(terminalSelector + ' [role="tablist"] > li > button:has(> .codicon-add)');
@@ -12237,12 +13469,12 @@ function dispatchNewTerminal() {
 }
 function openWorkspaceTerminal(target) {
   window.setTimeout(() => {
-    const draft = !target.session && !target.runtime && !host14.state.focusedStoredSessionId.get() && !host14.state.activeSessionId.get() && localOwner(target.owner) && host14.state.connectionId.get() === target.owner.connectionId && host14.state.profile.get() === target.owner.profile && workspacePathKey(host14.state.cwd.get()) === workspacePathKey(target.cwd);
+    const draft = !target.session && !target.runtime && !host15.state.focusedStoredSessionId.get() && !host15.state.activeSessionId.get() && localOwner(target.owner) && host15.state.connectionId.get() === target.owner.connectionId && host15.state.profile.get() === target.owner.profile && workspacePathKey(host15.state.cwd.get()) === workspacePathKey(target.cwd);
     if (!draft && !ownsChat(target)) {
-      host14.notify({ kind: "error", message: copy3().unavailable });
+      host15.notify({ kind: "error", message: copy3().unavailable });
       return;
     }
-    if (host14.paneVisibility("terminal").get() && newTerminal()) {
+    if (host15.paneVisibility("terminal").get() && newTerminal()) {
       newTerminal().click();
       return;
     }
@@ -12252,13 +13484,13 @@ function openWorkspaceTerminal(target) {
       nativeTab.click();
       return;
     }
-    host14.notify({ kind: "error", message: copy3().terminalFailed });
+    host15.notify({ kind: "error", message: copy3().terminalFailed });
   }, 0);
 }
 function openWorkspaceReview(getChat) {
   const review = getChat()?.querySelector(".coding-status-bar button:has(> .codicon-git-branch)");
   if (!review || review.disabled) return false;
-  if (host14.paneVisibility("review").get()) host14.revealPane("review");
+  if (host15.paneVisibility("review").get()) host15.revealPane("review");
   else review.click();
   return true;
 }
@@ -12275,7 +13507,7 @@ function MoveWorkspaceDialog({ target, close: close2, refresh, localEnvironment 
   const created = useRef5(null);
   const currentTree = workspaceTreeFor(trees || [], target.cwd);
   const isMain = currentTree?.isMain !== false;
-  const busy = useValue4(host14.state.busy);
+  const busy = useValue5(host15.state.busy);
   useEffect8(() => {
     let live2 = true;
     void readWorkspaceTrees(target.cwd, target.owner, target.nativeGit).then((result) => {
@@ -12303,7 +13535,7 @@ function MoveWorkspaceDialog({ target, close: close2, refresh, localEnvironment 
       setError(words5.unavailable);
       return;
     }
-    if (host14.state.busy.get()) {
+    if (host15.state.busy.get()) {
       setError(words5.busy);
       return;
     }
@@ -12322,17 +13554,17 @@ function MoveWorkspaceDialog({ target, close: close2, refresh, localEnvironment 
         }
         cwd = created.current.path;
       }
-      if (!ownsChat(target) || host14.state.busy.get()) throw new Error(words5.unavailable);
-      const result = await host14.requestProfile({ ...target.owner, targetProfile: target.owner.profile }, "session.cwd.set", {
+      if (!ownsChat(target) || host15.state.busy.get()) throw new Error(words5.unavailable);
+      const result = await host15.requestProfile({ ...target.owner, targetProfile: target.owner.profile }, "session.cwd.set", {
         session_id: target.runtime,
         cwd
       }, 1e4);
       if (!result?.cwd) throw new Error(words5.failed);
       refresh();
-      host14.notify({ kind: "success", title: words5.moved, message: result.cwd });
+      host15.notify({ kind: "success", title: words5.moved, message: result.cwd });
       close2();
       if (choice === "new" && setupAvailable && runSetup) {
-        void localEnvironment.run({ cwd: result.cwd, id: "setup" }).catch((error2) => host14.notifyError(error2, words5.setupFailed));
+        void localEnvironment.run({ cwd: result.cwd, id: "setup" }).catch((error2) => host15.notifyError(error2, words5.setupFailed));
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : words5.failed);
@@ -12341,13 +13573,13 @@ function MoveWorkspaceDialog({ target, close: close2, refresh, localEnvironment 
       setPending(false);
     }
   }
-  return h15(
-    Dialog,
+  return h16(
+    Dialog2,
     { open: true, onOpenChange: (value2) => {
       if (!value2 && !running.current) close2();
     } },
-    h15(
-      DialogContent,
+    h16(
+      DialogContent2,
       {
         "data-hcv-workspace-move": "",
         showCloseButton: !pending,
@@ -12358,35 +13590,35 @@ function MoveWorkspaceDialog({ target, close: close2, refresh, localEnvironment 
           target.trigger.focus({ preventScroll: true });
         }
       },
-      h15(
+      h16(
         "form",
         { onSubmit: move, className: "hcv-workspace-move-form" },
-        h15(
-          DialogHeader,
+        h16(
+          DialogHeader2,
           null,
-          h15(DialogTitle, null, isMain ? words5.toTree : words5.toMain),
-          h15(DialogDescription, null, words5.detail)
+          h16(DialogTitle2, null, isMain ? words5.toTree : words5.toMain),
+          h16(DialogDescription2, null, words5.detail)
         ),
-        trees ? h15("label", null, words5.select, h15(
+        trees ? h16("label", null, words5.select, h16(
           "select",
           {
             value: choice,
             disabled: pending,
             onChange: (event) => setChoice(event.target.value)
           },
-          ...trees.filter((tree) => tree !== currentTree).map((tree) => h15("option", { key: tree.path, value: tree.path }, tree.isMain ? words5.main : tree.branch || tree.path)),
-          h15("option", { value: "new" }, words5.newTree)
-        )) : h15("p", { role: "status" }, error ? "" : words5.loading),
-        choice === "new" && h15("label", null, words5.branch, h15(Input, {
+          ...trees.filter((tree) => tree !== currentTree).map((tree) => h16("option", { key: tree.path, value: tree.path }, tree.isMain ? words5.main : tree.branch || tree.path)),
+          h16("option", { value: "new" }, words5.newTree)
+        )) : h16("p", { role: "status" }, error ? "" : words5.loading),
+        choice === "new" && h16("label", null, words5.branch, h16(Input, {
           value: branch,
           disabled: pending,
           placeholder: "worktree",
           onChange: (event) => setBranch(event.target.value)
         })),
-        choice === "new" && setupAvailable && h15(
+        choice === "new" && setupAvailable && h16(
           "label",
           { className: "hcv-move-setup" },
-          h15("input", {
+          h16("input", {
             type: "checkbox",
             checked: runSetup,
             disabled: pending,
@@ -12394,20 +13626,20 @@ function MoveWorkspaceDialog({ target, close: close2, refresh, localEnvironment 
           }),
           words5.setup
         ),
-        (error || busy) && h15("p", { role: "status" }, error || words5.busy),
-        h15(
+        (error || busy) && h16("p", { role: "status" }, error || words5.busy),
+        h16(
           DialogFooter,
           null,
-          h15(Button, { type: "button", variant: "outline", onClick: close2, disabled: pending }, words5.cancel),
-          h15(Button, { type: "submit", disabled: !trees || pending || busy || choice === "new" && !branch.trim() }, words5.move)
+          h16(Button2, { type: "button", variant: "outline", onClick: close2, disabled: pending }, words5.cancel),
+          h16(Button2, { type: "submit", disabled: !trees || pending || busy || choice === "new" && !branch.trim() }, words5.move)
         )
       )
     )
   );
 }
 function MoveSlot({ model, close: close2, localEnvironment }) {
-  const entry = useValue4(model);
-  return entry && h15(MoveWorkspaceDialog, {
+  const entry = useValue5(model);
+  return entry && h16(MoveWorkspaceDialog, {
     key: entry.key,
     target: entry.target,
     close: close2,
@@ -12416,7 +13648,7 @@ function MoveSlot({ model, close: close2, localEnvironment }) {
   });
 }
 function registerWorkspaceActions(ctx, active3, localEnvironment) {
-  const model = atom3(null);
+  const model = atom4(null);
   let key2 = 0;
   const close2 = () => model.set(null);
   const style = document.createElement("style");
@@ -12433,8 +13665,8 @@ function registerWorkspaceActions(ctx, active3, localEnvironment) {
   mountStyle(ctx, style, { surface: "[data-hcv-workspace-move]" });
   ctx.register({
     id: "move-workspace",
-    area: TITLEBAR_AREAS3.center,
-    render: () => h15(MoveSlot, { model, close: close2, localEnvironment })
+    area: TITLEBAR_AREAS4.center,
+    render: () => h16(MoveSlot, { model, close: close2, localEnvironment })
   });
   const observer = new MutationObserver(() => {
     if (!document.documentElement.matches(active3)) close2();
@@ -12449,13 +13681,13 @@ function registerWorkspaceActions(ctx, active3, localEnvironment) {
     openMove(target, refresh) {
       if (target.runtime && target.session && ownsChat(target)) {
         model.set({ key: ++key2, target, refresh });
-      } else host14.notify({ kind: "error", message: copy3().unavailable });
+      } else host15.notify({ kind: "error", message: copy3().unavailable });
     }
   };
 }
 
 // source/summary-changes.js
-var labels7 = {
+var labels8 = {
   ru: {
     title: "\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u0431\u0435\u0437 \u043A\u043E\u043C\u043C\u0438\u0442\u0430",
     branchTitle: "\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u0432 \u0432\u0435\u0442\u043A\u0435",
@@ -12509,13 +13741,13 @@ async function readFileDiff(cwd, connectionId, profile2, file, staged) {
   return [index.diff, synthetic ? "" : working.diff].filter(Boolean).join("\n");
 }
 function icon4(glyph3) {
-  return h16("span", { "aria-hidden": true, className: "hcv-changes-icon", style: codexIconStyle(glyph3) });
+  return h17("span", { "aria-hidden": true, className: "hcv-changes-icon", style: codexIconStyle(glyph3) });
 }
 function DiffText({ text: text7 }) {
-  if (text7.length > 15e4) return h16("pre", { "data-hcv-change-diff": "", tabIndex: 0 }, text7);
-  return h16("pre", { "data-hcv-change-diff": "", tabIndex: 0 }, text7.split("\n").map((line, index, lines) => {
+  if (text7.length > 15e4) return h17("pre", { "data-hcv-change-diff": "", tabIndex: 0 }, text7);
+  return h17("pre", { "data-hcv-change-diff": "", tabIndex: 0 }, text7.split("\n").map((line, index, lines) => {
     const type = line.startsWith("@@") ? "hunk" : line.startsWith("+") && !line.startsWith("+++ ") ? "added" : line.startsWith("-") && !line.startsWith("--- ") ? "removed" : void 0;
-    return h16("span", { key: index, "data-hcv-diff-line": type }, index < lines.length - 1 ? line + "\n" : line);
+    return h17("span", { key: index, "data-hcv-diff-line": type }, index < lines.length - 1 ? line + "\n" : line);
   }));
 }
 function FileDiff({ id: id2, cwd, connectionId, profile: profile2, path, staged, base, previousPath, untracked, copy: copy11 }) {
@@ -12538,7 +13770,7 @@ function FileDiff({ id: id2, cwd, connectionId, profile: profile2, path, staged,
       live2 = false;
     };
   }, [cwd, connectionId, profile2, path, staged, base, previousPath, untracked]);
-  return h16("div", { id: id2, className: "hcv-change-detail" }, result?.text ? h16(DiffText, { text: result.text }) : h16("p", { role: "status" }, !result ? copy11.loading : result.text === "" ? copy11.noDiff : copy11.diffError));
+  return h17("div", { id: id2, className: "hcv-change-detail" }, result?.text ? h17(DiffText, { text: result.text }) : h17("p", { role: "status" }, !result ? copy11.loading : result.text === "" ? copy11.noDiff : copy11.diffError));
 }
 function RepositoryChanges({ cwd, connectionId, profile: profile2, copy: copy11, workspaceDiff }) {
   const title = workspaceDiff ? copy11.branchTitle : copy11.title;
@@ -12576,14 +13808,14 @@ function RepositoryChanges({ cwd, connectionId, profile: profile2, copy: copy11,
     };
   }, [cwd, connectionId, profile2, revision, workspaceDiff]);
   const current = result?.revision === revision ? result : null;
-  return h16(
+  return h17(
     "div",
     { className: "hcv-changes-content" },
-    h16(
+    h17(
       "header",
       { className: "hcv-changes-header" },
-      h16("span", null, title),
-      h16("button", {
+      h17("span", null, title),
+      h17("button", {
         type: "button",
         className: "hcv-changes-refresh",
         "aria-label": copy11.refresh,
@@ -12594,12 +13826,12 @@ function RepositoryChanges({ cwd, connectionId, profile: profile2, copy: copy11,
         }
       }, icon4("refresh"))
     ),
-    current?.files?.length ? h16("ul", { "aria-label": title }, current.files.map((file) => {
+    current?.files?.length ? h17("ul", { "aria-label": title }, current.files.map((file) => {
       const open = selected2 === file.path;
-      return h16(
+      return h17(
         "li",
         { key: file.path, "data-hcv-changed-file": "" },
-        h16(
+        h17(
           "button",
           {
             type: "button",
@@ -12612,15 +13844,15 @@ function RepositoryChanges({ cwd, connectionId, profile: profile2, copy: copy11,
           },
           icon4("right"),
           icon4("artifacts"),
-          h16("span", { className: "hcv-changes-path", dir: "auto" }, file.path),
-          h16(
+          h17("span", { className: "hcv-changes-path", dir: "auto" }, file.path),
+          h17(
             "span",
             { className: "hcv-changes-counts" },
-            h16("span", { "data-hcv-count": "added" }, "+" + (file.added || 0)),
-            h16("span", { "data-hcv-count": "removed" }, "\u2212" + (file.removed || 0))
+            h17("span", { "data-hcv-count": "added" }, "+" + (file.added || 0)),
+            h17("span", { "data-hcv-count": "removed" }, "\u2212" + (file.removed || 0))
           )
         ),
-        open && h16(FileDiff, {
+        open && h17(FileDiff, {
           id: diffId,
           cwd: current.root,
           connectionId,
@@ -12633,20 +13865,20 @@ function RepositoryChanges({ cwd, connectionId, profile: profile2, copy: copy11,
           copy: copy11
         })
       );
-    })) : h16(
+    })) : h17(
       "p",
       { className: "hcv-changes-status", role: "status" },
       !current ? copy11.loading : current.files ? copy11.empty : copy11.unavailable
     ),
-    current?.omitted && h16("p", { className: "hcv-changes-status", role: "status" }, copy11.omitted)
+    current?.omitted && h17("p", { className: "hcv-changes-status", role: "status" }, copy11.omitted)
   );
 }
 function ChangesPane({ cwd, scope: scope4, loading: loading2 = false, workspaceDiff = false }) {
   const { locale: locale3 } = useI18n5();
-  const copy11 = labels7[locale3] || labels7.en;
+  const copy11 = labels8[locale3] || labels8.en;
   const connectionId = scope4?.connectionId;
   const profile2 = scope4?.profile;
-  return h16("div", { "data-hcv-changes-pane": "" }, cwd && connectionId && profile2 ? h16(RepositoryChanges, { key: JSON.stringify([cwd, connectionId, profile2, workspaceDiff]), cwd, connectionId, profile: profile2, copy: copy11, workspaceDiff }) : h16("p", { className: "hcv-changes-status", role: "status" }, loading2 ? copy11.loading : copy11.noProject));
+  return h17("div", { "data-hcv-changes-pane": "" }, cwd && connectionId && profile2 ? h17(RepositoryChanges, { key: JSON.stringify([cwd, connectionId, profile2, workspaceDiff]), cwd, connectionId, profile: profile2, copy: copy11, workspaceDiff }) : h17("p", { className: "hcv-changes-status", role: "status" }, loading2 ? copy11.loading : copy11.noProject));
 }
 function registerSummaryChanges(ctx, active3) {
   const pane = `${active3} [data-hcv-changes-pane]`;
@@ -12701,7 +13933,7 @@ function registerSummaryChanges(ctx, active3) {
 var primaryChat = "[data-chat-surface]";
 var connectionsRoute = "/capabilities?tab=connectors";
 var minimumWindowWidth = 1120;
-var labels8 = {
+var labels9 = {
   ru: {
     card: "\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F \u0438 \u0438\u0441\u0442\u043E\u0447\u043D\u0438\u043A\u0438",
     changes: "\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F",
@@ -12710,8 +13942,6 @@ var labels8 = {
     project: "\u041F\u0440\u043E\u0435\u043A\u0442",
     show: "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0441\u0432\u043E\u0434\u043A\u0443",
     hide: "\u0421\u043A\u0440\u044B\u0442\u044C \u0441\u0432\u043E\u0434\u043A\u0443",
-    pin: "\u0417\u0430\u043A\u0440\u0435\u043F\u0438\u0442\u044C \u0441\u0432\u043E\u0434\u043A\u0443",
-    unpin: "\u041E\u0442\u043A\u0440\u0435\u043F\u0438\u0442\u044C \u0441\u0432\u043E\u0434\u043A\u0443",
     actions: "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F \u0441\u043E \u0441\u0432\u043E\u0434\u043A\u043E\u0439",
     setup: "\u041D\u0430\u0441\u0442\u0440\u043E\u0438\u0442\u044C \u043B\u043E\u043A\u0430\u043B\u044C\u043D\u043E\u0435 \u043E\u043A\u0440\u0443\u0436\u0435\u043D\u0438\u0435",
     terminal: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0442\u0435\u0440\u043C\u0438\u043D\u0430\u043B",
@@ -12728,8 +13958,6 @@ var labels8 = {
     project: "Project",
     show: "Show summary",
     hide: "Hide summary",
-    pin: "Pin summary",
-    unpin: "Unpin summary",
     actions: "Summary actions",
     setup: "Set up local environment",
     terminal: "Open terminal",
@@ -12742,7 +13970,7 @@ var labels8 = {
 function icon5(name) {
   const glyph3 = name === "panel" ? "summaryToggle" : name === "all" ? "summarySources" : name;
   const style = codexIconStyle(glyph3);
-  return h17("span", { "aria-hidden": true, "data-hcv-icon": glyph3, style });
+  return h18("span", { "aria-hidden": true, "data-hcv-icon": glyph3, style });
 }
 function repositoryName(path) {
   return path?.split(/[/\\]/).filter(Boolean).at(-1) || "";
@@ -12757,21 +13985,21 @@ function RepositoryLabel({ name, branch }) {
     measure();
     return () => resize.disconnect();
   }, [name, branch]);
-  return h17(
+  return h18(
     "span",
     { ref, className: "hcv-context-label", dir: "auto" },
     name,
-    branch && h17("span", { className: "hcv-context-branch-name" }, name ? " \xB7 " + branch : branch)
+    branch && h18("span", { className: "hcv-context-branch-name" }, name ? " \xB7 " + branch : branch)
   );
 }
 function currentChat() {
   return focusedWorkspaceSurface();
 }
 function useRoomForCard(eligible) {
-  const [room, setRoom] = useState12(false);
-  useEffect10(() => {
+  const [room, setRoom] = useState12(null);
+  useLayoutEffect5(() => {
     if (!eligible) {
-      setRoom(false);
+      setRoom(null);
       return;
     }
     let chat3 = null;
@@ -12816,7 +14044,7 @@ function useRoomForCard(eligible) {
     window.addEventListener("hashchange", queue);
     window.navigation?.addEventListener("currententrychange", queue);
     contrast.addEventListener("change", queue);
-    queue();
+    measure();
     return () => {
       if (frame) cancelAnimationFrame(frame);
       resize.disconnect();
@@ -12828,16 +14056,16 @@ function useRoomForCard(eligible) {
       contrast.removeEventListener("change", queue);
     };
   }, [eligible]);
-  return eligible && room;
+  return room;
 }
-function useWorkspaceData(draftCwd, enabled, isTile = false, nativeOwner = null) {
-  const sdkOwner = useValue5(host15.state.focusedSessionOwner);
+function useWorkspaceData(draftCwd, enabled2, isTile = false, nativeOwner = null) {
+  const sdkOwner = useValue6(host16.state.focusedSessionOwner);
   const owner = sdkOwner || (isTile ? nativeOwner : null);
-  const session = useValue5(host15.state.focusedStoredSessionId);
-  const activeProfile = useValue5(host15.state.profile);
-  const activeConnection = useValue5(host15.state.connectionId);
-  const gateway = useValue5(host15.state.gateway);
-  const busy = useValue5(host15.state.busy);
+  const session = useValue6(host16.state.focusedStoredSessionId);
+  const activeProfile = useValue6(host16.state.profile);
+  const activeConnection = useValue6(host16.state.connectionId);
+  const gateway = useValue6(host16.state.gateway);
+  const busy = useValue6(host16.state.busy);
   const connectionId = session ? owner?.connectionId : activeConnection;
   const profile2 = session ? owner?.profile : activeProfile;
   const sameScope2 = Boolean(
@@ -12847,14 +14075,14 @@ function useWorkspaceData(draftCwd, enabled, isTile = false, nativeOwner = null)
   const [snapshot, setSnapshot] = useState12(null);
   const [revision, setRevision] = useState12(0);
   useEffect10(() => {
-    if (!enabled || !sameScope2 || gateway !== "open") return;
+    if (!enabled2 || !sameScope2 || gateway !== "open") return;
     let current = true;
     async function read() {
-      if (host15.state.connectionId.get() !== connectionId || host15.state.profile.get() !== profile2) return;
-      const routes = await host15.profileRoutes().catch(() => []);
-      if (!current || host15.state.connectionId.get() !== connectionId || host15.state.profile.get() !== profile2) return;
+      if (host16.state.connectionId.get() !== connectionId || host16.state.profile.get() !== profile2) return;
+      const routes = await host16.profileRoutes().catch(() => []);
+      if (!current || host16.state.connectionId.get() !== connectionId || host16.state.profile.get() !== profile2) return;
       const route = routes.find((entry) => entry.connectionId === connectionId && entry.profile === profile2);
-      const request = (method, params) => route ? host15.requestProfile(route, method, params, 8e3) : host15.request(method, params, 8e3);
+      const request = (method, params) => route ? host16.requestProfile(route, method, params, 8e3) : host16.request(method, params, 8e3);
       let cwd = draftCwd;
       let storedBranch = "";
       let root = "";
@@ -12903,7 +14131,7 @@ function useWorkspaceData(draftCwd, enabled, isTile = false, nativeOwner = null)
     return () => {
       current = false;
     };
-  }, [key2, sameScope2, gateway, connectionId, profile2, session, draftCwd, enabled, isTile, revision, busy]);
+  }, [key2, sameScope2, gateway, connectionId, profile2, session, draftCwd, enabled2, isTile, revision, busy]);
   return {
     scope: sameScope2 && gateway === "open" ? { connectionId, profile: profile2 } : null,
     snapshot: snapshot?.key === key2 ? snapshot : null,
@@ -12953,14 +14181,14 @@ function useRelatedRepositories(scope4, primaryRoot, key2, rows2, shown) {
   }, [connection2, profile2, primaryRoot, key2, dirs, shown]);
   return snapshot?.key === key2 && snapshot.dirs === dirs ? snapshot.repos : [];
 }
-function useSourcesView(data, enabled) {
-  const rows2 = useChatSources(currentChat, data.key, enabled);
+function useSourcesView(data, enabled2) {
+  const rows2 = useChatSources(currentChat, data.key, enabled2);
   return {
     rows: rows2,
     connectors: data.snapshot?.sources,
     loading: Boolean(data.scope && !data.snapshot),
     getChat: currentChat,
-    onConnectors: (server) => host15.navigate(server ? connectionsRoute + "&server=" + encodeURIComponent(server) : connectionsRoute),
+    onConnectors: (server) => host16.navigate(server ? connectionsRoute + "&server=" + encodeURIComponent(server) : connectionsRoute),
     onOpenSource: (row5) => {
       if (row5.action?.isConnected && currentChat()?.contains(row5.action)) row5.action.click();
     }
@@ -12968,42 +14196,43 @@ function useSourcesView(data, enabled) {
 }
 function useExpandedWorkspace() {
   const focus = useFocusedWorkspace();
-  const enabled = Boolean(focus);
-  const data = useWorkspaceData(focus?.cwd || "", enabled, focus?.view.kind === "tile", focus?.owner);
-  return { data, enabled };
+  const enabled2 = Boolean(focus);
+  const data = useWorkspaceData(focus?.cwd || "", enabled2, focus?.view.kind === "tile", focus?.owner);
+  return { data, enabled: enabled2 };
 }
 function ExpandedSources() {
-  const { data, enabled } = useExpandedWorkspace();
-  return h17(SourcesPane, useSourcesView(enabled ? data : { key: data.key }, enabled));
+  const { data, enabled: enabled2 } = useExpandedWorkspace();
+  return h18(SourcesPane, useSourcesView(enabled2 ? data : { key: data.key }, enabled2));
 }
 function ExpandedChanges({ selection }) {
-  const { data, enabled } = useExpandedWorkspace();
-  const choice = useValue5(selection);
+  const { data, enabled: enabled2 } = useExpandedWorkspace();
+  const choice = useValue6(selection);
   const cwd = changesSelectionCwd(choice, data.key, data.snapshot);
-  return h17(ChangesPane, {
-    cwd: enabled ? cwd : "",
-    scope: enabled ? data.scope : null,
-    loading: enabled && Boolean(data.scope) && !cwd && !data.snapshot,
+  return h18(ChangesPane, {
+    cwd: enabled2 ? cwd : "",
+    scope: enabled2 ? data.scope : null,
+    loading: enabled2 && Boolean(data.scope) && !cwd && !data.snapshot,
     workspaceDiff: choice?.key === data.key && choice.workspaceDiff
   });
 }
-function FocusedSubagentsPane({ roster }) {
+function FocusedSubagentsPane({ roster, visibility }) {
   const focus = useFocusedWorkspace();
-  return focus ? h17(SubagentsPane, { roster, focus }) : null;
+  const shown = useValue6(visibility);
+  return focus ? h18(SubagentsPane, { roster, focus, shown }) : null;
 }
 function DiffStats({ repo, copy: copy11 }) {
   if (!repo?.changed || !Number.isFinite(repo.added) || !Number.isFinite(repo.removed)) return null;
-  if (incompleteDiffStats(repo)) return h17("span", {
+  if (incompleteDiffStats(repo)) return h18("span", {
     className: "hcv-context-diff-incomplete",
     title: copy11.incompleteChanges,
     "aria-label": copy11.incompleteChanges
   }, "\u2026");
   const formatter = new Intl.NumberFormat(document.documentElement.lang || void 0);
-  return h17(
+  return h18(
     "span",
     { className: "hcv-context-diff" },
-    h17("span", { className: "hcv-context-added" }, "+" + formatter.format(repo.added)),
-    h17("span", { className: "hcv-context-removed" }, "-" + formatter.format(repo.removed))
+    h18("span", { className: "hcv-context-added" }, "+" + formatter.format(repo.added)),
+    h18("span", { className: "hcv-context-removed" }, "-" + formatter.format(repo.removed))
   );
 }
 function useLiveWorkspaceRepository(data, shown, updates) {
@@ -13013,15 +14242,18 @@ function useLiveWorkspaceRepository(data, shown, updates) {
   const key2 = data.key;
   useEffect10(() => {
     if (!shown || !cwd || !connectionId || !profile2) return;
-    const runtime = host15.state.focusedSessionId.get();
+    const runtime = host16.state.focusedSessionId.get();
     let live2 = true;
     let inFlight = false;
     let queued = false;
     let debounce = 0;
     let lastStarted = 0;
     let burstStart = 0;
+    let timer = null;
+    let nativeWindowHidden = false;
+    const visible2 = () => live2 && document.visibilityState === "visible" && !nativeWindowHidden && !document.documentElement.hasAttribute("data-renderer-animations-paused");
     async function read() {
-      if (!live2 || document.visibilityState !== "visible") return;
+      if (!visible2()) return;
       if (inFlight) {
         queued = true;
         return;
@@ -13030,7 +14262,7 @@ function useLiveWorkspaceRepository(data, shown, updates) {
       lastStarted = Date.now();
       try {
         const status2 = await readWorkspaceRepository(cwd, { connectionId, profile: profile2 });
-        if (live2 && host15.state.connectionId.get() === connectionId && host15.state.profile.get() === profile2 && host15.state.focusedSessionId.get() === runtime) data.updateRepository(key2, status2);
+        if (visible2() && host16.state.connectionId.get() === connectionId && host16.state.profile.get() === profile2 && host16.state.focusedSessionId.get() === runtime) data.updateRepository(key2, status2);
       } catch {
       } finally {
         inFlight = false;
@@ -13041,6 +14273,7 @@ function useLiveWorkspaceRepository(data, shown, updates) {
       }
     }
     function schedule() {
+      if (!visible2()) return;
       const now = Date.now();
       if (!burstStart) burstStart = now;
       window.clearTimeout(debounce);
@@ -13052,25 +14285,49 @@ function useLiveWorkspaceRepository(data, shown, updates) {
       }, Math.max(0, due - now));
     }
     const off = updates.listen(schedule);
-    const timer = window.setInterval(schedule, 1e4);
+    function updateVisibility() {
+      if (!visible2()) {
+        if (timer !== null) window.clearInterval(timer);
+        timer = null;
+        window.clearTimeout(debounce);
+        debounce = 0;
+        burstStart = 0;
+        queued = false;
+        return;
+      }
+      if (timer === null) {
+        timer = window.setInterval(schedule, 1e4);
+        schedule();
+      }
+    }
+    const offWindowState = window.hermesDesktop?.onWindowStateChanged?.((state) => {
+      nativeWindowHidden = state?.isMinimized === true || state?.isVisible === false;
+      updateVisibility();
+    });
+    const visibilityObserver = new MutationObserver(updateVisibility);
+    visibilityObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-renderer-animations-paused"]
+    });
     window.addEventListener("focus", schedule);
-    schedule();
+    document.addEventListener("visibilitychange", updateVisibility);
+    updateVisibility();
     return () => {
       live2 = false;
       off();
       window.clearTimeout(debounce);
-      window.clearInterval(timer);
+      if (timer !== null) window.clearInterval(timer);
+      offWindowState?.();
+      visibilityObserver.disconnect();
       window.removeEventListener("focus", schedule);
+      document.removeEventListener("visibilitychange", updateVisibility);
     };
   }, [shown, cwd, connectionId, profile2, key2, updates]);
 }
 function WorkspaceCard({
   id: id2,
-  close: close2,
   copy: copy11,
   shown,
-  pinned,
-  onPin,
   roster,
   panes,
   actions,
@@ -13086,15 +14343,15 @@ function WorkspaceCard({
   const { scope: scope4, snapshot, refresh } = data;
   useLiveWorkspaceRepository(data, shown, updates);
   const sources = useSourcesView(data, shown);
-  const runtime = useValue5(host15.state.focusedSessionId);
-  const session = useValue5(host15.state.focusedStoredSessionId);
-  const busy = useValue5(host15.state.busy);
+  const runtime = useValue6(host16.state.focusedSessionId);
+  const session = useValue6(host16.state.focusedStoredSessionId);
+  const busy = useValue6(host16.state.busy);
   const related = useRelatedRepositories(scope4, snapshot?.root, data.key, sources.rows, shown && !busy);
   const cwd = snapshot?.cwd || "";
   const local = scope4?.connectionId === "local" && Boolean(cwd);
   const target = { cwd, owner: scope4, runtime, session, nativeGit: snapshot?.nativeGit, branch: snapshot?.branch };
   const tileTarget = isTile && focus?.surface ? tileTurnHistoryTarget(focus.surface) : null;
-  const tileCurrent = () => Boolean(tileTarget && focus && tileTarget.view === focus.view && tileTarget.sessionId === focus.storedId && tileTarget.runtimeId === focus.runtimeId && tileTarget.connectionId === focus.owner?.connectionId && tileTarget.profile === focus.owner?.profile && scope4?.connectionId === tileTarget.connectionId && scope4?.profile === tileTarget.profile && roster.isCurrentTile(tileTarget) && host15.state.connectionId.get() === tileTarget.connectionId && host15.state.profile.get() === tileTarget.profile && workspacePathKey(focus.view.$cwd.get()) === workspacePathKey(cwd));
+  const tileCurrent = () => Boolean(tileTarget && focus && tileTarget.view === focus.view && tileTarget.sessionId === focus.storedId && tileTarget.runtimeId === focus.runtimeId && tileTarget.connectionId === focus.owner?.connectionId && tileTarget.profile === focus.owner?.profile && scope4?.connectionId === tileTarget.connectionId && scope4?.profile === tileTarget.profile && roster.isCurrentTile(tileTarget) && host16.state.connectionId.get() === tileTarget.connectionId && host16.state.profile.get() === tileTarget.profile && workspacePathKey(focus.view.$cwd.get()) === workspacePathKey(cwd));
   const title = snapshot?.project || repositoryName(cwd) || copy11.project;
   const card2 = useRef6(null);
   const trigger2 = useRef6(null);
@@ -13114,7 +14371,7 @@ function WorkspaceCard({
     const branch = repo?.detached ? copy11.detached : repository?.branch;
     const description = [label4, branch].filter(Boolean).join(" \xB7 ");
     const incomplete = repo?.changed && incompleteDiffStats(repo);
-    const button6 = h17(
+    const button6 = h18(
       "button",
       {
         type: "button",
@@ -13128,25 +14385,25 @@ function WorkspaceCard({
           panes.open("changes");
         }
       },
-      h17("span", { className: "hcv-context-branch-icon", "data-hcv-summary-changes-icon": "" }, icon5("branch")),
-      h17(RepositoryLabel, { name: label4, branch }),
-      h17(DiffStats, { repo, copy: copy11 })
+      h18("span", { className: "hcv-context-branch-icon", "data-hcv-summary-changes-icon": "" }, icon5("branch")),
+      h18(RepositoryLabel, { name: label4, branch }),
+      h18(DiffStats, { repo, copy: copy11 })
     );
-    return description ? h17(Tip, { label: description }, button6) : button6;
+    return description ? h18(Tip, { label: description }, button6) : button6;
   }
-  const projectMenu2 = h17(
+  const projectMenu2 = h18(
     DropdownMenu4,
     { open: Boolean(menu), onOpenChange: toggleMenu },
-    h17(
+    h18(
       DropdownMenuTrigger4,
       { asChild: true },
-      h17(
+      h18(
         "button",
         { ref: trigger2, type: "button", className: "hcv-context-icon", "aria-label": copy11.actions },
         icon5("more")
       )
     ),
-    h17(
+    h18(
       DropdownMenuContent4,
       {
         side: "left",
@@ -13155,7 +14412,7 @@ function WorkspaceCard({
         alignOffset: menu?.align ?? 0,
         "data-hcv-summary-menu": ""
       },
-      localEnvironment && h17(DropdownMenuItem4, { disabled: !local || isTile && !tileCurrent(), onSelect: () => {
+      localEnvironment && h18(DropdownMenuItem4, { disabled: !local || isTile && !tileCurrent(), onSelect: () => {
         void localEnvironment.open({
           cwd,
           projectName: title,
@@ -13163,34 +14420,31 @@ function WorkspaceCard({
           ...isTile && { isCurrent: tileCurrent }
         });
       } }, icon5("plus"), copy11.setup),
-      h17(
+      h18(
         DropdownMenuItem4,
         { disabled: isTile || !local, onSelect: () => openWorkspaceTerminal(target) },
         icon5("terminal"),
         copy11.terminal
       ),
-      ...projectActions.map((entry) => h17(DropdownMenuItem4, {
+      ...projectActions.map((entry) => h18(DropdownMenuItem4, {
         key: entry.id,
-        onSelect: () => void localEnvironment.run({ cwd, id: entry.id }).catch((error) => host15.notifyError(error, copy11.actionError))
+        onSelect: () => void localEnvironment.run({ cwd, id: entry.id }).catch((error) => host16.notifyError(error, copy11.actionError))
       }, icon5(entry.icon), entry.label)),
-      snapshot?.repo && h17(
+      snapshot?.repo && h18(
         Fragment2,
         null,
-        h17(DropdownMenuSeparator3),
-        h17(DropdownMenuItem4, {
+        h18(DropdownMenuSeparator3),
+        h18(DropdownMenuItem4, {
           disabled: isTile || !local || !runtime || !session || busy,
           onSelect: () => actions.openMove({ ...target, trigger: trigger2.current }, refresh)
         }, snapshot.isWorktree ? copy11.toMain : copy11.toTree)
-      ),
-      h17(DropdownMenuSeparator3),
-      h17(DropdownMenuItem4, { onSelect: onPin }, icon5(pinned ? "unpin" : "pin"), pinned ? copy11.unpin : copy11.pin),
-      h17(DropdownMenuItem4, { onSelect: close2 }, icon5("close"), copy11.hide)
+      )
     )
   );
-  return h17(
+  return h18(
     "aside",
-    { ref: card2, id: id2, "data-hcv-context-card": "", "data-pinned": pinned, "aria-label": copy11.card, "aria-hidden": !shown, inert: !shown },
-    snapshot?.repo || related.length > 0 ? h17(
+    { ref: card2, id: id2, "data-hcv-context-card": "", "aria-label": copy11.card, "aria-hidden": !shown, inert: !shown },
+    snapshot?.repo || related.length > 0 ? h18(
       SummarySection,
       {
         ...disclosure2("changes"),
@@ -13199,17 +14453,17 @@ function WorkspaceCard({
         action: projectMenu2
       },
       snapshot?.repo && changeRow(snapshot, snapshot.root || cwd, true),
-      related.map((repo) => h17(Fragment2, { key: workspacePathKey(repo.cwd) }, changeRow(repo, repo.cwd, false)))
-    ) : cwd && h17(SummarySection, { ...disclosure2("project"), kind: "project", title, action: projectMenu2 }),
-    ["pullRequests", "outputs"].map((kind) => h17(CompactSummaryItems, {
+      related.map((repo) => h18(Fragment2, { key: workspacePathKey(repo.cwd) }, changeRow(repo, repo.cwd, false)))
+    ) : cwd && h18(SummarySection, { ...disclosure2("project"), kind: "project", title, action: projectMenu2 }),
+    ["pullRequests", "outputs"].map((kind) => h18(CompactSummaryItems, {
       key: JSON.stringify([data.key, kind]),
       kind,
       onOpenSource: sources.onOpenSource,
       rows: sources.rows.filter((row5) => row5.section === kind),
       disclosure: disclosure2(kind)
     })),
-    h17(SummarySubagents, { roster, focus, disclosure: disclosure2("agents"), onExpand: () => panes.open("agents") }),
-    h17(CompactSources, {
+    h18(SummarySubagents, { roster, focus, shown, disclosure: disclosure2("agents"), onExpand: () => panes.open("agents") }),
+    h18(CompactSources, {
       ...sources,
       rows: sources.rows.filter((row5) => !row5.section),
       disclosure: disclosure2("sources"),
@@ -13220,47 +14474,47 @@ function WorkspaceCard({
 function ProjectActions({ entries, cwd, localEnvironment, copy: copy11 }) {
   const named = entries.filter((entry) => entry.id !== "setup" && entry.id !== "cleanup");
   if (!named.length) return null;
-  return h17(
+  return h18(
     DropdownMenu4,
     null,
-    h17(
+    h18(
       DropdownMenuTrigger4,
       { asChild: true },
-      h17(
+      h18(
         "button",
         { type: "button", "data-hcv-project-actions": "", "aria-label": copy11.projectActions },
         icon5(named[0].icon),
         icon5("down")
       )
     ),
-    h17(
+    h18(
       DropdownMenuContent4,
       { align: "end", "data-hcv-project-actions-menu": "" },
-      ...named.map((entry) => h17(DropdownMenuItem4, {
+      ...named.map((entry) => h18(DropdownMenuItem4, {
         key: entry.id,
-        onSelect: () => void localEnvironment.run({ cwd, id: entry.id }).catch((error) => host15.notifyError(error, copy11.actionError))
+        onSelect: () => void localEnvironment.run({ cwd, id: entry.id }).catch((error) => host16.notifyError(error, copy11.actionError))
       }, icon5(entry.icon), entry.label))
     )
   );
 }
-function CardSlot({ storage, roster, panes, actions, localEnvironment, selection, updates, summaryStarts }) {
+function CardSlot({ roster, panes, actions, localEnvironment, selection, updates, summaryStarts, hiddenSummary, setLayout }) {
   const { locale: locale3 } = useI18n6();
-  const copy11 = labels8[locale3] || labels8.en;
+  const copy11 = labels9[locale3] || labels9.en;
   const focus = useFocusedWorkspace(true);
   const isTile = focus?.view.kind === "tile";
-  const files = useValue5(host15.paneVisibility("files"));
-  const review = useValue5(host15.paneVisibility("review"));
+  const files = useValue6(host16.paneVisibility("files"));
+  const review = useValue6(host16.paneVisibility("review"));
   const data = useWorkspaceData(focus?.cwd || "", Boolean(focus), isTile, focus?.owner);
   const cwd = focus && !isTile && data.scope?.connectionId === "local" ? data.snapshot?.cwd : "";
-  const actionRevision = useValue5(localEnvironment.revision);
+  const actionRevision = useValue6(localEnvironment.revision);
   const [savedActions, setSavedActions] = useState12(null);
   const projectActions = savedActions && savedActions.cwd === cwd ? savedActions.entries : [];
-  const agents = useValue5(panes.visibility.agents);
-  const sources = useValue5(panes.visibility.sources);
-  const changes2 = useValue5(panes.visibility.changes);
-  const roomy = useRoomForCard(Boolean(focus) && !files && !review && !agents && !sources && !changes2);
-  const [pinned, setPinned] = useState12(() => storage.get("summary-pinned", true) !== false);
-  const summaryStart = useValue5(summaryStarts);
+  const agents = useValue6(panes.visibility.agents);
+  const sources = useValue6(panes.visibility.sources);
+  const changes2 = useValue6(panes.visibility.changes);
+  const eligible = Boolean(focus) && !files && !review && !agents && !sources && !changes2;
+  const roomy = useRoomForCard(eligible);
+  const summaryStart = useValue6(summaryStarts);
   const summaryKey = JSON.stringify([
     focus?.storedId,
     focus?.runtimeId,
@@ -13268,11 +14522,15 @@ function CardSlot({ storage, roster, panes, actions, localEnvironment, selection
     focus?.owner?.connectionId,
     summaryStart
   ]);
-  const [hiddenFor, setHiddenFor] = useState12(null);
+  const hiddenFor = useValue6(hiddenSummary);
   const open = hiddenFor !== summaryKey;
   const [closed, setClosed] = useState12(null);
-  const toggleRef = useRef6(null);
   const cardId = useId4();
+  useLayoutEffect5(() => {
+    if (focus?.surface && (!eligible || roomy !== null)) {
+      setLayout(focus.surface, eligible && roomy && open);
+    }
+  }, [focus?.surface, eligible, roomy, open, setLayout]);
   useEffect10(() => {
     if (!cwd) return;
     let live2 = true;
@@ -13284,36 +14542,8 @@ function CardSlot({ storage, roster, panes, actions, localEnvironment, selection
       live2 = false;
     };
   }, [cwd, localEnvironment, actionRevision]);
-  useEffect10(() => {
-    if (!roomy || !open || pinned) return;
-    function onOutside(event) {
-      if (event.target instanceof Element && !event.target.closest(
-        '[data-hcv-context-card], [data-hcv-context-toggle], [data-hcv-summary-menu], [data-hcv-sources-add-menu], [data-hcv-project-actions], [data-hcv-project-actions-menu], [data-slot="dialog-overlay"]'
-      )) setHiddenFor(summaryKey);
-    }
-    function onEscape(event) {
-      if (event.key === "Escape" && !event.defaultPrevented && !document.querySelector('[role="menu"][data-state="open"], [role="dialog"][data-state="open"], [popover]:popover-open')) {
-        setHiddenFor(summaryKey);
-        toggleRef.current?.focus({ preventScroll: true });
-      }
-    }
-    document.addEventListener("pointerdown", onOutside, true);
-    document.addEventListener("keydown", onEscape, true);
-    return () => {
-      document.removeEventListener("pointerdown", onOutside, true);
-      document.removeEventListener("keydown", onEscape, true);
-    };
-  }, [roomy, open, pinned, summaryKey]);
-  const projectToolbar = h17(ProjectActions, { entries: projectActions, cwd, localEnvironment, copy: copy11 });
-  if (!roomy) return projectToolbar;
-  function togglePin() {
-    storage.set("summary-pinned", !pinned);
-    setPinned(!pinned);
-  }
-  function closeFromMenu() {
-    setHiddenFor(summaryKey);
-    requestAnimationFrame(() => toggleRef.current?.focus({ preventScroll: true }));
-  }
+  const projectToolbar = h18(ProjectActions, { entries: projectActions, cwd, localEnvironment, copy: copy11 });
+  if (!eligible || !roomy) return projectToolbar;
   function disclosure2(section2) {
     return {
       expanded: closed?.key !== data.key || !closed.sections.has(section2),
@@ -13325,30 +14555,26 @@ function CardSlot({ storage, roster, panes, actions, localEnvironment, selection
       })
     };
   }
-  return h17(
+  return h18(
     Fragment2,
     null,
     projectToolbar,
-    h17(Tip, { label: open ? copy11.hide : copy11.show }, h17(
+    h18(Tip, { label: open ? copy11.hide : copy11.show, delayDuration: 250, sideOffset: 2 }, h18(
       "button",
       {
-        ref: toggleRef,
         type: "button",
         "data-hcv-context-toggle": "",
         "aria-expanded": open,
         "aria-controls": cardId,
         "aria-label": open ? copy11.hide : copy11.show,
-        onClick: () => setHiddenFor((previous) => previous === summaryKey ? null : summaryKey)
+        onClick: () => hiddenSummary.set(open ? summaryKey : null)
       },
       icon5("panel")
     )),
-    h17(WorkspaceCard, {
+    h18(WorkspaceCard, {
       id: cardId,
       copy: copy11,
-      close: closeFromMenu,
       shown: open,
-      pinned,
-      onPin: togglePin,
       roster,
       panes,
       actions,
@@ -13365,16 +14591,26 @@ function CardSlot({ storage, roster, panes, actions, localEnvironment, selection
 }
 function ThemeCardSlot({ themeName: themeName2, panes, ...props }) {
   const theme2 = useTheme3();
-  return theme2.themeName === themeName2 ? h17(Fragment2, null, h17(CardSlot, { ...props, panes }), panes.renderPicker()) : null;
+  return theme2.themeName === themeName2 ? h18(Fragment2, null, h18(CardSlot, { ...props, panes }), panes.renderPicker()) : null;
 }
 function registerWorkspaceCard(ctx, themeName2, roster, localEnvironment) {
-  if (typeof host15.paneVisibility !== "function" || !host15.state.focusedSessionOwner) return;
+  if (typeof host16.paneVisibility !== "function" || !host16.state.focusedSessionOwner) return;
   const scope4 = `:root[data-hermes-codex-visual][data-hermes-theme="${CSS.escape(themeName2)}"]`;
   const actions = registerWorkspaceActions(ctx, scope4, localEnvironment);
-  const selection = atom4(null);
-  const updates = atom4(0);
-  const summaryStarts = atom4(0);
-  const ownsEvent = (event) => !event.replayed && event.session_id === host15.state.focusedSessionId.get() && (!event.connectionId || event.connectionId === host15.state.connectionId.get()) && (!event.profile || event.profile === host15.state.profile.get());
+  const selection = atom5(null);
+  const updates = atom5(0);
+  const summaryStarts = atom5(0);
+  const hiddenSummary = atom5(null);
+  const layoutMarker = "data-hcv-summary-layout";
+  let layoutPane = null;
+  function setLayout(surface5, shown) {
+    const pane = surface5.closest("[data-pane-host], [data-tree-group]") || surface5;
+    if (pane !== layoutPane) layoutPane?.removeAttribute(layoutMarker);
+    layoutPane = pane;
+    pane.toggleAttribute(layoutMarker, shown);
+  }
+  ctx.onDispose(() => layoutPane?.removeAttribute(layoutMarker));
+  const ownsEvent = (event) => !event.replayed && event.session_id === host16.state.focusedSessionId.get() && (!event.connectionId || event.connectionId === host16.state.connectionId.get()) && (!event.profile || event.profile === host16.state.profile.get());
   ctx.onEvent("message.start", (event) => {
     if (ownsEvent(event)) summaryStarts.set(summaryStarts.get() + 1);
   });
@@ -13390,9 +14626,9 @@ function registerWorkspaceCard(ctx, themeName2, roster, localEnvironment) {
   });
   ctx.onDispose(() => window.clearTimeout(updateTimer));
   const panes = registerSummaryPanes(ctx, scope4, {
-    agents: () => h17(FocusedSubagentsPane, { roster }),
-    sources: () => h17(ExpandedSources),
-    changes: () => h17(ExpandedChanges, { selection })
+    agents: () => h18(FocusedSubagentsPane, { roster, visibility: panes.visibility.agents }),
+    sources: () => h18(ExpandedSources),
+    changes: () => h18(ExpandedChanges, { selection })
   });
   const revealAgents = () => panes.open("agents");
   roster.revealAgentPane = revealAgents;
@@ -13402,7 +14638,8 @@ function registerWorkspaceCard(ctx, themeName2, roster, localEnvironment) {
   registerSummarySources(ctx, scope4);
   registerSummaryChanges(ctx, scope4);
   const surfaces = `${scope4} [data-hcv-context-card]`;
-  const chat3 = `${scope4} [data-chat-surface][data-hcv-summary-focused]`;
+  const layout = `[${layoutMarker}]`;
+  const chat3 = `${scope4} :is([data-chat-surface][data-hcv-summary-focused], ${layout} [data-chat-surface]:not(:is([data-pane-hidden], [hidden]) *))`;
   const bounds = `${chat3} > [data-slot="composer-bounds"]`;
   const dock2 = `${chat3} [data-slot="composer-dock"]:not([data-popped-out])`;
   const fallback = `${chat3} [data-slot="composer-root"]:has(> .composer-fallback-surface)`;
@@ -13419,7 +14656,7 @@ ${scope4} {
   --hcv-summary-width: 280px;
   --hcv-summary-layout-inset: calc((var(--hcv-summary-width) + 12px) * var(--hcv-summary-progress));
 }
-${scope4}:has([data-hcv-context-card][aria-hidden="false"]) { --hcv-summary-progress: 1; }
+${scope4}:has(${layout}) { --hcv-summary-progress: 1; }
 @media (forced-colors: none) {
   ${chat3} {
     --hcv-summary-composer-width: min(var(--composer-width), 100% - var(--hcv-summary-layout-inset) - 2rem);
@@ -13547,10 +14784,6 @@ ${scope4} [data-hcv-context-toggle] {
   color: var(--hcv-muted);
   flex: 0 0 auto;
 }
-${scope4} [data-hcv-context-toggle][aria-expanded="true"] {
-  color: var(--hcv-text);
-  background: var(--hcv-selected);
-}
 ${scope4} [data-hcv-project-actions] {
   display: inline-flex;
   align-items: center;
@@ -13568,8 +14801,7 @@ ${scope4} [data-hcv-project-actions]:is(:hover, [data-state="open"]) {
 ${scope4} [data-hcv-project-actions-menu] { z-index: calc(var(--z-modal-backdrop, 120) - 1); }
 @media (hover: hover) and (pointer: fine) {
   ${surfaces} button.hcv-context-row:hover:not(:disabled) { color: var(--hcv-text); }
-  ${surfaces} button.hcv-context-icon:hover:not(:disabled),
-  ${scope4} [data-hcv-context-toggle]:hover { background: var(--hcv-hover); color: var(--hcv-text); }
+  ${surfaces} button.hcv-context-icon:hover:not(:disabled) { background: var(--hcv-control-hover); color: var(--hcv-text); }
 }
 @media (prefers-reduced-motion: no-preference) {
   /* The Codex panel travel and the chat inset share one interpolated value. */
@@ -13578,31 +14810,42 @@ ${scope4} [data-hcv-project-actions-menu] { z-index: calc(var(--z-modal-backdrop
   ${scope4} [data-hcv-context-card][aria-hidden="true"] { transition-delay: ${codexReference.summaryTime}; }
 }
 `;
-  mountStyle(ctx, style, { surface: "[data-hcv-context-card], [data-hcv-context-toggle], [data-hcv-project-actions]", retainAcrossChatTabs: true });
+  mountStyle(ctx, style, { surface: '[data-tree-group="grp-main"], [data-hcv-context-card], [data-hcv-context-toggle], [data-hcv-project-actions]', retainAcrossChatTabs: true });
   ctx.register({
     id: "workspace-card",
-    area: TITLEBAR_AREAS4.right,
-    render: () => h17(ThemeCardSlot, { themeName: themeName2, storage: ctx.storage, roster, panes, actions, localEnvironment, selection, updates, summaryStarts })
+    area: TITLEBAR_AREAS5.right,
+    render: () => h18(ThemeCardSlot, {
+      themeName: themeName2,
+      roster,
+      panes,
+      actions,
+      localEnvironment,
+      selection,
+      updates,
+      summaryStarts,
+      hiddenSummary,
+      setLayout
+    })
   });
 }
 
 // source/local-environment.js
-import { createElement as h18, useRef as useRef7, useState as useState13 } from "react";
+import { createElement as h19, useRef as useRef7, useState as useState13 } from "react";
 import {
-  atom as atom5,
-  Button as Button2,
-  Dialog as Dialog2,
-  DialogContent as DialogContent2,
-  DialogDescription as DialogDescription2,
+  atom as atom6,
+  Button as Button3,
+  Dialog as Dialog3,
+  DialogContent as DialogContent3,
+  DialogDescription as DialogDescription3,
   DialogFooter as DialogFooter2,
-  DialogHeader as DialogHeader2,
-  DialogTitle as DialogTitle2,
-  host as host16,
+  DialogHeader as DialogHeader3,
+  DialogTitle as DialogTitle3,
+  host as host17,
   Popover,
   PopoverContent,
   PopoverTrigger,
-  TITLEBAR_AREAS as TITLEBAR_AREAS5,
-  useValue as useValue6
+  TITLEBAR_AREAS as TITLEBAR_AREAS6,
+  useValue as useValue7
 } from "@hermes/plugin-sdk";
 
 // source/local-environment-run.js
@@ -13858,7 +15101,7 @@ var copy4 = {
     tooLong: "The script is too long for the terminal"
   }
 };
-var words = () => document.documentElement.matches(":lang(ru)") ? copy4.ru : copy4.en;
+var words2 = () => document.documentElement.matches(":lang(ru)") ? copy4.ru : copy4.en;
 var scriptFor = (scripts, platform) => scripts?.[platform]?.trim() ? scripts[platform] : scripts?.default ?? "";
 var folderName = (value2) => value2.split(/[\\/]/).filter(Boolean).at(-1) || value2;
 var emptyEnvironment = (name) => ({ name, setup: {}, cleanup: {}, actions: [] });
@@ -13871,26 +15114,26 @@ var windowsPlaceholder = {
   cleanup: "docker compose down --remove-orphans"
 };
 function icon6(name, className) {
-  return h18("span", { "aria-hidden": true, className, "data-hcv-env-icon": "", style: codexIconStyle(name) });
+  return h19("span", { "aria-hidden": true, className, "data-hcv-env-icon": "", style: codexIconStyle(name) });
 }
 function Variables({ t, copyVariable }) {
-  return h18(
+  return h19(
     Popover,
     null,
-    h18(PopoverTrigger, { asChild: true }, h18("button", { type: "button", className: "hcv-env-secondary" }, t.variables)),
-    h18(
+    h19(PopoverTrigger, { asChild: true }, h19("button", { type: "button", className: "hcv-env-secondary" }, t.variables)),
+    h19(
       PopoverContent,
       { align: "end", sideOffset: 4, "data-hcv-env-vars": "" },
-      h18("strong", null, t.variablesTitle),
-      [[sourceTreeVariable, t.sourcePath], [worktreeVariable, t.worktreePath]].map(([name, text7]) => h18(
+      h19("strong", null, t.variablesTitle),
+      [[sourceTreeVariable, t.sourcePath], [worktreeVariable, t.worktreePath]].map(([name, text7]) => h19(
         "div",
         { key: name },
-        h18("button", {
+        h19("button", {
           type: "button",
           title: name,
           onClick: () => void copyVariable(name)
-        }, h18("code", null, name), icon6("copy")),
-        h18("span", null, text7)
+        }, h19("code", null, name), icon6("copy")),
+        h19("span", null, text7)
       ))
     )
   );
@@ -13910,7 +15153,7 @@ function ScriptEditor({ type, scripts, setScripts, compact, t, copyVariable }) {
   };
   const value2 = scripts[platform] || "";
   const placeholder = compact ? t.compactPlaceholder : (platform === "win32" ? windowsPlaceholder : scriptPlaceholder)[type];
-  const field = h18("textarea", {
+  const field = h19("textarea", {
     id: id2,
     value: value2,
     placeholder,
@@ -13919,27 +15162,27 @@ function ScriptEditor({ type, scripts, setScripts, compact, t, copyVariable }) {
     maxLength: 6e3,
     onChange: (event) => setScripts({ ...scripts, [platform]: event.target.value })
   });
-  return h18(
+  return h19(
     "section",
     { className: "hcv-env-script" },
-    h18(
+    h19(
       "div",
       { className: "hcv-env-section-title" },
-      h18(
+      h19(
         "div",
         null,
-        h18("label", { htmlFor: id2 }, label4),
-        !compact && h18("p", null, type === "setup" ? t.setupHint : t.cleanupHint)
+        h19("label", { htmlFor: id2 }, label4),
+        !compact && h19("p", null, type === "setup" ? t.setupHint : t.cleanupHint)
       ),
-      !compact && type === "setup" && h18(Variables, { t, copyVariable })
+      !compact && type === "setup" && h19(Variables, { t, copyVariable })
     ),
-    compact ? field : h18(
+    compact ? field : h19(
       "div",
       null,
-      h18(
+      h19(
         "div",
         { role: "tablist", "aria-label": `${label4} \xB7 ${t.platform}`, onKeyDown: selectWithKeys, className: "hcv-env-platforms" },
-        platforms.map((value3) => h18("button", {
+        platforms.map((value3) => h19("button", {
           key: value3,
           id: `${id2}-tab-${value3}`,
           type: "button",
@@ -13950,75 +15193,75 @@ function ScriptEditor({ type, scripts, setScripts, compact, t, copyVariable }) {
           onClick: () => setPlatform(value3)
         }, platformNames[value3] || t.default))
       ),
-      h18("div", { role: "tabpanel", id: `${id2}-platform`, "aria-labelledby": `${id2}-tab-${platform}` }, field)
+      h19("div", { role: "tabpanel", id: `${id2}-platform`, "aria-labelledby": `${id2}-tab-${platform}` }, field)
     )
   );
 }
 function Actions({ actions, onChange, t }) {
   const update = (id2, patch) => onChange(actions.map((action) => action.id === id2 ? { ...action, ...patch } : action));
-  return h18(
+  return h19(
     "section",
     { className: "hcv-env-actions" },
-    h18(
+    h19(
       "div",
       { className: "hcv-env-section-title" },
-      h18("h3", null, t.actions),
-      h18("button", {
+      h19("h3", null, t.actions),
+      h19("button", {
         type: "button",
         className: "hcv-env-secondary",
         onClick: () => onChange([...actions, { id: crypto.randomUUID(), name: "", command: "", platform: "default", icon: "tool" }])
       }, t.add)
     ),
-    h18("p", null, t.actionHint),
-    actions.length === 0 ? h18("div", { className: "hcv-env-empty" }, t.empty) : actions.map((action) => h18(
+    h19("p", null, t.actionHint),
+    actions.length === 0 ? h19("div", { className: "hcv-env-empty" }, t.empty) : actions.map((action) => h19(
       "div",
       { key: action.id, className: "hcv-env-card hcv-env-action", "data-hcv-env-action": "" },
-      h18(
+      h19(
         "div",
         { className: "hcv-env-action-heading" },
-        h18(
+        h19(
           "label",
           { className: "hcv-env-field hcv-env-action-icon" },
           t.icon,
-          h18(
+          h19(
             "div",
             null,
             icon6(icons[action.icon] || "tools"),
-            h18(
+            h19(
               "select",
               { value: action.icon, onChange: (event) => update(action.id, { icon: event.target.value }) },
-              buttonTypes.map((type) => h18("option", { value: type, key: type }, t[type]))
+              buttonTypes.map((type) => h19("option", { value: type, key: type }, t[type]))
             )
           )
         ),
-        h18(
+        h19(
           "label",
           { className: "hcv-env-field" },
           t.name,
-          h18("input", { value: action.name, maxLength: 100, onChange: (event) => update(action.id, { name: event.target.value }) })
+          h19("input", { value: action.name, maxLength: 100, onChange: (event) => update(action.id, { name: event.target.value }) })
         ),
-        h18("button", {
+        h19("button", {
           type: "button",
           "aria-label": t.remove,
           title: t.remove,
           onClick: () => onChange(actions.filter((item) => item.id !== action.id))
         }, icon6("trash"))
       ),
-      h18(
+      h19(
         "label",
         { className: "hcv-env-field" },
         t.platform,
-        h18(
+        h19(
           "select",
           { value: action.platform, onChange: (event) => update(action.id, { platform: event.target.value }) },
-          platforms.map((value2) => h18("option", { value: value2, key: value2 }, platformNames[value2] || t.allPlatforms))
+          platforms.map((value2) => h19("option", { value: value2, key: value2 }, platformNames[value2] || t.allPlatforms))
         )
       ),
-      h18(
+      h19(
         "label",
         { className: "hcv-env-field" },
         t.command,
-        h18("textarea", {
+        h19("textarea", {
           rows: 3,
           maxLength: 6e3,
           spellCheck: false,
@@ -14066,14 +15309,14 @@ function EnvironmentDialog({ target, close: close2, save }) {
       setSaving(false);
     }
   };
-  const setupEditor = h18(ScriptEditor, { type: "setup", scripts: draft.setup, setScripts: (setup2) => edit3({ setup: setup2 }), compact: !advanced, t, copyVariable });
-  return h18(
-    Dialog2,
+  const setupEditor = h19(ScriptEditor, { type: "setup", scripts: draft.setup, setScripts: (setup2) => edit3({ setup: setup2 }), compact: !advanced, t, copyVariable });
+  return h19(
+    Dialog3,
     { open: true, onOpenChange: (open) => {
       if (!open) requestClose();
     } },
-    h18(
-      DialogContent2,
+    h19(
+      DialogContent3,
       {
         "data-hcv-local-environment": "",
         "data-hcv-env-advanced": String(advanced),
@@ -14095,50 +15338,50 @@ function EnvironmentDialog({ target, close: close2, save }) {
           }
         }
       },
-      h18(DialogHeader2, null, h18(DialogTitle2, { ref: heading, tabIndex: -1 }, t.title), h18(DialogDescription2, null, t.subtitle)),
-      h18(
+      h19(DialogHeader3, null, h19(DialogTitle3, { ref: heading, tabIndex: -1 }, t.title), h19(DialogDescription3, null, t.subtitle)),
+      h19(
         "form",
         { onSubmit: submit, className: "hcv-env-form" },
-        h18(
+        h19(
           "fieldset",
           { disabled: saving },
           !advanced && setupEditor,
-          h18("button", {
+          h19("button", {
             type: "button",
             className: "hcv-env-disclosure",
             "aria-expanded": advanced,
             "aria-controls": "hcv-env-options",
             onClick: () => setAdvanced((previous) => !previous)
           }, t.advanced, icon6("right")),
-          advanced && h18(
+          advanced && h19(
             "div",
             { className: "hcv-env-options", id: "hcv-env-options" },
-            h18(
+            h19(
               "label",
               { className: "hcv-env-card hcv-env-field" },
               t.name,
-              h18("input", { value: draft.name, maxLength: 120, onChange: (event) => edit3({ name: event.target.value }) })
+              h19("input", { value: draft.name, maxLength: 120, onChange: (event) => edit3({ name: event.target.value }) })
             ),
             setupEditor,
-            h18(ScriptEditor, { type: "cleanup", scripts: draft.cleanup, setScripts: (cleanup) => edit3({ cleanup }), t }),
-            h18(Actions, { actions: draft.actions, onChange: (actions) => edit3({ actions }), t })
+            h19(ScriptEditor, { type: "cleanup", scripts: draft.cleanup, setScripts: (cleanup) => edit3({ cleanup }), t }),
+            h19(Actions, { actions: draft.actions, onChange: (actions) => edit3({ actions }), t })
           ),
-          error && h18("p", { role: "alert", className: "hcv-env-error" }, error),
-          h18(DialogFooter2, null, h18(Button2, { type: "submit", disabled }, runSetup || !revision && !content3 ? t.setupProject : t.save))
+          error && h19("p", { role: "alert", className: "hcv-env-error" }, error),
+          h19(DialogFooter2, null, h19(Button3, { type: "submit", disabled }, runSetup || !revision && !content3 ? t.setupProject : t.save))
         )
       ),
-      h18(
-        Dialog2,
+      h19(
+        Dialog3,
         { open: discard, onOpenChange: setDiscard },
-        h18(
-          DialogContent2,
+        h19(
+          DialogContent3,
           { "data-hcv-env-confirm": "", showCloseButton: false, blurBackdrop: false },
-          h18(DialogHeader2, null, h18(DialogTitle2, null, t.discardTitle), h18(DialogDescription2, null, t.discardHint)),
-          h18(
+          h19(DialogHeader3, null, h19(DialogTitle3, null, t.discardTitle), h19(DialogDescription3, null, t.discardHint)),
+          h19(
             DialogFooter2,
             null,
-            h18(Button2, { type: "button", variant: "outline", onClick: () => setDiscard(false) }, t.keep),
-            h18(Button2, { type: "button", variant: "destructive", onClick: close2 }, t.discard)
+            h19(Button3, { type: "button", variant: "outline", onClick: () => setDiscard(false) }, t.keep),
+            h19(Button3, { type: "button", variant: "destructive", onClick: close2 }, t.discard)
           )
         )
       )
@@ -14149,32 +15392,32 @@ function TerminalResult({ result, stop, close: close2 }) {
   const { state, title, cwd, output, error, t } = result;
   const running = state === "running" || state === "starting";
   const status2 = error ? t[error] : t[state];
-  return h18(
-    Dialog2,
+  return h19(
+    Dialog3,
     { open: true, onOpenChange: (open) => {
       if (!open && !running) close2();
     } },
-    h18(
-      DialogContent2,
+    h19(
+      DialogContent3,
       { "data-hcv-env-terminal": "", showCloseButton: !running, blurBackdrop: false },
-      h18(DialogHeader2, null, h18(DialogTitle2, null, title), h18(DialogDescription2, null, cwd)),
-      h18("div", { role: "status", "data-hcv-env-run-state": state }, status2),
-      h18("pre", { tabIndex: 0 }, output || t.noOutput),
-      h18(DialogFooter2, null, h18(Button2, { type: "button", onClick: running ? stop : close2 }, running ? t.stop : t.close))
+      h19(DialogHeader3, null, h19(DialogTitle3, null, title), h19(DialogDescription3, null, cwd)),
+      h19("div", { role: "status", "data-hcv-env-run-state": state }, status2),
+      h19("pre", { tabIndex: 0 }, output || t.noOutput),
+      h19(DialogFooter2, null, h19(Button3, { type: "button", onClick: running ? stop : close2 }, running ? t.stop : t.close))
     )
   );
 }
 function EnvironmentSlot({ model, result, close: close2, save, stop, closeResult }) {
-  const target = useValue6(model);
-  const run = useValue6(result);
-  if (target) return h18(EnvironmentDialog, { key: target.key, target, close: close2, save });
-  return run ? h18(TerminalResult, { result: run, stop, close: closeResult }) : null;
+  const target = useValue7(model);
+  const run = useValue7(result);
+  if (target) return h19(EnvironmentDialog, { key: target.key, target, close: close2, save });
+  return run ? h19(TerminalResult, { result: run, stop, close: closeResult }) : null;
 }
 function registerLocalEnvironment(ctx, active3) {
   const root = document.documentElement;
-  const model = atom5(null);
-  const result = atom5(null);
-  const revisionSignal = atom5(0);
+  const model = atom6(null);
+  const result = atom6(null);
+  const revisionSignal = atom6(0);
   const platform = desktopPlatform();
   const close2 = () => model.set(null);
   const closeResult = () => result.set(null);
@@ -14186,16 +15429,16 @@ function registerLocalEnvironment(ctx, active3) {
   mountStyle(ctx, sheet, { surface: "[data-hcv-local-environment]" });
   let cancelRun, disposed = false;
   let request = 0;
-  const local = () => !disposed && host16.state.connectionId.get() === "local";
-  const enabled = () => local() && root.matches(active3);
-  const notify = (message, kind = "error") => host16.notify({ kind, message });
+  const local = () => !disposed && host17.state.connectionId.get() === "local";
+  const enabled2 = () => local() && root.matches(active3);
+  const notify = (message, kind = "error") => host17.notify({ kind, message });
   const idle = () => !model.get() && !result.get();
   async function scopeFor(cwd) {
-    if (!enabled() || !platform) return null;
+    if (!enabled2() || !platform) return null;
     const desktop = window.hermesDesktop;
     const directory = await checkedLocalPath(desktop, cwd, platform).catch(() => null);
-    if (!directory || !enabled()) return null;
-    const owner = { connectionId: "local", profile: host16.state.profile.get() };
+    if (!directory || !enabled2()) return null;
+    const owner = { connectionId: "local", profile: host17.state.profile.get() };
     let entries = await readWorkspaceTrees(directory, owner, true).catch(() => []);
     if (!entries.length) entries = await readWorkspaceTrees(directory, owner, false).catch(() => []);
     const current = localPathKey(directory, platform);
@@ -14205,7 +15448,7 @@ function registerLocalEnvironment(ctx, active3) {
     }, { path: directory, key: "" }).path;
     const source = entries.find((entry) => entry.isMain)?.path || checkout;
     const paths = await Promise.all([checkout, source].map((path) => checkedLocalPath(desktop, path, platform).catch(() => null)));
-    return enabled() && paths.every(Boolean) ? { cwd: paths[0], source: paths[1] } : null;
+    return enabled2() && paths.every(Boolean) ? { cwd: paths[0], source: paths[1] } : null;
   }
   const startRun = ({ cwd, source, script, title, t, isCurrent }) => {
     result.set({ cwd, title, t, output: "", state: "starting" });
@@ -14244,8 +15487,8 @@ function registerLocalEnvironment(ctx, active3) {
   }
   ctx.register({
     id: "local-environment-dialog",
-    area: TITLEBAR_AREAS5.center,
-    render: () => h18(EnvironmentSlot, { model, result, close: close2, save, stop: () => cancelRun?.(), closeResult })
+    area: TITLEBAR_AREAS6.center,
+    render: () => h19(EnvironmentSlot, { model, result, close: close2, save, stop: () => cancelRun?.(), closeResult })
   });
   ctx.onDispose(() => {
     disposed = true;
@@ -14259,7 +15502,7 @@ function registerLocalEnvironment(ctx, active3) {
     async open({ cwd, projectName, trigger: trigger2, isCurrent }) {
       if (!idle() || isCurrent && !isCurrent()) return false;
       const key2 = ++request;
-      const t = words();
+      const t = words2();
       const scope4 = await scopeFor(cwd);
       if (key2 !== request || !idle() || disposed || isCurrent && !isCurrent()) return false;
       if (!scope4) {
@@ -14288,12 +15531,12 @@ function registerLocalEnvironment(ctx, active3) {
     },
     async actions(cwd) {
       const scope4 = await scopeFor(cwd);
-      return scope4 ? commands(read(scope4)?.config, words()).map(({ id: id2, label: label4, icon: icon8 }) => ({ id: id2, label: label4, icon: icon8 })) : [];
+      return scope4 ? commands(read(scope4)?.config, words2()).map(({ id: id2, label: label4, icon: icon8 }) => ({ id: id2, label: label4, icon: icon8 })) : [];
     },
     async run({ cwd, id: id2 }) {
       if (!idle()) return false;
       const key2 = ++request;
-      const t = words();
+      const t = words2();
       const scope4 = await scopeFor(cwd);
       if (key2 !== request || !idle() || disposed) return false;
       const command2 = scope4 && commands(read(scope4)?.config, t).find((command3) => command3.id === id2);
@@ -14328,7 +15571,7 @@ function styles2(active3) {
   ${form} [data-slot="dialog-title"], ${terminal2} [data-slot="dialog-title"] { font-size: 20px; font-weight: 600; line-height: 26px; }
   ${form} [data-slot="dialog-title"]:focus { outline: none; }
   ${form} [data-slot="dialog-description"], ${terminal2} [data-slot="dialog-description"] { font-size: 14px; line-height: 20px; color: var(--hcv-muted); overflow-wrap: anywhere; }
-  ${form} [data-slot="dialog-close-button"] { inset-block-start: 16px; inset-inline-end: 16px; inline-size: 24px; block-size: 24px; border-radius: 8px; }
+  ${form} [data-slot="dialog-close-button"] { inset-block-start: 16px; inset-inline-end: 16px; inline-size: 24px; block-size: 24px; border-radius: 999px; }
   ${codexIconRules(`${form} [data-slot="dialog-close-button"] > svg`, "close")}
   ${form} .hcv-env-form { min-block-size: 0; overflow: auto; overscroll-behavior: contain; padding: 44px 13px 0; }
   ${form}[data-hcv-env-advanced="true"] .hcv-env-form { padding-block-start: 28px; }
@@ -14388,7 +15631,41 @@ function styles2(active3) {
 }
 
 // source/turns.js
-import { host as host17 } from "@hermes/plugin-sdk";
+import { host as host18 } from "@hermes/plugin-sdk";
+
+// source/chat-text-observation.js
+function observeChatText(onChange) {
+  const observer = new MutationObserver(onChange);
+  const owners = /* @__PURE__ */ new Map();
+  const options = { subtree: true, characterData: true };
+  let rebuild = false;
+  function set(owner, first = null, second = null) {
+    const previous = owners.get(owner);
+    if (previous ? previous[0] === first && previous[1] === second : !first && !second) return;
+    if (previous) rebuild ||= Boolean(previous[0] && previous[0] !== first || previous[1] && previous[1] !== second);
+    if (!first && !second) owners.delete(owner);
+    else owners.set(owner, [first, second]);
+    if (rebuild) return;
+    if (first && first !== previous?.[0]) observer.observe(first, options);
+    if (second && second !== previous?.[1]) observer.observe(second, options);
+  }
+  function refresh() {
+    if (!rebuild) return;
+    const records = observer.takeRecords();
+    observer.disconnect();
+    for (const targets of owners.values()) {
+      for (const target of targets) if (target) observer.observe(target, options);
+    }
+    rebuild = false;
+    if (records.length) onChange(records);
+  }
+  function clear() {
+    observer.disconnect();
+    owners.clear();
+    rebuild = false;
+  }
+  return { set, refresh, clear };
+}
 
 // source/turn-control-state.js
 function turnControlKey(target) {
@@ -15041,6 +16318,20 @@ var activeIndicators = `[data-chat-surface] :is(${nativeActivity}, [data-hcv-liv
 var streaming = '[data-message-streaming="true"]';
 var actionable = ':is([role="alert"], [data-approval-activity-only], [data-approval-stack], [data-clarify-choices], [data-clarify-late-choices], [data-clarify-batch-preview], [data-clarify-batch-question]:not([data-locked]))';
 var isRussian = () => document.documentElement.lang.toLowerCase().startsWith("ru");
+var numberFormats = /* @__PURE__ */ new Map();
+var formatterLanguage;
+var russianPlurals4;
+function numberFormat(unit) {
+  const language2 = document.documentElement.lang || "en";
+  if (formatterLanguage !== language2) {
+    formatterLanguage = language2;
+    numberFormats.clear();
+  }
+  if (!numberFormats.has(unit)) {
+    numberFormats.set(unit, new Intl.NumberFormat(language2, unit && { style: "unit", unitDisplay: "narrow", unit }));
+  }
+  return numberFormats.get(unit);
+}
 function make(tag, marker5, text7) {
   const node4 = document.createElement(tag);
   node4.setAttribute(`data-hcv-${marker5}`, "");
@@ -15061,8 +16352,7 @@ function formatDuration2(seconds) {
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor(seconds / 60) % 60;
   const units = hours ? [["hour", hours], ["minute", minutes]] : [["minute", minutes], ["second", seconds % 60]];
-  const language2 = document.documentElement.lang || "en";
-  return units.filter(([unit, value2]) => value2 > 0 || seconds === 0 && unit === "second").map(([unit, value2]) => new Intl.NumberFormat(language2, { style: "unit", unitDisplay: "narrow", unit }).format(value2)).join(" ");
+  return units.filter(([unit, value2]) => value2 > 0 || seconds === 0 && unit === "second").map(([unit, value2]) => numberFormat(unit).format(value2)).join(" ");
 }
 function renderedMessage(element7) {
   if (!element7) return null;
@@ -15188,10 +16478,10 @@ function updateLiveTime(state, now) {
   const seconds = Math.max(0, Math.floor((now - state.startedAt) / 1e3));
   updateText(state.live.time, seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`);
 }
-function syncThinkingLabels(labels13, enabled) {
+function syncThinkingLabels(labels13, enabled2) {
   const visible2 = /* @__PURE__ */ new Set();
   const text7 = isRussian() ? "\u0414\u0443\u043C\u0430\u044E" : "Thinking";
-  for (const row5 of enabled ? document.querySelectorAll(activeIndicators) : []) {
+  for (const row5 of enabled2 ? document.querySelectorAll(activeIndicators) : []) {
     if (row5.querySelector(':scope > :not(.dither, [aria-hidden="true"], [data-hcv-thinking])')) continue;
     visible2.add(row5);
     let label4 = labels13.get(row5);
@@ -15216,7 +16506,8 @@ function syncThinkingLabels(labels13, enabled) {
 }
 function fileNoun(count) {
   if (!isRussian()) return count === 1 ? "file" : "files";
-  return { one: "\u0444\u0430\u0439\u043B", few: "\u0444\u0430\u0439\u043B\u0430", many: "\u0444\u0430\u0439\u043B\u043E\u0432" }[new Intl.PluralRules("ru").select(count)] || "\u0444\u0430\u0439\u043B\u043E\u0432";
+  russianPlurals4 ??= new Intl.PluralRules("ru");
+  return { one: "\u0444\u0430\u0439\u043B", few: "\u0444\u0430\u0439\u043B\u0430", many: "\u0444\u0430\u0439\u043B\u043E\u0432" }[russianPlurals4.select(count)] || "\u0444\u0430\u0439\u043B\u043E\u0432";
 }
 function numbers(parent) {
   const totals = make("span", "files-totals");
@@ -15241,9 +16532,9 @@ function nativeCardCwd(card2) {
     }
     break;
   }
-  return card2.closest(primary2) ? host17.state.cwd.get() : "";
+  return card2.closest(primary2) ? host18.state.cwd.get() : "";
 }
-function fileDisplayPath(row5, basename, cwd) {
+function fileDisplayPath(row5, cwd) {
   for (let fiber = committedFiber(row5)?.return; fiber; fiber = fiber.return) {
     const props = fiber.memoizedProps;
     if (typeof fiber.key === "string" && typeof props?.label === "string" && props.children?.type === "button") {
@@ -15257,7 +16548,6 @@ function fileDisplayPath(row5, basename, cwd) {
     }
     if (fiber.stateNode instanceof Element) break;
   }
-  return basename;
 }
 function paintFileRow(row5, path, added, removed, format) {
   const index = path.lastIndexOf("/") + 1;
@@ -15372,7 +16662,7 @@ function showFiles(state, card2) {
   if (!rows2.size) return clearFiles(state);
   const count = rows2.size;
   const ru = isRussian();
-  const format = new Intl.NumberFormat(document.documentElement.lang || "en");
+  const format = numberFormat();
   const cwd = nativeCardCwd(card2);
   let plus = 0;
   let minus = 0;
@@ -15389,10 +16679,10 @@ function showFiles(state, card2) {
     minus += removed;
     if (count === 1) continue;
     const basename = row5.querySelector(":scope > span.truncate")?.textContent || "";
-    const path = fileDisplayPath(row5, basename, cwd);
-    previewRows.push({ row: row5, basename, path: fileDisplayPath(row5, "", cwd) });
+    const path = fileDisplayPath(row5, cwd);
+    previewRows.push({ row: row5, basename, path: path ?? "" });
     if (!files.rows.has(row5)) files.rows.set(row5, makeFileRow(row5));
-    paintFileRow(files.rows.get(row5), path, added, removed, format);
+    paintFileRow(files.rows.get(row5), path ?? basename, added, removed, format);
   }
   files.single = count === 1 ? rows2.values().next().value : null;
   card2.toggleAttribute("data-hcv-file-single", Boolean(files.single));
@@ -15414,7 +16704,7 @@ function showFiles(state, card2) {
   if (files.single) {
     clearTurnFilePreviewRows(files);
     const basename = files.single.querySelector(":scope > span.truncate")?.textContent || "";
-    syncTurnFilePreview(files, fileDisplayPath(files.single, "", ""), cwd, basename, ru);
+    syncTurnFilePreview(files, fileDisplayPath(files.single, "") ?? "", cwd, basename, ru);
     if (!files.previewLink) updateText(name, ru ? `\u0418\u0437\u043C\u0435\u043D\u0451\u043D ${basename}` : `Edited ${basename}`);
   } else {
     clearTurnFilePreview(files);
@@ -15443,13 +16733,14 @@ function updateMoreLabel({ card: card2, more, remaining }) {
   const expanded2 = card2.hasAttribute("data-hcv-files-open");
   updateText(more.firstElementChild, expanded2 ? isRussian() ? "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0444\u0430\u0439\u043B\u044B" : "Collapse files" : isRussian() ? `\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0435\u0449\u0435 ${remaining} ${fileNoun(remaining)}` : `Show ${remaining} more ${fileNoun(remaining)}`);
 }
-function synchronize(group2, state, now, tail, ownPrompt, completedSeconds, startedAt) {
+function synchronize(group2, state, now, tail, ownPrompt, completedSeconds, startedAt, textChanges) {
   const roots = [...group2.querySelectorAll(`:scope > ${assistant3}`)];
   const last = roots.at(-1);
   if (!last) {
     clearSteps(group2, state);
     clearLive(state);
     clearFiles(state);
+    textChanges.set(group2);
     return;
   }
   const working = Boolean(group2.querySelector(`${streaming}, ${nativeActivity}`));
@@ -15466,9 +16757,10 @@ function synchronize(group2, state, now, tail, ownPrompt, completedSeconds, star
   } else {
     clearLive(state);
   }
+  let durationLabel = null;
   if (!working && !blocked && final3 && !group2.closest(`${turnPair}[data-hcv-turn-stopped]`)) {
-    const message = renderedMessage(final3);
-    const elapsed = formatDuration2(durationSeconds(final3.querySelector(duration2)?.textContent) ?? completedSeconds ?? savedDuration(ownPrompt, message));
+    durationLabel = final3.querySelector(duration2);
+    const elapsed = formatDuration2(durationSeconds(durationLabel?.textContent) ?? completedSeconds ?? savedDuration(ownPrompt, renderedMessage(final3)));
     const steps = completedWorkSteps(group2, final3, {
       isInterim: (root) => renderedMessage(root)?.metadata?.custom?.interim === true
     });
@@ -15479,7 +16771,9 @@ function synchronize(group2, state, now, tail, ownPrompt, completedSeconds, star
   } else {
     clearSteps(group2, state);
   }
-  showFiles(state, group2.querySelector(changes));
+  const card2 = group2.querySelector(changes);
+  showFiles(state, card2);
+  textChanges.set(group2, durationLabel, card2);
 }
 function registerTurnExperience(ctx, active3, stoppedTurns, history2) {
   registerTurnFilePreviewStyle(ctx, active3);
@@ -15514,7 +16808,8 @@ function registerTurnExperience(ctx, active3, stoppedTurns, history2) {
   const lastBySession = /* @__PURE__ */ new Map();
   const contrast = window.matchMedia("(forced-colors: none)");
   const dirty = /* @__PURE__ */ new Set();
-  const live2 = /* @__PURE__ */ new Set();
+  const liveByRow = /* @__PURE__ */ new Map();
+  const visibleLive = /* @__PURE__ */ new Set();
   const tails = /* @__PURE__ */ new Set();
   const allGroups = `[data-chat-surface] ${response4}`;
   const allPairs = `[data-chat-surface] ${turnPair}`;
@@ -15522,12 +16817,11 @@ function registerTurnExperience(ctx, active3, stoppedTurns, history2) {
   let full = true;
   let refreshStopped = false;
   let frame = 0;
-  let clockFrame = 0;
   let timer = 0;
-  const sessionKey2 = (id2) => JSON.stringify([host17.state.connectionId.get(), host17.state.profile.get(), id2]);
-  const keyFor = (event) => event.session_id && !event.replayed && document.documentElement.matches(active3) && (!event.connectionId || event.connectionId === host17.state.connectionId.get()) && (!event.profile || event.profile === host17.state.profile.get()) ? sessionKey2(event.session_id) : null;
-  const primaryPrompt = (event) => event.session_id === host17.state.activeSessionId.get() ? [...document.querySelectorAll(`${primary2} ${promptRoot}`)].at(-1) : null;
-  const storedKey = (runtime) => sessionKey2(host17.state.focusedSessionId.get() === runtime ? host17.state.focusedStoredSessionId.get() || runtime : runtime);
+  const sessionKey2 = (id2) => JSON.stringify([host18.state.connectionId.get(), host18.state.profile.get(), id2]);
+  const keyFor = (event) => event.session_id && !event.replayed && document.documentElement.matches(active3) && (!event.connectionId || event.connectionId === host18.state.connectionId.get()) && (!event.profile || event.profile === host18.state.profile.get()) ? sessionKey2(event.session_id) : null;
+  const primaryPrompt = (event) => event.session_id === host18.state.activeSessionId.get() ? [...document.querySelectorAll(`${primary2} ${promptRoot}`)].at(-1) : null;
+  const storedKey = (runtime) => sessionKey2(host18.state.focusedSessionId.get() === runtime ? host18.state.focusedStoredSessionId.get() || runtime : runtime);
   const promptText = (prompt2) => prompt2?.querySelector(".composer-human-message")?.textContent.trim();
   ctx.onEvent("message.start", (event) => {
     const key2 = keyFor(event);
@@ -15559,22 +16853,60 @@ function registerTurnExperience(ctx, active3, stoppedTurns, history2) {
     if (lastBySession.size > 64) lastBySession.delete(lastBySession.keys().next().value);
     queue();
   });
+  function tickClock() {
+    timer = 0;
+    if (document.hidden || !contrast.matches || !document.documentElement.matches(active3)) return;
+    const now = Date.now();
+    for (const row5 of visibleLive) if (row5.isConnected) updateLiveTime(liveByRow.get(row5), now);
+    if (visibleLive.size) timer = window.setTimeout(tickClock, 1e3);
+  }
+  function syncClock() {
+    if (visibleLive.size && !document.hidden) {
+      if (!timer) tickClock();
+    } else if (timer) {
+      window.clearTimeout(timer);
+      timer = 0;
+    }
+  }
+  const clockRows = new IntersectionObserver((entries) => {
+    for (const { target, isIntersecting } of entries) {
+      if (!liveByRow.has(target)) continue;
+      if (isIntersecting) visibleLive.add(target);
+      else visibleLive.delete(target);
+    }
+    syncClock();
+  });
+  function syncClockRow(state, previous) {
+    const row5 = state.live?.row;
+    if (previous === row5) return;
+    if (previous) {
+      clockRows.unobserve(previous);
+      liveByRow.delete(previous);
+      visibleLive.delete(previous);
+    }
+    if (row5) {
+      liveByRow.set(row5, state);
+      clockRows.observe(row5);
+    }
+  }
   function remove(group2, state) {
     clearSteps(group2, state);
+    const previous = state.live?.row;
     clearLive(state);
+    syncClockRow(state, previous);
     clearFiles(state);
-    live2.delete(state);
+    textChanges.set(group2);
     states.delete(group2);
   }
   function render() {
     frame = 0;
-    const enabled = document.documentElement.matches(active3);
-    const styled = enabled && contrast.matches;
-    if (full || refreshStopped || !enabled) {
+    const enabled2 = document.documentElement.matches(active3);
+    const styled = enabled2 && contrast.matches;
+    if (full || refreshStopped || !enabled2) {
       refreshStopped = false;
-      const pairs = enabled ? new Set(document.querySelectorAll(allPairs)) : /* @__PURE__ */ new Set();
+      const pairs = enabled2 ? new Set(document.querySelectorAll(allPairs)) : /* @__PURE__ */ new Set();
       for (const pair5 of stoppedPairs.keys()) if (!pairs.has(pair5)) clearStoppedPair(pair5, stoppedPairs);
-      if (full || !enabled) dirtyPairs.clear();
+      if (full || !enabled2) dirtyPairs.clear();
       for (const pair5 of pairs) dirtyPairs.add(pair5);
     }
     if (full || !styled) {
@@ -15591,7 +16923,7 @@ function registerTurnExperience(ctx, active3, stoppedTurns, history2) {
       for (const group2 of groups2) dirty.add(group2);
     }
     full = false;
-    if (enabled) {
+    if (enabled2) {
       const readers = /* @__PURE__ */ new Map();
       for (const pair5 of dirtyPairs) {
         if (!pair5.isConnected) continue;
@@ -15608,7 +16940,7 @@ function registerTurnExperience(ctx, active3, stoppedTurns, history2) {
     dirtyPairs.clear();
     if (styled) {
       const now = Date.now();
-      const runtime = host17.state.activeSessionId.get();
+      const runtime = host18.state.activeSessionId.get();
       const key2 = runtime && sessionKey2(runtime);
       const last = runtime && lastBySession.get(storedKey(runtime));
       const liveStart = key2 && started.get(key2);
@@ -15624,26 +16956,15 @@ function registerTurnExperience(ctx, active3, stoppedTurns, history2) {
         const ownPrompt = group2.closest('[data-slot="aui_turn-pair"]')?.querySelector(`:scope > ${user2}[data-message-id]`);
         const timeKey = main && ownPrompt && JSON.stringify([key2, ownPrompt.dataset.messageId]);
         const recorded = timeKey && durations.get(timeKey) || main && tail && last && last.text === promptText(ownPrompt) && last.seconds;
-        synchronize(group2, state, now, tail, ownPrompt, recorded || null, main ? liveStart?.at : void 0);
-        if (state.live) live2.add(state);
-        else live2.delete(state);
+        const previous = state.live?.row;
+        synchronize(group2, state, now, tail, ownPrompt, recorded || null, main ? liveStart?.at : void 0, textChanges);
+        syncClockRow(state, previous);
       }
     }
     dirty.clear();
     syncThinkingLabels(thinkingLabels, styled);
-    if (live2.size) {
-      if (!timer) timer = window.setInterval(() => {
-        if (!clockFrame) clockFrame = requestAnimationFrame(() => {
-          clockFrame = 0;
-          const now = Date.now();
-          if (!contrast.matches || !document.documentElement.matches(active3)) return;
-          for (const state of live2) if (state.live.row.isConnected) updateLiveTime(state, now);
-        });
-      }, 1e3);
-    } else if (timer) {
-      window.clearInterval(timer);
-      timer = 0;
-    }
+    textChanges.refresh();
+    syncClock();
   }
   function schedule() {
     if (!frame) frame = requestAnimationFrame(render);
@@ -15652,7 +16973,7 @@ function registerTurnExperience(ctx, active3, stoppedTurns, history2) {
     full = true;
     schedule();
   }
-  const observer = new MutationObserver((records) => {
+  function markChanges(records) {
     const root = document.documentElement;
     if (records.some(({ target }) => target === root)) return queue();
     if (!root.matches(active3)) return;
@@ -15686,14 +17007,16 @@ function registerTurnExperience(ctx, active3, stoppedTurns, history2) {
       }
     }
     if (dirty.size || dirtyPairs.size) schedule();
-  });
+  }
+  const observer = new MutationObserver(markChanges);
+  const textChanges = observeChatText(markChanges);
   observer.observe(document.documentElement, {
     childList: true,
-    characterData: true,
     subtree: true,
     attributes: true,
     attributeFilter: ["data-state", "data-message-streaming", "data-hermes-theme", "data-hermes-codex-visual", "lang", "title", "disabled"]
   });
+  document.addEventListener("visibilitychange", syncClock);
   contrast.addEventListener("change", queue);
   const stopUpdates = stoppedTurns?.subscribe(queue);
   const historyUpdates = history2?.subscribe(() => {
@@ -15701,30 +17024,32 @@ function registerTurnExperience(ctx, active3, stoppedTurns, history2) {
     schedule();
   });
   const unsubscribe = [
-    host17.state.activeSessionId,
-    host17.state.focusedSessionId,
-    host17.state.focusedStoredSessionId,
-    host17.state.connectionId,
-    host17.state.profile
+    host18.state.activeSessionId,
+    host18.state.focusedSessionId,
+    host18.state.focusedStoredSessionId,
+    host18.state.connectionId,
+    host18.state.profile
   ].map((atom8) => atom8.listen(queue));
   queue();
   ctx.onDispose(() => {
     observer.disconnect();
+    textChanges.clear();
+    document.removeEventListener("visibilitychange", syncClock);
+    clockRows.disconnect();
     stopUpdates?.();
     historyUpdates?.();
     for (const pair5 of stoppedPairs.keys()) clearStoppedPair(pair5, stoppedPairs);
     contrast.removeEventListener("change", queue);
     for (const stop of unsubscribe) stop();
     if (frame) cancelAnimationFrame(frame);
-    if (clockFrame) cancelAnimationFrame(clockFrame);
-    if (timer) window.clearInterval(timer);
+    if (timer) window.clearTimeout(timer);
     for (const [group2, state] of states) remove(group2, state);
     syncThinkingLabels(thinkingLabels, false);
   });
 }
 
 // source/chat-turn-history.js
-import { host as host18 } from "@hermes/plugin-sdk";
+import { host as host19 } from "@hermes/plugin-sdk";
 
 // source/primary-turn-history-owner.js
 var value = (atom8) => {
@@ -15734,8 +17059,8 @@ var value = (atom8) => {
     return void 0;
   }
 };
-var text4 = (value2) => typeof value2 === "string" && value2.trim() ? value2.trim() : null;
-var pair3 = (owner) => text4(owner?.connectionId) && text4(owner?.profile) ? { connectionId: text4(owner.connectionId), profile: text4(owner.profile) } : null;
+var text5 = (value2) => typeof value2 === "string" && value2.trim() ? value2.trim() : null;
+var pair3 = (owner) => text5(owner?.connectionId) && text5(owner?.profile) ? { connectionId: text5(owner.connectionId), profile: text5(owner.profile) } : null;
 var samePair = (a, b) => a?.connectionId === b?.connectionId && a?.profile === b?.profile;
 function samePrimaryHistoryTarget(a, b) {
   if (a === b) return true;
@@ -15748,7 +17073,7 @@ function createPrimaryHistoryTargetReader({ state, readView }) {
     const native2 = readView(surface5);
     const view = native2?.view;
     if (view?.kind !== "primary") return null;
-    const runtimeId = text4(value(view.$runtimeId)), sessionId = text4(value(view.$storedId));
+    const runtimeId = text5(value(view.$runtimeId)), sessionId = text5(value(view.$storedId));
     if (!runtimeId || !sessionId) {
       remembered.delete(view);
       return null;
@@ -15783,9 +17108,10 @@ function createPrimaryHistoryTargetReader({ state, readView }) {
 
 // source/chat-turn-history.js
 var primary3 = '[data-chat-surface][data-composer-target="main"][data-session-anchor="workspace"]';
+var historySurfaces = primary3 + ", " + tileHistorySurface;
 var pair4 = '[data-slot="aui_turn-pair"]';
 var user3 = '[data-slot="aui_user-message-root"]';
-var generated3 = "[data-hcv-turn-history-generated]";
+var generated2 = "[data-hcv-turn-history-generated]";
 function mainTimestampGroups(rows2, complete) {
   const groups2 = [];
   let current;
@@ -15830,14 +17156,14 @@ function registerChatTurnHistory(ctx, active3) {
   const contrast = matchMedia("(forced-colors: none)");
   let disposed = false, generation = 0, value2 = null, changes2 = null, requested = null;
   let loadingEpoch = null, reload = false, timer, frame;
-  const enabled = () => !disposed && contrast.matches && document.documentElement.matches(active3) && !document.hidden;
-  const readPrimaryTarget = createPrimaryHistoryTargetReader({ state: host18.state, readView: nativeSessionView });
+  const enabled2 = () => !disposed && contrast.matches && document.documentElement.matches(active3) && !document.hidden;
+  const readPrimaryTarget = createPrimaryHistoryTargetReader({ state: host19.state, readView: nativeSessionView });
   const primaryTarget = () => {
     const surfaces = [...document.querySelectorAll(primary3)];
     return surfaces.length === 1 ? readPrimaryTarget(surfaces[0]) : null;
   };
   const targetKey = (target) => JSON.stringify([target?.scope || null, target?.sessionId || null]);
-  const owned = (scope4, owner = value2?.owner) => enabled() && owner?.scope === scope4 && owner.isCurrent();
+  const owned = (scope4, owner = value2?.owner) => enabled2() && owner?.scope === scope4 && owner.isCurrent();
   const current = () => value2 && owned(value2.scope, value2.owner) ? value2 : null;
   let observedTarget = null, viewStops = [];
   function targetChanged() {
@@ -15863,14 +17189,14 @@ function registerChatTurnHistory(ctx, active3) {
   };
   async function read() {
     const target = primaryTarget();
-    if (!enabled() || !target) return;
+    if (!enabled2() || !target) return;
     const epoch = generation, scope4 = target.scope;
     if (loadingEpoch === epoch) {
       reload = true;
       return;
     }
     loadingEpoch = epoch;
-    const owner = { ...target, isCurrent: () => epoch === generation && enabled() && samePrimaryHistoryTarget(target, primaryTarget()) };
+    const owner = { ...target, isCurrent: () => epoch === generation && enabled2() && samePrimaryHistoryTarget(target, primaryTarget()) };
     const valid = () => owned(scope4, owner);
     try {
       const result = await readTurnTimeline(owner, value2);
@@ -16002,23 +17328,42 @@ function registerChatTurnHistory(ctx, active3) {
     }
   }
   const subscriptions = [
-    host18.state.activeSessionId,
-    host18.state.focusedSessionId,
-    host18.state.focusedStoredSessionId,
-    host18.state.focusedSessionOwner
+    host19.state.activeSessionId,
+    host19.state.focusedSessionId,
+    host19.state.focusedStoredSessionId,
+    host19.state.focusedSessionOwner
   ].filter(Boolean).map((atom8) => atom8.subscribe(targetChanged));
   const observer = new MutationObserver((records) => {
-    if (!enabled()) return;
+    const observePrimary = enabled2(), observeTiles = tiles.observing();
+    if (!observePrimary && !observeTiles) return;
     let repaint = false, reread = false;
+    let rescanTiles = false;
+    const tileReads = /* @__PURE__ */ new Set();
     for (const record2 of records) {
       const target = record2.target;
-      if (!(target instanceof Element) || target.closest(generated3)) continue;
-      if (target.closest(primary3)) {
+      if (!(target instanceof Element) || target.closest(generated2)) continue;
+      const inPrimary = observePrimary && target.closest(primary3);
+      const tile = observeTiles && target.closest(tileHistorySurface);
+      if (inPrimary || tile) {
         const change = savedTurnMutation(record2);
-        repaint ||= Boolean(change);
-        reread ||= change === "read";
-      } else if (record2.type === "childList" && movedElementMatches(record2, primary3)) targetChanged();
+        if (inPrimary) {
+          repaint ||= Boolean(change);
+          reread ||= change === "read";
+        }
+        if (tile) {
+          rescanTiles ||= Boolean(change);
+          if (change === "read") tileReads.add(tile);
+        }
+      }
+      if (record2.type === "childList") {
+        const findPrimary = observePrimary && !inPrimary;
+        const findTile = observeTiles && !tile;
+        if (findPrimary && findTile && !movedElementMatches(record2, historySurfaces)) continue;
+        if (findPrimary && movedElementMatches(record2, primary3)) targetChanged();
+        if (findTile && movedElementMatches(record2, tileHistorySurface)) rescanTiles = true;
+      }
     }
+    if (observeTiles) tiles.processMutations(tileReads, rescanTiles);
     if (repaint) announce();
     if (reread) scheduleRead();
   });
@@ -16029,7 +17374,7 @@ function registerChatTurnHistory(ctx, active3) {
     attributeFilter: ["data-message-streaming", "data-state"]
   });
   const themeChanged = () => {
-    if (!enabled()) clear();
+    if (!enabled2()) clear();
     else {
       announce();
       scheduleRead();
@@ -16042,7 +17387,7 @@ function registerChatTurnHistory(ctx, active3) {
     if (event.session_id === primaryTarget()?.runtimeId) scheduleRead();
   });
   ctx.addEventListener(document, "visibilitychange", () => {
-    if (enabled()) scheduleRead();
+    if (enabled2()) scheduleRead();
   });
   mountCSS(ctx, "data-hcv-turn-history-style", `${timestampSeparatorStyles(active3 + " " + primary3)}
     ${turnChangesCardStyles(active3 + ' [data-chat-surface]:is([data-composer-target="main"], [data-composer-target^="tile:"])')}
@@ -16076,33 +17421,33 @@ function registerChatTurnHistory(ctx, active3) {
 }
 
 // source/chat-welcome.js
-import { createElement as h19, useSyncExternalStore as useSyncExternalStore3 } from "react";
-import { CHAT_EMPTY_AREA, host as host19, useTheme as useTheme4, Wordmark } from "@hermes/plugin-sdk";
-var introEnabled = () => host19.settings.get("intro-splash.v1");
-var subscribeIntro = (change) => host19.settings.subscribe("intro-splash.v1", change);
+import { createElement as h20, useSyncExternalStore as useSyncExternalStore3 } from "react";
+import { CHAT_EMPTY_AREA, host as host20, useTheme as useTheme4, Wordmark } from "@hermes/plugin-sdk";
+var introEnabled = () => host20.settings.get("intro-splash.v1");
+var subscribeIntro = (change) => host20.settings.subscribe("intro-splash.v1", change);
 function ProjectChatWelcome() {
-  const enabled = useSyncExternalStore3(subscribeIntro, introEnabled, introEnabled);
+  const enabled2 = useSyncExternalStore3(subscribeIntro, introEnabled, introEnabled);
   const { themeName: themeName2 } = useTheme4();
-  if (!enabled || themeName2 !== "codex-workspace") return null;
-  return h19("div", {
+  if (!enabled2 || themeName2 !== "codex-workspace") return null;
+  return h20("div", {
     "data-slot": "aui_intro",
     "data-hcv-project-welcome": "",
     style: { display: "none" },
     className: "pointer-events-none flex w-full min-w-0 flex-col items-center justify-center px-0.5 py-6 text-center text-muted-foreground sm:px-6 lg:px-8"
-  }, h19(
+  }, h20(
     "div",
     { className: "w-full min-w-0" },
-    h19(Wordmark, { className: "mb-1", text: "HERMES AGENT" }),
+    h20(Wordmark, { className: "mb-1", text: "HERMES AGENT" }),
     // Reserve the same two-line space as Hermes's rotating introduction.
     // The selected text and personality are not exposed by the host SDK.
-    h19("p", { className: "m-0 text-center leading-normal tracking-tight", "aria-hidden": "true" })
+    h20("p", { className: "m-0 text-center leading-normal tracking-tight", "aria-hidden": "true" })
   ));
 }
 function registerProjectChatWelcome(ctx) {
   ctx.register({
     id: "project-chat-welcome",
     area: CHAT_EMPTY_AREA,
-    data: { render: () => h19(ProjectChatWelcome) }
+    data: { render: () => h20(ProjectChatWelcome) }
   });
 }
 
@@ -16112,9 +17457,11 @@ function createComposerClearanceMetrics() {
   const owners = /* @__PURE__ */ new Map();
   const dockProperty = "--hcv-composer-dock-height";
   const editorProperty = "--hcv-composer-surface-height";
+  const aboveEditorProperty = "--hcv-composer-above-surface";
   function clear(state) {
     state.root.style.removeProperty(dockProperty);
     state.root.style.removeProperty(editorProperty);
+    state.root.style.removeProperty(aboveEditorProperty);
   }
   function detach(state, observer) {
     observer.unobserve(state.dock);
@@ -16133,11 +17480,14 @@ function createComposerClearanceMetrics() {
     if (!root.isConnected || !dock2.isConnected || !editor2.isConnected || dock2.hasAttribute("data-popped-out")) return clear(state);
     if (root.closest("[hidden], [data-pane-hidden]")) return;
     const zoom2 = Number(root.currentCSSZoom) || 1;
-    const dockHeight = dock2.getBoundingClientRect().height / zoom2;
-    const editorHeight = editor2.getBoundingClientRect().height / zoom2;
+    const dockBox = dock2.getBoundingClientRect();
+    const editorBox = editor2.getBoundingClientRect();
+    const dockHeight = dockBox.height / zoom2;
+    const editorHeight = editorBox.height / zoom2;
     if (!(dockHeight > 0) || !(editorHeight > 0)) return clear(state);
     write(root, dockProperty, dockHeight);
     write(root, editorProperty, editorHeight);
+    write(root, aboveEditorProperty, Math.max(0, (editorBox.top - dockBox.top) / zoom2));
   }
   return {
     sync(roots, observer) {
@@ -16192,7 +17542,7 @@ var lineCount = 20;
 var relaxed = 1.625;
 var transitionMs = 200;
 var fadeDistance = "1rem";
-var labels9 = {
+var labels10 = {
   en: { messageShowMore: "Show more", messageShowLess: "Show less", cancelEdit: "Cancel", sendEdit: "Send" },
   ru: { messageShowMore: "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0435\u0449\u0451", messageShowLess: "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C", cancelEdit: "\u041E\u0442\u043C\u0435\u043D\u0430", sendEdit: "\u041E\u0442\u043F\u0440\u0430\u0432\u0438\u0442\u044C" }
 };
@@ -16218,6 +17568,11 @@ function displayStyles(active3, chat3) {
   const modernError = `${active3} ${chat3} [data-slot="aui_error-card"][role="alert"]`;
   const content3 = `${active3} [data-tree-group] ${chat3} ${viewportSelector} [data-slot="aui_thread-content"]`;
   const tileWelcome = `${active3} [data-tree-group] ${chat3}[data-composer-target^="tile:"] [data-hcv-project-welcome]`;
+  const nativeIntro = '[data-slot="aui_intro"]:not([data-hcv-project-welcome]):only-child';
+  const projectIntro = "[data-hcv-project-welcome]:only-child";
+  const emptyBody = `${viewportSelector} > [data-slot="aui_thread-content"] > div > div`;
+  const mainPlaceholder = `${docked2}[data-composer-target="main"] ${emptyBody}:has(> ${nativeIntro})`;
+  const tilePlaceholder = `${docked2}[data-composer-target^="tile:"] ${emptyBody}:has(> ${projectIntro})`;
   return `
   /* Codex 26.1111.2228.0: the default thread inset is 8 \xD7 4px. Hermes
      otherwise resolves its titlebar-based inset to zero in a project tab. */
@@ -16237,6 +17592,15 @@ function displayStyles(active3, chat3) {
   ${tileWelcome}:only-child { display: flex !important; }
 
 @media (forced-colors: none) {
+  /* The native viewport shrinks when rows are added above the editor. Put
+     their height back into the welcome's centering only. The native matching
+     top and bottom padding cancel at full height and overflow in short panes. */
+  ${mainPlaceholder}, ${tilePlaceholder} {
+    padding-block-start: var(--hcv-composer-above-surface, 0px);
+  }
+  ${mainPlaceholder} > ${nativeIntro}, ${tilePlaceholder} > ${projectIntro} {
+    padding-block-end: 0;
+  }
   /* Current Hermes error surface. Adapt the same Codex panel and quiet
      controls used below without replacing native actions or diagnostics. */
   ${modernError} {
@@ -16563,37 +17927,42 @@ function displayStyles(active3, chat3) {
 }
 `;
 }
-function previewHeight(body2, lineHeight) {
-  let limit = Math.ceil(lineHeight * (lineCount - 1));
-  const fences = body2.querySelectorAll('[data-slot="aui_user-fence"]');
-  if (!fences.length) return limit;
+function previewBounds(body2) {
   const bounds = body2.getBoundingClientRect();
-  const scale = bounds.height / body2.offsetHeight || 1;
+  return { top: bounds.top, scale: bounds.height / body2.offsetHeight || 1 };
+}
+function previewHeight(lineHeight, fences, bounds) {
+  let limit = Math.ceil(lineHeight * (lineCount - 1));
+  if (!fences.length) return limit;
   for (const fence of fences) {
     const rect = fence.getBoundingClientRect();
-    const top = (rect.top - bounds.top) / scale;
-    const bottom = (rect.bottom - bounds.top) / scale;
+    const top = (rect.top - bounds.top) / bounds.scale;
+    const bottom = (rect.bottom - bounds.top) / bounds.scale;
     if (top < limit && bottom > limit) limit = Math.ceil(bottom);
   }
   return limit;
 }
-function syncPreviewFocus(state) {
-  for (const node4 of state.inert) node4.removeAttribute("inert");
-  state.inert.clear();
-  if (state.expanded) return;
-  const controls2 = state.body.querySelectorAll(focusable);
-  if (!controls2.length) return;
-  const bounds = state.body.getBoundingClientRect();
-  const scale = bounds.height / state.body.offsetHeight || 1;
-  const bottom = bounds.top + state.previewHeight * scale;
+function clippedControls(state, controls2, bounds) {
+  const clipped = /* @__PURE__ */ new Set();
+  if (!controls2.length) return clipped;
+  const bottom = bounds.top + state.previewHeight * bounds.scale;
   for (const node4 of controls2) {
-    if (node4.closest("[inert]")) continue;
+    let ancestor = node4;
+    while (ancestor && !clipped.has(ancestor) && (!ancestor.hasAttribute("inert") || state.inert.has(ancestor))) ancestor = ancestor.parentElement;
+    if (ancestor) continue;
     const rect = node4.getBoundingClientRect();
-    if (node4.matches("a[href]") ? rect.top >= bottom : rect.bottom > bottom) {
-      node4.setAttribute("inert", "");
-      state.inert.add(node4);
-    }
+    if (node4.matches("a[href]") ? rect.top >= bottom : rect.bottom > bottom) clipped.add(node4);
   }
+  return clipped;
+}
+function syncPreviewFocus(state, clipped) {
+  for (const node4 of state.inert) {
+    if (!clipped.has(node4)) node4.removeAttribute("inert");
+  }
+  for (const node4 of clipped) {
+    if (!node4.hasAttribute("inert")) node4.setAttribute("inert", "");
+  }
+  state.inert = clipped;
 }
 function keepToggleVisible(state) {
   if (document.activeElement !== state.toggle) return;
@@ -16629,7 +17998,7 @@ function registerChatDisplay(ctx, active3) {
   stylesheet.setAttribute("data-hcv-chat-display", "");
   stylesheet.textContent = displayStyles(active3, chat3);
   mountStyle(ctx, stylesheet, chatStyles);
-  ctx.i18n.register(labels9);
+  ctx.i18n.register(labels10);
   function label4(state) {
     if (!state.toggle) return;
     const text7 = ctx.i18n.t(state.expanded ? "messageShowLess" : "messageShowMore");
@@ -16637,14 +18006,16 @@ function registerChatDisplay(ctx, active3) {
   }
   function show(state) {
     const value2 = state.expanded ? "expanded" : "collapsed";
-    state.clamp.setAttribute("data-hcv-message-preview", value2);
-    state.clamp.style.setProperty(
-      "--hcv-message-height",
-      `${state.expanded ? state.fullHeight : state.previewHeight}px`
-    );
-    state.toggle.setAttribute("aria-expanded", String(state.expanded));
+    const height = `${state.expanded ? state.fullHeight : state.previewHeight}px`;
+    const expanded2 = String(state.expanded);
+    if (state.clamp.getAttribute("data-hcv-message-preview") !== value2) {
+      state.clamp.setAttribute("data-hcv-message-preview", value2);
+    }
+    if (state.clamp.style.getPropertyValue("--hcv-message-height") !== height) {
+      state.clamp.style.setProperty("--hcv-message-height", height);
+    }
+    if (state.toggle.getAttribute("aria-expanded") !== expanded2) state.toggle.setAttribute("aria-expanded", expanded2);
     label4(state);
-    syncPreviewFocus(state);
   }
   function removeDisclosure(state) {
     clearTimeout(state.closeTimer);
@@ -16677,6 +18048,9 @@ function registerChatDisplay(ctx, active3) {
     toggle2.addEventListener("click", () => {
       clearTimeout(state.closeTimer);
       state.expanded = !state.expanded;
+      const controls2 = state.expanded ? [] : state.body.querySelectorAll(focusable);
+      const bounds = controls2.length ? previewBounds(state.body) : null;
+      syncPreviewFocus(state, clippedControls(state, controls2, bounds));
       show(state);
       if (!state.expanded) {
         if (reducedMotion.matches) keepToggleVisible(state);
@@ -16700,7 +18074,11 @@ function registerChatDisplay(ctx, active3) {
       return;
     }
     state.fullHeight = fullHeight;
-    state.previewHeight = previewHeight(state.body, lineHeight);
+    const fences = state.body.querySelectorAll('[data-slot="aui_user-fence"]');
+    const controls2 = state.expanded ? [] : state.body.querySelectorAll(focusable);
+    const bounds = fences.length || controls2.length ? previewBounds(state.body) : null;
+    state.previewHeight = previewHeight(lineHeight, fences, bounds);
+    syncPreviewFocus(state, clippedControls(state, controls2, bounds));
     if (!state.toggle) addDisclosure(state);
     show(state);
   }
@@ -16761,9 +18139,9 @@ function registerChatDisplay(ctx, active3) {
     send2.before(cancel);
     return state;
   }
-  function reconcileTranscript(enabled) {
-    const current = new Set(enabled ? document.querySelectorAll(innerSelector) : []);
-    const currentEditors = new Set(enabled ? document.querySelectorAll(editorSelector2) : []);
+  function reconcileTranscript(enabled2) {
+    const current = new Set(enabled2 ? document.querySelectorAll(innerSelector) : []);
+    const currentEditors = new Set(enabled2 ? document.querySelectorAll(editorSelector2) : []);
     for (const [container, state] of editors) {
       if (!currentEditors.has(container) || !container.contains(state.input) || !container.contains(state.send)) {
         state.dispose();
@@ -16830,14 +18208,14 @@ function registerChatDisplay(ctx, active3) {
   }
   function reconcile() {
     frame = 0;
-    const enabled = root.matches(active3) && !forcedColors.matches;
-    const surfaces = enabled ? document.querySelectorAll(chat3) : [];
-    if (transcriptChanged) messageActions(enabled);
+    const enabled2 = root.matches(active3) && !forcedColors.matches;
+    const surfaces = enabled2 ? document.querySelectorAll(chat3) : [];
+    if (transcriptChanged) messageActions(enabled2);
     suspendOlderTranscript(surfaces);
     composerMetrics.sync(surfaces, sizes);
-    if (transcriptChanged) reconcileTranscript(enabled);
+    if (transcriptChanged) reconcileTranscript(enabled2);
     transcriptChanged = false;
-    if (enabled) for (const state of deferredMeasurements) measure(state);
+    if (enabled2) for (const state of deferredMeasurements) measure(state);
   }
   const scheduleLayout = () => {
     if (!frame) frame = requestAnimationFrame(reconcile);
@@ -16971,9 +18349,12 @@ function registerChatFileLinks(ctx, active3, candidate2) {
       inline-size: 20px; block-size: 20px; margin-inline-start: 3px;
     }
     ${secondaryCSS} > svg { inline-size: 14px; block-size: 14px; flex: none; }
+    @media (forced-colors: active) {
+      ${linkCSS} { color: LinkText; forced-color-adjust: none; }
+      ${linkCSS}:focus-visible, ${secondaryCSS}:focus-visible { outline-color: Highlight; }
+    }
   `, chatStyles);
   const pending = /* @__PURE__ */ new Set();
-  const forcedColors = window.matchMedia("(forced-colors: active)");
   let frame = 0;
   let connected = false;
   function clear(card2) {
@@ -17040,14 +18421,14 @@ function registerChatFileLinks(ctx, active3, candidate2) {
     schedule();
   });
   function sync() {
-    const enabled = document.documentElement.matches(active3) && !forcedColors.matches;
-    if (connected === enabled) return;
-    connected = enabled;
+    const enabled2 = document.documentElement.matches(active3);
+    if (connected === enabled2) return;
+    connected = enabled2;
     observer.disconnect();
     cancelAnimationFrame(frame);
     frame = 0;
     pending.clear();
-    if (enabled) {
+    if (enabled2) {
       collect(document.body);
       schedule();
       observer.observe(document.body, {
@@ -17063,7 +18444,6 @@ function registerChatFileLinks(ctx, active3, candidate2) {
   }
   const theme2 = new MutationObserver(sync);
   theme2.observe(document.documentElement, { attributes: true, attributeFilter: ["data-hermes-theme"] });
-  ctx.addEventListener(forcedColors, "change", sync);
   sync();
   ctx.onDispose(() => {
     observer.disconnect();
@@ -17477,8 +18857,8 @@ function registerChatImages(ctx, active3) {
         const owner = viewerOwner(node4);
         if (owner && node4.querySelector(lightboxImage)) addViewerControls(node4, owner);
       } else if (node4.matches(pill) && node4.closest(attachments)) {
-        const tooltip2 = document.getElementById(node4.getAttribute("aria-describedby"));
-        const container = tooltip2?.closest('[data-slot="tooltip-content"]');
+        const tooltip = document.getElementById(node4.getAttribute("aria-describedby"));
+        const container = tooltip?.closest('[data-slot="tooltip-content"]');
         if (container) mark2(container, "data-hcv-image-path-tip");
       }
     }
@@ -17748,7 +19128,7 @@ function registerChatSkills(ctx, active3) {
   const schedule = () => {
     if (pending.size && !frame) frame = requestAnimationFrame(flush);
   };
-  const enabled = () => document.documentElement.matches(active3);
+  const enabled2 = () => document.documentElement.matches(active3);
   const observer = new MutationObserver((records) => {
     for (const record2 of records) {
       if (record2.type === "attributes") collect(record2.target);
@@ -17761,7 +19141,7 @@ function registerChatSkills(ctx, active3) {
     cancelAnimationFrame(frame);
     frame = 0;
     pending.clear();
-    if (enabled()) {
+    if (enabled2()) {
       collect(document.body);
       schedule();
       observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["title"] });
@@ -17800,7 +19180,7 @@ function frameOf(panel2) {
   const css2 = getComputedStyle(panel2);
   return { ...Object.fromEntries(Object.keys(flat).map((property) => [property, css2[property]])), translate: css2.translate };
 }
-function registerDisclosureMotion(ctx, enabled, getPanels, prepare) {
+function registerDisclosureMotion(ctx, enabled2, getPanels, prepare) {
   const preference = matchMedia("(prefers-reduced-motion: no-preference)");
   const current = /* @__PURE__ */ new Map();
   function clear(button6, state) {
@@ -17848,7 +19228,7 @@ function registerDisclosureMotion(ctx, enabled, getPanels, prepare) {
     });
   }
   ctx.addEventListener(document, "click", (event) => {
-    if (!event.isTrusted || !enabled() || !preference.matches || !(event.target instanceof Element)) return;
+    if (!event.isTrusted || !enabled2() || !preference.matches || !(event.target instanceof Element)) return;
     const button6 = event.target.closest("button[aria-expanded]:not(:disabled)");
     if (!button6 || button6.closest("[hidden], [data-pane-hidden], [inert]")) return;
     const panels = getPanels(button6);
@@ -17868,7 +19248,7 @@ function registerDisclosureMotion(ctx, enabled, getPanels, prepare) {
     current.set(button6, state);
     state.frame = requestAnimationFrame(() => {
       current.delete(button6);
-      if (!enabled() || !preference.matches || !button6.isConnected || button6.getAttribute("aria-expanded") !== "true") return;
+      if (!enabled2() || !preference.matches || !button6.isConnected || button6.getAttribute("aria-expanded") !== "true") return;
       prepare();
       const mounted = getPanels(button6);
       if (mounted?.length) play(button6, mounted, "opening");
@@ -17882,7 +19262,7 @@ function registerDisclosureMotion(ctx, enabled, getPanels, prepare) {
   }
   ctx.addEventListener(preference, "change", finish);
   const observer = new MutationObserver(() => {
-    if (!enabled()) finish();
+    if (!enabled2()) finish();
   });
   observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-hermes-theme"] });
   ctx.onDispose(() => {
@@ -17904,13 +19284,18 @@ var tool = '[data-slot="tool-block"]';
 var nativeSummary = ":scope > [data-tool-summary] button[aria-expanded]";
 var protectedContent = ":is([data-approval-activity-only], [data-approval-stack], [data-clarify-choices], [data-clarify-late-choices], [data-clarify-batch-preview], [data-clarify-batch-question]:not([data-locked]), [data-delegate-card], [data-hcv-agent-rows])";
 function activityGroups(partsFor, setSite = () => {
+}, onNativeToggle = () => {
 }) {
   const byResponse = /* @__PURE__ */ new Map();
   const groupPanels = /* @__PURE__ */ new WeakMap();
   const repeatPanels = /* @__PURE__ */ new Map();
+  function toggleNative(button6) {
+    button6.click();
+    onNativeToggle();
+  }
   function restoreButton2(state, button6, change) {
     button6.removeEventListener("click", change.onClick, true);
-    if (button6.isConnected && !change.touched && change.original !== change.expected && button6.getAttribute("aria-expanded") === change.expected) button6.click();
+    if (button6.isConnected && !change.touched && change.original !== change.expected && button6.getAttribute("aria-expanded") === change.expected) toggleNative(button6);
     state.changed.delete(button6);
   }
   function setNativeOpen(state, button6, open) {
@@ -17928,7 +19313,7 @@ function activityGroups(partsFor, setSite = () => {
       button6.addEventListener("click", change.onClick, true);
     }
     change.expected = value2;
-    button6.click();
+    toggleNative(button6);
   }
   function syncOwners(response5) {
     for (const root of response5.children) {
@@ -17955,7 +19340,7 @@ function activityGroups(partsFor, setSite = () => {
     for (const [index, node4] of state.nodes.entries()) {
       const value2 = open ? index === 0 ? "first" : "next" : "closed";
       if (node4.getAttribute(activityMember) !== value2) node4.setAttribute(activityMember, value2);
-      setNativeOpen(state, node4.querySelector(nativeSummary), open);
+      if (open || updateOwners) setNativeOpen(state, node4.querySelector(nativeSummary), open);
     }
     if (updateOwners) syncOwners(state.response);
   }
@@ -18199,6 +19584,7 @@ var surface3 = "[data-chat-surface]:not([data-hud-shell] *)";
 var rowSelector2 = '[data-tool-row][data-slot="tool-block"]';
 var summarySelector = "[data-tool-group] > [data-tool-summary]";
 var activitySelector = `${rowSelector2}, ${summarySelector}`;
+var responseSelector = '[data-slot="aui_response-group"]';
 var messageContent = '[data-slot="aui_assistant-message-content"]';
 var thinkingSelector = '[data-slot="aui_thinking-disclosure"]';
 var thinkingBody = '[data-slot="aui_thinking-body"]';
@@ -18238,9 +19624,9 @@ function nativeIcon(entry, part) {
   const name = part?.toolName;
   return toolIcons.get(name) ?? (name?.startsWith("mcp_") ? "activityIntegration" : null);
 }
-function runParts(summary2) {
+function runParts(summary3) {
   let first, last;
-  for (let fiber = committedFiber(summary2.parentElement); fiber; fiber = fiber.return) {
+  for (let fiber = committedFiber(summary3.parentElement); fiber; fiber = fiber.return) {
     if (fiber.stateNode instanceof Element && fiber.stateNode.hasAttribute("data-role")) break;
     const props = fiber.memoizedProps;
     if (first === void 0 && Number.isInteger(props?.startIndex) && Number.isInteger(props?.endIndex)) {
@@ -18265,18 +19651,18 @@ var rowProps = (row5) => {
   return props?.part ? { ...props, part: activityToolPart(props.part) } : props;
 };
 var directSummary = ":scope > [data-tool-summary]";
-function partsForBlock(block2) {
+function partsForBlock(block2, readRow3, readRun) {
   if (block2.matches(rowSelector2)) {
-    const part = rowProps(block2)?.part;
+    const part = readRow3(block2)?.part;
     return part?.toolName ? [part] : [];
   }
   if (!block2.matches("[data-tool-group]")) return [];
-  const summary2 = block2.querySelector(directSummary);
-  if (summary2) return runParts(summary2);
+  const summary3 = block2.querySelector(directSummary);
+  if (summary3) return readRun(summary3);
   const row5 = block2.querySelector(`:scope > div > ${rowSelector2}`);
-  return row5 ? partsForBlock(row5) : [];
+  return row5 ? partsForBlock(row5, readRow3, readRun) : [];
 }
-var findTitle = (entry, summary2) => (summary2 ? entry : entry.firstElementChild)?.querySelector(":scope > div > button > span:first-child > span:first-child");
+var findTitle = (entry, summary3) => (summary3 ? entry : entry.firstElementChild)?.querySelector(":scope > div > button > span:first-child > span:first-child");
 function thoughtLabel(text7) {
   if (text7 === "Thinking" || text7 === "\u0414\u0443\u043C\u0430\u0435\u0442") return "\u0414\u0443\u043C\u0430\u044E";
   if (["\u041F\u043E\u043C\u044B\u0441\u043B\u0438\u043B", "\u041A\u0440\u0430\u0442\u043A\u043E \u043F\u043E\u0434\u0443\u043C\u0430\u043B", "Thought", "Thought briefly"].includes(text7)) return "\u0414\u0443\u043C\u0430\u043B";
@@ -18295,6 +19681,7 @@ var receiptStatuses = /* @__PURE__ */ new Map([
   ["Timed Out", ["\u043D\u0435 \u0443\u043B\u043E\u0436\u0438\u043B\u0441\u044F \u0432\u043E \u0432\u0440\u0435\u043C\u044F", "\u043D\u0435 \u0443\u043B\u043E\u0436\u0438\u043B\u0438\u0441\u044C \u0432\u043E \u0432\u0440\u0435\u043C\u044F"]],
   ["Stalled", ["\u043E\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u043B\u0441\u044F", "\u043E\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u043B\u0438\u0441\u044C"]]
 ]);
+var receiptSubjects;
 function receiptLabel(text7) {
   const match = /^Subagent (Task|Tasks) ([^:]+): (.+)$/.exec(text7);
   if (!match) return "";
@@ -18304,19 +19691,20 @@ function receiptLabel(text7) {
   const status2 = receiptStatuses.get(outcome)?.[Number(plural8)];
   if (!status2) return "";
   const goals = plural8 ? goal.replace(/ \(\d+ tasks\)$/, "").split("; ") : [goal];
-  const subject = new Intl.ListFormat("ru").format(goals.map((goal2) => agentDisplayName({ goal: goal2 }, "\u0421\u0443\u0431\u0430\u0433\u0435\u043D\u0442")));
+  receiptSubjects ??= new Intl.ListFormat("ru");
+  const subject = receiptSubjects.format(goals.map((goal2) => agentDisplayName({ goal: goal2 }, "\u0421\u0443\u0431\u0430\u0433\u0435\u043D\u0442")));
   return subject + " " + status2;
 }
 function registerChatActivity(ctx, active3) {
   const chat3 = `${active3} ${surface3}`;
   const row5 = `${chat3} ${rowSelector2}`;
-  const summary2 = `${chat3} ${summarySelector}`;
+  const summary3 = `${chat3} ${summarySelector}`;
   const group2 = `${chat3} [data-tool-group][data-slot="tool-block"]`;
   const response5 = `${chat3} [data-slot="aui_response-group"]`;
   const assistant5 = '[data-slot="aui_assistant-message-root"]';
   const scaffold = ':is([data-slot="tool-block"], [data-slot="aui_thinking-disclosure"], [data-slot="aui_turn-activity"])';
   const flow = `:is(${scaffold}, .aui-md, [${activityGroup}], [data-hcv-agent-rows]):not([${activityMember}="closed"]):not([data-delegate-card])`;
-  const toggle2 = `:is(${row5} > :first-child, ${summary2}) > div > button`;
+  const toggle2 = `:is(${row5} > :first-child, ${summary3}) > div > button`;
   const title = `${toggle2} > span:first-child > span:first-child`;
   const glyph3 = `${title} > span:first-child:has(> :is(svg, .codicon, [role="status"]))`;
   const thinking = `${chat3} ${thinkingSelector}`;
@@ -18331,7 +19719,7 @@ function registerChatActivity(ctx, active3) {
   const caret = `:is(${caretBox} > .codicon-chevron-right, ${overallToggle} > span:nth-child(2))`;
   const childToggle = `${active3} [data-hcv-subagents-pane] [data-hcv-agent-tool-toggle]`;
   const motionPanel = `:is(${chat3} :not(button)[${disclosureMotion}], ${active3} [data-hcv-subagents-pane] :not(button)[${disclosureMotion}])`;
-  const children = `${summary2}:has(button[aria-expanded="true"]) + div:not([data-tool-ticker])`;
+  const children = `${summary3}:has(button[aria-expanded="true"]) + div:not([data-tool-ticker])`;
   const clusterMember = `${chat3} [${activityMember}]:not([${activityMember}="closed"])`;
   const repeatMember = `${chat3} [${activityRepeatMember}]:not([${activityRepeatMember}="closed"])`;
   const clusterChildren = `${clusterMember}[data-tool-group] > [data-tool-summary]:has(button[aria-expanded="true"]) + div:not([data-tool-ticker])`;
@@ -18353,7 +19741,7 @@ function registerChatActivity(ctx, active3) {
     --hcv-activity-line: calc(var(--hcv-activity-font) * 1.5);
     --hcv-activity-mono: var(--hcv-mono-font);
   }
-  :is(${row5}, ${summary2}) {
+  :is(${row5}, ${summary3}) {
     --conversation-tool-font-size: var(--hcv-activity-font);
     --conversation-scaffold-text: var(--hcv-activity-text);
     --conversation-scaffold-meta: var(--hcv-activity-text);
@@ -18522,7 +19910,7 @@ function registerChatActivity(ctx, active3) {
   ${glyph3}:is(${row5}[${iconAttribute}] *) > svg[aria-hidden="true"] > *,
   ${glyph3}:is(${row5}[${iconAttribute}] *) > .codicon:not([aria-label])::before { visibility: hidden; }
   :is(
-    ${title}:is(${summary2}[${iconAttribute}] *),
+    ${title}:is(${summary3}[${iconAttribute}] *),
     ${title}:is(${row5}[${iconAttribute}] *):not(:has(> span:first-child > :is(svg, .codicon, [role="status"])))
   ):not(:has(> img[${favicon}]))::before {
     content: "";
@@ -18590,12 +19978,26 @@ function registerChatActivity(ctx, active3) {
   mountStyle(ctx, style, { surface: `[data-slot="tool-block"], ${thinkingSelector}, ${receiptSelector}, [data-hcv-agent-rows]` });
   const pending = /* @__PURE__ */ new Set();
   const pendingResponses = /* @__PURE__ */ new Set();
-  const groups2 = activityGroups(partsForBlock, (...args) => setSite(...args));
+  const rowReads = /* @__PURE__ */ new Map();
+  const runReads = /* @__PURE__ */ new Map();
+  const readRow3 = (entry) => {
+    if (!rowReads.has(entry)) rowReads.set(entry, rowProps(entry));
+    return rowReads.get(entry);
+  };
+  const readRun = (entry) => {
+    if (!runReads.has(entry)) runReads.set(entry, runParts(entry));
+    return runReads.get(entry);
+  };
+  function clearReads() {
+    rowReads.clear();
+    runReads.clear();
+  }
+  const groups2 = activityGroups((block2) => partsForBlock(block2, readRow3, readRun), (...args) => setSite(...args), clearReads);
   const siteEntries = /* @__PURE__ */ new WeakMap();
   const siteIcons = /* @__PURE__ */ new Map();
   const forcedColors = window.matchMedia("(forced-colors: active)");
-  const enabled = () => document.documentElement.matches(active3) && !forcedColors.matches;
-  registerDisclosureMotion(ctx, enabled, (button6) => {
+  const enabled2 = () => document.documentElement.matches(active3) && !forcedColors.matches;
+  registerDisclosureMotion(ctx, enabled2, (button6) => {
     if (button6.matches(childToggle)) return [...button6.parentElement.children].slice(1);
     if (button6.matches(overallToggle)) return groups2.panels(button6);
     if (button6.matches(turnToggle)) return workMotionPanels(button6);
@@ -18680,7 +20082,7 @@ function registerChatActivity(ctx, active3) {
   }
   const sites = new IntersectionObserver((records) => {
     for (const { target: entry, isIntersecting } of records) {
-      if (!isIntersecting || !enabled()) continue;
+      if (!isIntersecting || !enabled2()) continue;
       sites.unobserve(entry);
       const state = siteEntries.get(entry);
       const resolve = window.hermesDesktop?.resolveFavicon;
@@ -18694,7 +20096,7 @@ function registerChatActivity(ctx, active3) {
         siteIcons.set(state.site, task);
       }
       void task.then((src) => {
-        if (!disposed && enabled() && entry.isConnected && siteEntries.get(entry) === state) showSite(state.title, src);
+        if (!disposed && enabled2() && entry.isConnected && siteEntries.get(entry) === state) showSite(state.title, src);
       });
     }
   });
@@ -18712,13 +20114,13 @@ function registerChatActivity(ctx, active3) {
     }
   }
   function queueResponse(response6) {
-    if (response6 && (groups2.has(response6) || response6.querySelector('[data-slot="tool-block"]'))) {
+    if (response6 && !pendingResponses.has(response6) && (groups2.has(response6) || response6.querySelector('[data-slot="tool-block"]'))) {
       pendingResponses.add(response6);
     }
   }
   function queue(entry) {
     pending.add(entry);
-    queueResponse(entry.closest('[data-slot="aui_response-group"]'));
+    queueResponse(entry.closest(responseSelector));
   }
   function collect(node4) {
     if (!(node4 instanceof Element)) return;
@@ -18736,11 +20138,15 @@ function registerChatActivity(ctx, active3) {
     }
     pendingResponses.clear();
     for (const entry of pending) {
-      if (!entry.isConnected || !entry.closest(surface3)) continue;
+      if (!entry.isConnected || !entry.closest(surface3)) {
+        textChanges.set(entry);
+        continue;
+      }
       if (entry.matches(thinkingSelector) || entry.matches(receiptSelector)) {
         const thinking2 = entry.matches(thinkingSelector);
         const title3 = (thinking2 ? entry : entry.querySelector(":scope > [data-conversation-scaffold]"))?.querySelector(":scope > div > button > span:first-child > span:first-child");
         const native2 = thinking2 ? title3?.firstElementChild : title3?.querySelector(":scope > span.truncate");
+        textChanges.set(entry, native2);
         const text7 = native2?.textContent.trim();
         const localized = russian && text7 && (thinking2 ? thoughtLabel(text7) : receiptLabel(text7));
         setLabel(title3, native2, localized);
@@ -18748,53 +20154,63 @@ function registerChatActivity(ctx, active3) {
         if (!thinking2 && label4 && text7) label4.title = text7.replace(/^Subagent (?:Task|Tasks) [^:]+: /, "");
         continue;
       }
-      const summary3 = entry.hasAttribute("data-tool-summary");
-      const props = rowProps(entry);
+      const summary4 = entry.hasAttribute("data-tool-summary");
+      const props = readRow3(entry);
       const part = props?.part;
-      if (!summary3 && part) updateActivityDetails(entry, part.toolName, russian);
+      if (!summary4 && part) updateActivityDetails(entry, part.toolName, russian);
       const streaming2 = entry.closest('[data-message-streaming="true"]') || entry.closest(assistant5)?.querySelector('[data-message-streaming="true"]');
-      const live2 = summary3 ? props?.live : Boolean(part && part.result === void 0 && part.completedAt == null && streaming2);
-      const parts = summary3 ? runParts(entry) : part?.toolName ? [part] : [];
-      const view = activityPresentation(parts, live2, russian, !summary3 && (entry.closest(`[${activityMember}]`) || entry.closest("[data-tool-group]")?.querySelector(directSummary) || ["write_file", "edit_file", "patch"].includes(part?.toolName)), summary3);
+      const live2 = summary4 ? props?.live : Boolean(part && part.result === void 0 && part.completedAt == null && streaming2);
+      const parts = summary4 ? readRun(entry) : part?.toolName ? [part] : [];
+      const view = activityPresentation(parts, live2, russian, !summary4 && (entry.closest(`[${activityMember}]`) || entry.closest("[data-tool-group]")?.querySelector(directSummary) || ["write_file", "edit_file", "patch"].includes(part?.toolName)), summary4);
       entry.toggleAttribute(failedHeader, Boolean(view?.failed));
       const icon8 = view?.icon ?? nativeIcon(entry, part);
       if (icon8) entry.setAttribute(iconAttribute, icon8);
       else entry.removeAttribute(iconAttribute);
-      const title2 = findTitle(entry, summary3);
-      title2?.toggleAttribute(fallbackIcon, Boolean(!summary3 && icon8 && !title2.querySelector(':scope > span > :is(svg, .codicon, [role="status"])')));
+      const title2 = findTitle(entry, summary4);
+      textChanges.set(entry, summary4 ? title2 : entry);
+      title2?.toggleAttribute(fallbackIcon, Boolean(!summary4 && icon8 && !title2.querySelector(':scope > span > :is(svg, .codicon, [role="status"])')));
       const inGroup = entry.closest(`[${activityMember}]:not([${activityMember}="closed"])`);
       const tickerView = view?.icon === "activityBrowser" && (entry.closest("[data-tool-ticker]") || live2 && inGroup) ? { ...view, label: "" } : view;
-      setToolLabel(title2, tickerView, !summary3 && fileActivityData(part, russian, entry.hasAttribute("data-tool-open")));
+      setToolLabel(title2, tickerView, !summary4 && fileActivityData(part, russian, entry.hasAttribute("data-tool-open")));
       setSite(entry, title2, view?.site);
     }
     pending.clear();
+    clearReads();
+    textChanges.refresh();
   }
-  const observer = new MutationObserver((records) => {
+  function markChanges(records) {
     for (const { type, target, addedNodes, removedNodes } of records) {
       const element7 = target instanceof Element ? target : target.parentElement;
-      if (!element7 || element7.closest(thinkingBody) || element7.closest(`[${activityGroup}], [${activityRepeatGroup}]`)) continue;
+      if (!element7 || element7.hasAttribute(customLabel) || element7.closest(thinkingBody) || element7.closest(`[${activityGroup}], [${activityRepeatGroup}]`)) continue;
       if (type === "attributes") {
-        queueResponse(element7.closest('[data-slot="aui_response-group"]'));
+        queueResponse(element7.closest(responseSelector));
         continue;
       }
       if (type === "characterData" && element7.closest('time, [class~="tabular-nums"], [role="status"]')) continue;
-      if (element7.matches(`:is(${messageContent}, ${assistant5}, [data-slot="aui_response-group"])`)) {
-        queueResponse(element7.closest('[data-slot="aui_response-group"]'));
+      if (element7.matches(`:is(${messageContent}, ${assistant5}, ${responseSelector})`)) {
+        queueResponse(element7.closest(responseSelector));
       }
       const entry = element7.closest(labelSelector);
       if (entry) queue(entry);
       else for (const node4 of addedNodes) collect(node4);
       for (const node4 of removedNodes) {
         if (!(node4 instanceof Element) || node4.isConnected) continue;
-        if (node4.matches('[data-slot="aui_response-group"]') || node4.querySelector('[data-slot="aui_response-group"]')) {
+        if (node4.matches(responseSelector) || node4.querySelector(responseSelector)) {
           pruneNeeded = true;
         }
         if (siteEntries.has(node4)) setSite(node4);
-        for (const entry2 of node4.querySelectorAll(activitySelector)) if (siteEntries.has(entry2)) setSite(entry2);
+        if (node4.matches(labelSelector)) textChanges.set(node4);
+        for (const entry2 of node4.querySelectorAll(labelSelector)) {
+          if (siteEntries.has(entry2)) setSite(entry2);
+          textChanges.set(entry2);
+        }
       }
     }
+    textChanges.refresh();
     if ((pruneNeeded || pending.size || pendingResponses.size) && !frame) frame = requestAnimationFrame(flush);
-  });
+  }
+  const observer = new MutationObserver(markChanges);
+  const textChanges = observeChatText(markChanges);
   function clearActivity() {
     groups2.clear();
     clearActivityDetails();
@@ -18811,10 +20227,11 @@ function registerChatActivity(ctx, active3) {
     for (const node4 of document.querySelectorAll(`[${customLabel}], img[${favicon}]`)) node4.remove();
   }
   function sync() {
-    const next = enabled();
+    const next = enabled2();
     if (connected === next) return;
     connected = next;
     observer.disconnect();
+    textChanges.clear();
     sites.disconnect();
     cancelAnimationFrame(frame);
     frame = 0;
@@ -18826,7 +20243,6 @@ function registerChatActivity(ctx, active3) {
       flush();
       observer.observe(document.body, {
         childList: true,
-        characterData: true,
         subtree: true,
         attributes: true,
         attributeFilter: ["data-message-streaming"]
@@ -18846,6 +20262,7 @@ function registerChatActivity(ctx, active3) {
   ctx.onDispose(() => {
     disposed = true;
     observer.disconnect();
+    textChanges.clear();
     theme2.disconnect();
     sites.disconnect();
     cancelAnimationFrame(frame);
@@ -18859,7 +20276,7 @@ function registerChatActivity(ctx, active3) {
 }
 
 // source/chat-approval.js
-import { host as host20 } from "@hermes/plugin-sdk";
+import { host as host21 } from "@hermes/plugin-sdk";
 
 // source/chat-approval-data.js
 var protectedDescription = /^Write to protected agent-instruction file\(s\): /i;
@@ -18896,7 +20313,7 @@ var extra = "data-hcv-protected-approval";
 var panelAttr = "data-hcv-approval-explanation";
 var nativeActivity2 = "data-hcv-approval-native-activity";
 var customActivity = "data-hcv-approval-activity";
-var text5 = {
+var text6 = {
   ru: {
     title: "\u0418\u0437\u043C\u0435\u043D\u0438\u0442\u044C \u0444\u0430\u0439\u043B \u0441 \u043F\u0440\u0430\u0432\u0438\u043B\u0430\u043C\u0438?",
     target: "\u0424\u0430\u0439\u043B \u0441 \u043F\u0440\u0430\u0432\u0438\u043B\u0430\u043C\u0438",
@@ -19010,7 +20427,7 @@ function registerChatApproval(ctx, active3) {
   const requests = /* @__PURE__ */ new Map();
   let frame = 0;
   let disposed = false;
-  const enabled = () => root.hasAttribute("data-hermes-codex-visual");
+  const enabled2 = () => root.hasAttribute("data-hermes-codex-visual");
   const isRussian2 = () => root.lang.toLowerCase().startsWith("ru");
   const baseStyle = document.createElement("style");
   baseStyle.setAttribute("data-hcv-approval-base-style", "");
@@ -19134,8 +20551,8 @@ function registerChatApproval(ctx, active3) {
   }
   function pending(scope4, params = {}) {
     const payload = { session_id: scope4.session, profile: scope4.profile, ...params };
-    if (typeof host20.requestProfile === "function") {
-      return host20.requestProfile({
+    if (typeof host21.requestProfile === "function") {
+      return host21.requestProfile({
         connectionId: scope4.connection,
         profile: scope4.profile,
         targetProfile: scope4.profile
@@ -19171,7 +20588,7 @@ function registerChatApproval(ctx, active3) {
     const status2 = state.loading ? "loading" : state.markFailed ? "mark-failed" : state.review ? "ready" : "unavailable";
     if (!current || current.dataset.hcvTarget !== data.target || current.lang !== lang || current.dataset.hcvRequest !== (key2 || "") || current.dataset.hcvStatus !== status2) {
       current?.remove();
-      const panel2 = explanation(data, text5[lang], state, key2 && (() => {
+      const panel2 = explanation(data, text6[lang], state, key2 && (() => {
         if (requests.get(key2) === state && sameScope2(scope4, currentScope2(card2, request))) {
           requests.delete(key2);
           schedule();
@@ -19196,10 +20613,10 @@ function registerChatApproval(ctx, active3) {
     }
     const button6 = actions.querySelector("[data-approval-run]");
     if (button6) {
-      if (!modifiedButtons.has(button6)) modifiedButtons.set(button6, { label: button6.getAttribute("aria-label"), applied: text5[lang].allow, disabled: button6.disabled });
-      modifiedButtons.get(button6).applied = text5[lang].allow;
-      button6.setAttribute("aria-label", text5[lang].allow);
-      button6.setAttribute("data-hcv-approval-button-label", text5[lang].allow);
+      if (!modifiedButtons.has(button6)) modifiedButtons.set(button6, { label: button6.getAttribute("aria-label"), applied: text6[lang].allow, disabled: button6.disabled });
+      modifiedButtons.get(button6).applied = text6[lang].allow;
+      button6.setAttribute("aria-label", text6[lang].allow);
+      button6.setAttribute("data-hcv-approval-button-label", text6[lang].allow);
       if (!state.review || !state.seen) {
         button6.disabled = true;
         button6.setAttribute("data-hcv-approval-disabled", "");
@@ -19213,12 +20630,12 @@ function registerChatApproval(ctx, active3) {
     if (!card2.isConnected) return null;
     const native2 = nativeSessionView(card2);
     const session = native2?.view.$runtimeId.get();
-    const owner = native2?.nativeOwner || (native2?.view.kind === "primary" ? { profile: host20.state.profile.get() || "default", connectionId: host20.state.connectionId.get() } : null);
+    const owner = native2?.nativeOwner || (native2?.view.kind === "primary" ? { profile: host21.state.profile.get() || "default", connectionId: host21.state.connectionId.get() } : null);
     const profile2 = owner?.profile;
     const connection2 = owner?.connectionId;
-    const socket = host20.getGateway();
+    const socket = host21.getGateway();
     if (!session || request.sessionId !== session || !profile2 || !connection2) return null;
-    if (typeof host20.requestProfile !== "function" && (!socket || profile2 !== (host20.state.profile.get() || "default") || connection2 !== host20.state.connectionId.get())) return null;
+    if (typeof host21.requestProfile !== "function" && (!socket || profile2 !== (host21.state.profile.get() || "default") || connection2 !== host21.state.connectionId.get())) return null;
     return { session, profile: profile2, connection: connection2, socket, view: native2.view };
   }
   function sameScope2(a, b) {
@@ -19251,7 +20668,7 @@ function registerChatApproval(ctx, active3) {
   function sync() {
     frame = 0;
     if (disposed) return;
-    if (!enabled()) return clear();
+    if (!enabled2()) return clear();
     const used = /* @__PURE__ */ new Set();
     document.querySelectorAll(stackSelector).forEach((stack3) => {
       syncActivity(stack3);
@@ -19280,12 +20697,12 @@ function registerChatApproval(ctx, active3) {
   theme2.observe(root, { attributes: true, attributeFilter: ["data-hermes-theme", "lang"] });
   ctx.addEventListener(forcedColors, "change", schedule);
   const unsubscribes = [
-    host20.state.activeSessionId,
-    host20.state.connectionId,
-    host20.state.profile,
-    host20.state.focusedSessionId,
-    host20.state.focusedSessionOwner,
-    host20.state.gateway
+    host21.state.activeSessionId,
+    host21.state.connectionId,
+    host21.state.profile,
+    host21.state.focusedSessionId,
+    host21.state.focusedSessionOwner,
+    host21.state.gateway
   ].filter(Boolean).map((atom8) => atom8.listen(schedule));
   ctx.onDispose(() => {
     disposed = true;
@@ -19301,7 +20718,7 @@ function registerChatApproval(ctx, active3) {
 }
 
 // source/chat-tables.js
-import { host as host21 } from "@hermes/plugin-sdk";
+import { host as host22 } from "@hermes/plugin-sdk";
 var nativeTable = [
   '[data-chat-surface]:not([data-hud-shell] *) [data-slot="aui_assistant-message-content"] .aui-md-table > table',
   "[data-hcv-subagent-result] .aui-md-table > table"
@@ -19313,7 +20730,7 @@ var dialogMark = "data-hcv-table-dialog";
 var columnMark = "data-hcv-table-column";
 var control3 = "[data-md-col-handle], [data-hcv-table-toolbar]";
 var interactive = 'a[href], button, [role="button"]';
-var labels10 = {
+var labels11 = {
   ru: {
     copy: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0442\u0430\u0431\u043B\u0438\u0446\u0443",
     copied: "\u0421\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u043D\u043E",
@@ -19331,7 +20748,7 @@ var labels10 = {
     scroll: "Scrollable table"
   }
 };
-var strings = () => document.documentElement.lang.toLowerCase().startsWith("ru") ? labels10.ru : labels10.en;
+var strings = () => document.documentElement.lang.toLowerCase().startsWith("ru") ? labels11.ru : labels11.en;
 function make2(tag, marker5, value2 = "") {
   const element7 = document.createElement(tag);
   element7.setAttribute(marker5, value2);
@@ -19893,7 +21310,7 @@ function registerChatTables(ctx, active3) {
           if (tipButton === copy11 && !tip2.hidden) tip2.textContent = strings().copy;
         }, 1500);
       } catch {
-        if (copy11.isConnected) host21.notify({ kind: "error", message: ctx.i18n.t("copyMessageError") });
+        if (copy11.isConnected) host22.notify({ kind: "error", message: ctx.i18n.t("copyMessageError") });
       } finally {
         state.copying = false;
       }
@@ -19938,11 +21355,11 @@ function registerChatTables(ctx, active3) {
   }
   function flush() {
     frame = 0;
-    const enabled = root.matches(active3);
+    const enabled2 = root.matches(active3);
     for (const state of states.values()) {
-      if (!enabled || !state.table.isConnected || state.table.parentElement !== state.wrapper) detach(state);
+      if (!enabled2 || !state.table.isConnected || state.table.parentElement !== state.wrapper) detach(state);
     }
-    if (enabled) {
+    if (enabled2) {
       const measured = [];
       let refresh = false;
       for (const table of pending) {
@@ -20029,7 +21446,7 @@ function registerChatTables(ctx, active3) {
 }
 
 // source/review-proposals.js
-import { host as host22 } from "@hermes/plugin-sdk";
+import { host as host23 } from "@hermes/plugin-sdk";
 
 // source/review-proposal-data.js
 var idPattern = "[0-9a-f]{8}";
@@ -20187,12 +21604,12 @@ function element5(tag, part, text7) {
 }
 function currentScope(row5) {
   if (!row5.isConnected || !row5.closest(surface4) || row5.closest(hidden)) return null;
-  const session = host22.state.activeSessionId.get();
-  const profile2 = host22.state.profile.get() || "default";
-  const connection2 = host22.state.connectionId.get();
-  const focused = host22.state.focusedSessionId.get();
-  const owner = host22.state.focusedSessionOwner?.get();
-  const socket = host22.getGateway();
+  const session = host23.state.activeSessionId.get();
+  const profile2 = host23.state.profile.get() || "default";
+  const connection2 = host23.state.connectionId.get();
+  const focused = host23.state.focusedSessionId.get();
+  const owner = host23.state.focusedSessionOwner?.get();
+  const socket = host23.getGateway();
   if (!session || !socket || focused && focused !== session) return null;
   if (owner && (owner.profile !== profile2 || connection2 && owner.connectionId !== connection2)) return null;
   return { session, profile: profile2, connection: owner?.connectionId ?? connection2, socket };
@@ -20510,7 +21927,7 @@ function registerReviewProposals(ctx, active3) {
   const pending = /* @__PURE__ */ new Set();
   const decisions = /* @__PURE__ */ new Map();
   let frame = 0;
-  const enabled = () => root.matches(active3);
+  const enabled2 = () => root.matches(active3);
   const locale3 = () => root.lang.toLowerCase().startsWith("ru") ? "ru" : "en";
   function clear(row5) {
     rows2.get(row5)?.panel.remove();
@@ -20536,7 +21953,7 @@ function registerReviewProposals(ctx, active3) {
         item,
         copy5[lang],
         scope4,
-        () => enabled() && panel2.isConnected && sameScope(scope4, currentScope(row5)),
+        () => enabled2() && panel2.isConnected && sameScope(scope4, currentScope(row5)),
         key2 && decisions.get(key2),
         (action) => {
           if (!key2) return;
@@ -20577,7 +21994,7 @@ function registerReviewProposals(ctx, active3) {
     cancelAnimationFrame(frame);
     frame = 0;
     pending.clear();
-    if (enabled()) {
+    if (enabled2()) {
       collect(document.body);
       schedule();
       observer.observe(document.body, { childList: true, subtree: true, characterData: true });
@@ -20586,12 +22003,12 @@ function registerReviewProposals(ctx, active3) {
   const theme2 = new MutationObserver(sync);
   theme2.observe(root, { attributes: true, attributeFilter: ["data-hermes-theme", "lang"] });
   const unsubscribe = [
-    host22.state.activeSessionId,
-    host22.state.focusedSessionId,
-    host22.state.focusedSessionOwner,
-    host22.state.connectionId,
-    host22.state.profile,
-    host22.state.gateway
+    host23.state.activeSessionId,
+    host23.state.focusedSessionId,
+    host23.state.focusedSessionOwner,
+    host23.state.connectionId,
+    host23.state.profile,
+    host23.state.gateway
   ].filter(Boolean).map((atom8) => atom8.listen(sync));
   sync();
   ctx.onDispose(() => {
@@ -20603,908 +22020,6 @@ function registerReviewProposals(ctx, active3) {
     pending.clear();
     decisions.clear();
   });
-}
-
-// source/activity-center.js
-import { createElement as h20 } from "react";
-import {
-  atom as atom6,
-  Button as Button3,
-  Dialog as Dialog3,
-  DialogContent as DialogContent3,
-  DialogDescription as DialogDescription3,
-  DialogHeader as DialogHeader3,
-  DialogTitle as DialogTitle3,
-  host as host23,
-  TITLEBAR_AREAS as TITLEBAR_AREAS6,
-  useValue as useValue7
-} from "@hermes/plugin-sdk";
-var labels11 = {
-  ru: {
-    title: "\u0410\u043A\u0442\u0438\u0432\u043D\u043E\u0441\u0442\u044C",
-    description: "\u041F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u044F, \u0442\u0435\u043A\u0443\u0449\u0438\u0435 \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0438 \u0438 \u0438\u0445 \u0440\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442\u044B.",
-    profile: "\u041F\u0440\u043E\u0444\u0438\u043B\u044C Hermes",
-    attention: "\u041E\u0436\u0438\u0434\u0430\u044E\u0442 \u0440\u0435\u0448\u0435\u043D\u0438\u044F",
-    refresh: "\u041E\u0431\u043D\u043E\u0432\u0438\u0442\u044C",
-    loading: "\u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043C \u043F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u044F\u2026",
-    loadError: "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u043F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C \u043E\u0447\u0435\u0440\u0435\u0434\u044C. \u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u043F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0435 \u0438 \u043F\u043E\u0432\u0442\u043E\u0440\u0438\u0442\u0435.",
-    noItems: "\u041D\u0435\u0442 \u043F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u0439, \u043E\u0436\u0438\u0434\u0430\u044E\u0449\u0438\u0445 \u0440\u0435\u0448\u0435\u043D\u0438\u044F.",
-    invalid: "\u041D\u0435\u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u0437\u0430\u043F\u0438\u0441\u0438 \u043E\u0447\u0435\u0440\u0435\u0434\u0438 \u043D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u043F\u0440\u043E\u0447\u0438\u0442\u0430\u0442\u044C.",
-    skill: "\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0435 \u043D\u0430\u0432\u044B\u043A\u0430",
-    skillCreate: "\u0421\u043E\u0437\u0434\u0430\u043D\u0438\u0435 \u043D\u0430\u0432\u044B\u043A\u0430",
-    skillFiles: "\u0424\u0430\u0439\u043B\u044B \u043D\u0430\u0432\u044B\u043A\u0430",
-    memory: "\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0435 \u043F\u0430\u043C\u044F\u0442\u0438",
-    auto: "\u0418\u0437 \u0430\u0432\u0442\u043E\u0440\u0430\u0437\u0431\u043E\u0440\u0430",
-    manual: "\u041F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u0435 \u0430\u0441\u0441\u0438\u0441\u0442\u0435\u043D\u0442\u0430",
-    inspect: "\u041F\u043E\u0441\u043C\u043E\u0442\u0440\u0435\u0442\u044C \u043F\u0440\u0430\u0432\u043A\u0443",
-    back: "\u041A \u043F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u044F\u043C",
-    preview: "\u041F\u043E\u043B\u043D\u044B\u0439 \u0442\u0435\u043A\u0441\u0442 \u043F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u044F",
-    previewLoading: "\u041E\u0442\u043A\u0440\u044B\u0432\u0430\u0435\u043C \u043F\u043E\u043B\u043D\u044B\u0439 \u0442\u0435\u043A\u0441\u0442\u2026",
-    previewError: "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u043F\u043E\u043B\u043D\u044B\u0439 \u0442\u0435\u043A\u0441\u0442. \u041E\u0431\u043D\u043E\u0432\u0438\u0442\u0435 \u043E\u0447\u0435\u0440\u0435\u0434\u044C \u0438 \u043F\u043E\u0432\u0442\u043E\u0440\u0438\u0442\u0435.",
-    unavailable: "\u041F\u0440\u0438\u043C\u0435\u043D\u0435\u043D\u0438\u0435 \u044D\u0442\u043E\u0433\u043E \u043F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u044F \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E.",
-    accept: "\u041F\u0440\u0438\u043D\u044F\u0442\u044C",
-    reject: "\u041E\u0442\u043A\u043B\u043E\u043D\u0438\u0442\u044C",
-    approved: "\u041F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u0435 \u043F\u0440\u0438\u043D\u044F\u0442\u043E.",
-    rejected: "\u041F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u0435 \u043E\u0442\u043A\u043B\u043E\u043D\u0435\u043D\u043E.",
-    working: "\u0412\u044B\u043F\u043E\u043B\u043D\u044F\u0435\u043C\u2026",
-    uncertain: "\u0420\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442 \u043D\u0435 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0451\u043D. \u041E\u0431\u043D\u043E\u0432\u0438\u0442\u0435 \u043E\u0447\u0435\u0440\u0435\u0434\u044C \u0438 \u0437\u0430\u043D\u043E\u0432\u043E \u043E\u0442\u043A\u0440\u043E\u0439\u0442\u0435 \u043F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u0435 \u043F\u0435\u0440\u0435\u0434 \u0441\u043B\u0435\u0434\u0443\u044E\u0449\u0438\u043C \u0440\u0435\u0448\u0435\u043D\u0438\u0435\u043C.",
-    stale: "\u041F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u0435 \u0438\u043B\u0438 \u0438\u0441\u0445\u043E\u0434\u043D\u044B\u0435 \u0444\u0430\u0439\u043B\u044B \u0438\u0437\u043C\u0435\u043D\u0438\u043B\u0438\u0441\u044C. \u041E\u0431\u043D\u043E\u0432\u0438\u0442\u0435 \u043E\u0447\u0435\u0440\u0435\u0434\u044C \u0438 \u043F\u0440\u043E\u0441\u043C\u043E\u0442\u0440\u0438\u0442\u0435 \u043F\u0440\u0430\u0432\u043A\u0443 \u0437\u0430\u043D\u043E\u0432\u043E.",
-    retry: "\u041F\u043E\u0432\u0442\u043E\u0440\u0438\u0442\u044C",
-    unknownDate: "\u0412\u0440\u0435\u043C\u044F \u043D\u0435 \u0443\u043A\u0430\u0437\u0430\u043D\u043E",
-    unknown: "\u041E\u0447\u0435\u0440\u0435\u0434\u044C \u0435\u0449\u0451 \u043D\u0435 \u043F\u0440\u043E\u0432\u0435\u0440\u0435\u043D\u0430",
-    locked: "\u041E\u0431\u043D\u043E\u0432\u0438\u0442\u0435 \u043E\u0447\u0435\u0440\u0435\u0434\u044C \u0438 \u0437\u0430\u043D\u043E\u0432\u043E \u043E\u0442\u043A\u0440\u043E\u0439\u0442\u0435 \u043F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u0435.",
-    unsupported: "\u041E\u0447\u0435\u0440\u0435\u0434\u044C \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u0430 \u0432 \u044D\u0442\u043E\u043C \u043F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0438.",
-    disconnected: "\u041F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0435 \u043A Hermes \u043F\u043E\u0442\u0435\u0440\u044F\u043D\u043E. \u041E\u0447\u0435\u0440\u0435\u0434\u044C \u0431\u0443\u0434\u0435\u0442 \u043F\u0440\u043E\u0432\u0435\u0440\u0435\u043D\u0430 \u043F\u043E\u0441\u043B\u0435 \u0432\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F \u0441\u0432\u044F\u0437\u0438.",
-    unknownOrigin: "\u0418\u0441\u0442\u043E\u0447\u043D\u0438\u043A \u043D\u0435 \u0443\u043A\u0430\u0437\u0430\u043D",
-    proposals: "\u041F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u044F",
-    now: "\u0421\u0435\u0439\u0447\u0430\u0441",
-    recent: "\u041D\u0435\u0434\u0430\u0432\u043D\u0435\u0435",
-    filter: "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C",
-    all: "\u0412\u0441\u0435",
-    skills: "\u041D\u0430\u0432\u044B\u043A\u0438",
-    memories: "\u041F\u0430\u043C\u044F\u0442\u044C",
-    noRunning: "\u0421\u0435\u0439\u0447\u0430\u0441 \u043D\u0435\u0442 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0451\u043D\u043D\u044B\u0445 \u0444\u043E\u043D\u043E\u0432\u044B\u0445 \u043F\u0440\u043E\u0432\u0435\u0440\u043E\u043A.",
-    noRecent: "\u0417\u0434\u0435\u0441\u044C \u043F\u043E\u044F\u0432\u044F\u0442\u0441\u044F \u0440\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442\u044B \u043D\u043E\u0432\u044B\u0445 \u043F\u0440\u043E\u0432\u0435\u0440\u043E\u043A \u0438 \u0440\u0435\u0448\u0435\u043D\u0438\u0439.",
-    historyError: "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u043F\u0440\u043E\u0447\u0438\u0442\u0430\u0442\u044C \u0441\u043E\u0431\u044B\u0442\u0438\u044F \u0438 \u0438\u0441\u0442\u043E\u0440\u0438\u044E. \u041E\u0431\u043D\u043E\u0432\u0438\u0442\u0435 \u043F\u0430\u043D\u0435\u043B\u044C.",
-    review: "\u0424\u043E\u043D\u043E\u0432\u0430\u044F \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0430",
-    completed: "\u0417\u0430\u0432\u0435\u0440\u0448\u0435\u043D\u0430",
-    interrupted: "\u041F\u0440\u0435\u0440\u0432\u0430\u043D\u0430",
-    failed: "\u041D\u0435 \u0437\u0430\u0432\u0435\u0440\u0448\u0438\u043B\u0430\u0441\u044C \u0438\u0437-\u0437\u0430 \u043E\u0448\u0438\u0431\u043A\u0438",
-    resultUnknown: "\u0420\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442 \u043D\u0435 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0451\u043D",
-    decisionApproved: "\u041F\u0440\u0438\u043D\u044F\u0442\u043E",
-    decisionRejected: "\u041E\u0442\u043A\u043B\u043E\u043D\u0435\u043D\u043E",
-    notApplied: "\u041D\u0435 \u043F\u0440\u0438\u043C\u0435\u043D\u0435\u043D\u043E",
-    waitingSummary: "\u0413\u043E\u0442\u043E\u0432\u0438\u043C \u043A\u0440\u0430\u0442\u043A\u043E\u0435 \u043E\u043F\u0438\u0441\u0430\u043D\u0438\u0435\u2026",
-    summaryError: "\u041A\u0440\u0430\u0442\u043A\u043E\u0435 \u043E\u043F\u0438\u0441\u0430\u043D\u0438\u0435 \u043D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u043F\u043E\u0434\u0433\u043E\u0442\u043E\u0432\u0438\u0442\u044C. \u041C\u043E\u0436\u043D\u043E \u043F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C \u0438\u0437\u043C\u0435\u043D\u0451\u043D\u043D\u044B\u0435 \u0444\u0440\u0430\u0433\u043C\u0435\u043D\u0442\u044B \u043D\u0438\u0436\u0435.",
-    summaryUnavailable: "\u041A\u0440\u0430\u0442\u043A\u043E\u0435 \u043E\u043F\u0438\u0441\u0430\u043D\u0438\u0435 \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E. \u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u0438\u0437\u043C\u0435\u043D\u0451\u043D\u043D\u044B\u0435 \u0444\u0440\u0430\u0433\u043C\u0435\u043D\u0442\u044B \u043D\u0438\u0436\u0435.",
-    summaryUnavailableFull: "\u041A\u0440\u0430\u0442\u043A\u043E\u0435 \u043E\u043F\u0438\u0441\u0430\u043D\u0438\u0435 \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E. \u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u043F\u043E\u043B\u043D\u044B\u0439 \u0442\u0435\u043A\u0441\u0442 \u043D\u0438\u0436\u0435.",
-    summaryUnavailableOnly: "\u041A\u0440\u0430\u0442\u043A\u043E\u0435 \u043E\u043F\u0438\u0441\u0430\u043D\u0438\u0435 \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E.",
-    missingSkillNext: "\u0427\u0442\u043E\u0431\u044B \u043F\u0440\u0438\u043C\u0435\u043D\u0438\u0442\u044C \u043F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u0435, \u0441\u043D\u0430\u0447\u0430\u043B\u0430 \u0441\u043E\u0437\u0434\u0430\u0439\u0442\u0435 \u0438\u043B\u0438 \u0432\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u0435 \u043D\u0430\u0432\u044B\u043A, \u0437\u0430\u0442\u0435\u043C \u043E\u0431\u043D\u043E\u0432\u0438\u0442\u0435 \u0441\u043F\u0438\u0441\u043E\u043A.",
-    missingSkillCreate: "\u0412 \u043E\u0447\u0435\u0440\u0435\u0434\u0438 \u0435\u0441\u0442\u044C \u043F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u0435 \u0441\u043E\u0437\u0434\u0430\u0442\u044C \u043D\u0430\u0432\u044B\u043A \u0441 \u0442\u0430\u043A\u0438\u043C \u043D\u0430\u0437\u0432\u0430\u043D\u0438\u0435\u043C. \u0420\u0430\u0441\u0441\u043C\u043E\u0442\u0440\u0438\u0442\u0435 \u0435\u0433\u043E \u0432 \u043F\u0435\u0440\u0432\u0443\u044E \u043E\u0447\u0435\u0440\u0435\u0434\u044C.",
-    openCreate: "\u0420\u0430\u0441\u0441\u043C\u043E\u0442\u0440\u0435\u0442\u044C \u0441\u043E\u0437\u0434\u0430\u043D\u0438\u0435 \u043D\u0430\u0432\u044B\u043A\u0430",
-    proposedFiles: "\u041F\u0440\u0435\u0434\u043B\u0430\u0433\u0430\u0435\u0442\u0441\u044F \u0437\u0430\u043F\u0438\u0441\u0430\u0442\u044C \u0432 \u043D\u0430\u0432\u044B\u043A \u044D\u0442\u0438 \u0444\u0430\u0439\u043B\u044B:",
-    inspectCreate: "\u041F\u043E\u0441\u043C\u043E\u0442\u0440\u0435\u0442\u044C \u043F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u0435",
-    changes: "\u0418\u0437\u043C\u0435\u043D\u0451\u043D\u043D\u044B\u0435 \u0444\u0440\u0430\u0433\u043C\u0435\u043D\u0442\u044B",
-    fullFile: "\u041F\u043E\u043B\u043D\u044B\u0439 \u0442\u0435\u043A\u0441\u0442 \u0444\u0430\u0439\u043B\u0430",
-    before: "\u0411\u044B\u043B\u043E",
-    after: "\u0421\u0442\u0430\u043D\u0435\u0442",
-    fragmentsUnavailable: "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0432\u044B\u0434\u0435\u043B\u0438\u0442\u044C \u0438\u0437\u043C\u0435\u043D\u0451\u043D\u043D\u044B\u0435 \u0444\u0440\u0430\u0433\u043C\u0435\u043D\u0442\u044B. \u041E\u0442\u043A\u0440\u043E\u0439\u0442\u0435 \u043F\u043E\u043B\u043D\u044B\u0439 \u0442\u0435\u043A\u0441\u0442 \u0444\u0430\u0439\u043B\u0430.",
-    empty: "\u041F\u0443\u0441\u0442\u043E",
-    removed: "\u0411\u0443\u0434\u0435\u0442 \u0443\u0434\u0430\u043B\u0435\u043D\u043E",
-    change: "\u0418\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0435",
-    create: "\u0421\u043E\u0437\u0434\u0430\u043D\u0438\u0435",
-    replace: "\u041F\u043E\u043B\u043D\u0430\u044F \u0437\u0430\u043C\u0435\u043D\u0430",
-    deletion: "\u0423\u0434\u0430\u043B\u0435\u043D\u0438\u0435",
-    destructive: "\u041F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u0435 \u0432\u043A\u043B\u044E\u0447\u0430\u0435\u0442 \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u0435 \u0438\u043B\u0438 \u043F\u043E\u043B\u043D\u0443\u044E \u0437\u0430\u043C\u0435\u043D\u0443. \u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u0437\u0430\u0442\u0440\u043E\u043D\u0443\u0442\u044B\u0435 \u0444\u0440\u0430\u0433\u043C\u0435\u043D\u0442\u044B.",
-    summaryHint: "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435 \u043F\u043E\u0434\u0433\u043E\u0442\u043E\u0432\u043B\u0435\u043D\u043E \u043C\u043E\u0434\u0435\u043B\u044C\u044E. \u041F\u0435\u0440\u0435\u0434 \u0440\u0435\u0448\u0435\u043D\u0438\u0435\u043C \u043C\u043E\u0436\u043D\u043E \u043F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C \u0444\u0440\u0430\u0433\u043C\u0435\u043D\u0442\u044B.",
-    excerpt: "\u0424\u0440\u0430\u0433\u043C\u0435\u043D\u0442"
-  },
-  en: {
-    title: "Activity",
-    description: "Proposals, ongoing reviews and their results.",
-    profile: "Hermes profile",
-    attention: "Needs your decision",
-    refresh: "Refresh",
-    loading: "Loading proposals\u2026",
-    loadError: "Could not check the queue. Check the connection and try again.",
-    noItems: "No proposals are waiting for a decision.",
-    invalid: "Some queue records could not be read.",
-    skill: "Skill change",
-    skillCreate: "Create a skill",
-    skillFiles: "Skill files",
-    memory: "Memory change",
-    auto: "From background review",
-    manual: "Assistant proposal",
-    inspect: "View proposed change",
-    back: "Back to proposals",
-    preview: "Full proposed change",
-    previewLoading: "Opening the full proposal\u2026",
-    previewError: "Could not open the full proposal. Refresh the queue and try again.",
-    unavailable: "This proposal cannot be applied.",
-    accept: "Approve",
-    reject: "Reject",
-    approved: "Proposal approved.",
-    rejected: "Proposal rejected.",
-    working: "Working\u2026",
-    uncertain: "The result is unconfirmed. Refresh the queue and review the proposal again before another decision.",
-    stale: "The proposal or source files changed. Refresh the queue and review the change again.",
-    retry: "Retry",
-    unknownDate: "Time not recorded",
-    unknown: "The queue has not been checked",
-    locked: "Refresh the queue and review the proposal again.",
-    unsupported: "The queue is unavailable on this connection.",
-    disconnected: "The Hermes connection was lost. The queue will be checked after reconnecting.",
-    unknownOrigin: "Source not recorded",
-    proposals: "Proposals",
-    now: "Now",
-    recent: "Recent",
-    filter: "Show",
-    all: "All",
-    skills: "Skills",
-    memories: "Memory",
-    noRunning: "No confirmed background reviews are running.",
-    noRecent: "New review results and decisions will appear here.",
-    historyError: "Could not read activity and history. Refresh the panel.",
-    review: "Background review",
-    completed: "Completed",
-    interrupted: "Interrupted",
-    failed: "Failed",
-    resultUnknown: "Result not confirmed",
-    decisionApproved: "Approved",
-    decisionRejected: "Rejected",
-    notApplied: "Not applied",
-    waitingSummary: "Preparing a short explanation\u2026",
-    summaryError: "Could not prepare an explanation. Review the changed passages below.",
-    summaryUnavailable: "An explanation is unavailable. Review the changed passages below.",
-    summaryUnavailableFull: "An explanation is unavailable. Review the full text below.",
-    summaryUnavailableOnly: "An explanation is unavailable.",
-    missingSkillNext: "Create or restore the skill first, then refresh the list to apply this proposal.",
-    missingSkillCreate: "There is also a proposal to create a skill with this name. Review it first.",
-    openCreate: "Review skill creation",
-    proposedFiles: "These files are proposed for the skill:",
-    inspectCreate: "View proposal",
-    changes: "Changed passages",
-    fullFile: "Full file",
-    before: "Before",
-    after: "After",
-    empty: "Empty",
-    removed: "Will be removed",
-    fragmentsUnavailable: "Could not isolate the changed passages. Open the full file.",
-    change: "Change",
-    create: "Create",
-    replace: "Full replacement",
-    deletion: "Removal",
-    destructive: "This proposal includes removal or a full replacement. Review the affected passages.",
-    summaryHint: "The explanation was prepared by a model. You can check the passages before deciding.",
-    excerpt: "Excerpt"
-  }
-};
-var words2 = () => document.documentElement.lang.toLowerCase().startsWith("ru") ? labels11.ru : labels11.en;
-var itemKey = (item) => `${item.kind}:${item.id}`;
-var proposalPath = (item) => `/activity/${item.kind}/${item.id}`;
-var idValid = (value2) => typeof value2 === "string" && /^[0-9a-f]{8}$/.test(value2);
-var text6 = (value2) => typeof value2 === "string" ? value2 : "";
-function activityItem(value2) {
-  if (!value2 || !idValid(value2.id) || !["skills", "memory"].includes(value2.kind) || typeof value2.version !== "string" || !value2.version) return null;
-  return {
-    ...value2,
-    names: Array.isArray(value2.names) ? value2.names.filter((name) => typeof name === "string" && name) : [],
-    summary: text6(value2.summary),
-    origin: text6(value2.origin)
-  };
-}
-function activitySnapshot(value2) {
-  if (!value2 || value2.schema !== 1 || typeof value2.scope !== "string" || !value2.scope || !Array.isArray(value2.items) || !Number.isInteger(value2.invalid_count) || value2.invalid_count < 0) return null;
-  const items2 = value2.items.map(activityItem);
-  if (items2.some((item) => !item) || new Set(items2.map(itemKey)).size !== items2.length) return null;
-  const validEvent = (item) => item && typeof item.id === "string" && ["review", "decision"].includes(item.category) && Array.isArray(item.kinds) && item.kinds.every((kind) => ["skills", "memory"].includes(kind)) && typeof item.name === "string" && (item.description === void 0 || typeof item.description === "string") && [
-    "running",
-    "completed",
-    "interrupted",
-    "failed",
-    "unknown",
-    "submitted",
-    "approved",
-    "rejected",
-    "not_applied"
-  ].includes(item.status);
-  const historyAvailable = value2.history_available === true && Array.isArray(value2.running) && Array.isArray(value2.recent) && value2.running.every(validEvent) && value2.recent.every(validEvent);
-  return {
-    ...value2,
-    items: items2,
-    history_available: historyAvailable,
-    running: historyAvailable ? value2.running : [],
-    recent: historyAvailable ? value2.recent : []
-  };
-}
-function activityDetail(value2, item, scope4) {
-  if (!value2 || value2.scope !== scope4 || value2.id !== item.id || value2.kind !== item.kind || value2.version !== item.version || typeof value2.signature !== "string" || !value2.signature || typeof value2.preview !== "string" || typeof value2.applicable !== "boolean" || !Array.isArray(value2.changes) || !value2.changes.every((change) => change && typeof change.name === "string" && typeof change.file === "string" && typeof change.action === "string" && Array.isArray(change.fragments) && (change.full_replacement === void 0 || typeof change.full_replacement === "boolean") && (change.fragments_unavailable === void 0 || typeof change.fragments_unavailable === "boolean") && change.fragments.every((fragment) => typeof fragment.before === "string" && typeof fragment.after === "string") && (change.before === null || typeof change.before === "string") && (change.after === null || typeof change.after === "string")) || !value2.explanation || !["pending", "ready", "error", "unavailable"].includes(value2.explanation.status) || typeof value2.explanation.text !== "string" || value2.missing_skill !== void 0 && typeof value2.missing_skill !== "string" || value2.proposed_files !== void 0 && (!Array.isArray(value2.proposed_files) || !value2.proposed_files.every((file) => file && typeof file.file === "string" && typeof file.heading === "string" && typeof file.content === "string"))) return null;
-  return {
-    ...value2,
-    names: Array.isArray(value2.names) ? value2.names.filter((name) => typeof name === "string" && name) : item.names,
-    proposed_files: value2.proposed_files || []
-  };
-}
-function dateLabel2(value2) {
-  if (value2 === null || value2 === void 0 || value2 === "") return words2().unknownDate;
-  const numeric2 = typeof value2 === "number" ? value2 : typeof value2 === "string" && /^\d+(?:\.\d+)?$/.test(value2) ? Number(value2) : null;
-  const date = new Date(numeric2 === null ? value2 : numeric2 < 1e11 ? numeric2 * 1e3 : numeric2);
-  return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat(
-    document.documentElement.lang.toLowerCase().startsWith("ru") ? "ru-RU" : "en-US",
-    { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }
-  ).format(date) : words2().unknownDate;
-}
-function nameLabel(item, t) {
-  return item.names.length ? item.names.join(", ") : t[item.kind === "skills" ? "skill" : "memory"];
-}
-function kindLabel(item, t) {
-  return item.kind !== "skills" ? t.memory : item.skill_action === "create" ? t.skillCreate : item.skill_action === "files" ? t.skillFiles : t.skill;
-}
-function originLabel(item, t) {
-  return item.origin === "background_review" ? t.auto : ["foreground", "refine_review"].includes(item.origin) ? t.manual : t.unknownOrigin;
-}
-function hashKey(value2) {
-  let hash = 2166136261;
-  for (let i = 0; i < value2.length; i++) hash = Math.imul(hash ^ value2.charCodeAt(i), 16777619);
-  return (hash >>> 0).toString(16);
-}
-function readable(value2) {
-  return text6(value2).replace(/^\s{0,3}#{1,6}\s+/gm, "").replace(/^description:\s*/gm, "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435: ").replace(/`([^`]+)`/g, "$1").replace(/\*\*([^*]+)\*\*/g, "$1");
-}
-function changeLabel(change, t) {
-  return ["delete", "remove_file", "remove"].includes(change.action) ? t.deletion : change.full_replacement || ["edit", "replace"].includes(change.action) || change.action === "write_file" && change.before !== null ? t.replace : ["create", "add"].includes(change.action) ? t.create : t.change;
-}
-function Changes({ changes: changes2, t }) {
-  return h20(
-    "details",
-    { "data-hcv-activity-changes": "" },
-    h20("summary", null, t.changes),
-    changes2.map((change, index) => h20(
-      "section",
-      { key: index, "data-hcv-activity-change": "" },
-      h20("h3", null, `${changeLabel(change, t)} \xB7 ${change.name ? change.name + " / " : ""}${change.file}`),
-      change.fragments_unavailable && h20("p", null, t.fragmentsUnavailable),
-      change.fragments.map((fragment, fragmentIndex) => h20(
-        "div",
-        { key: fragmentIndex, "data-hcv-activity-fragment": "" },
-        fragment.before && h20("div", null, h20("strong", null, t.before), h20("p", null, readable(fragment.before))),
-        fragment.after && h20("div", null, h20("strong", null, t.after), h20("p", null, readable(fragment.after)))
-      )),
-      h20(
-        "details",
-        { "data-hcv-activity-full": "" },
-        h20("summary", null, t.fullFile),
-        h20("strong", null, t.before),
-        h20("pre", { tabIndex: 0 }, change.before === null ? t.empty : change.before || t.empty),
-        h20("strong", null, t.after),
-        h20("pre", { tabIndex: 0 }, change.after === null ? t.removed : change.after || t.empty)
-      )
-    ))
-  );
-}
-function ActivityEvents({ items: items2, t, empty }) {
-  if (!items2.length) return h20("p", { role: "status" }, empty);
-  const status2 = {
-    running: t.now,
-    completed: t.completed,
-    interrupted: t.interrupted,
-    failed: t.failed,
-    unknown: t.resultUnknown,
-    submitted: t.resultUnknown,
-    approved: t.decisionApproved,
-    rejected: t.decisionRejected,
-    not_applied: t.notApplied
-  };
-  return h20("ul", { "data-hcv-activity-list": "" }, items2.map((item) => h20(
-    "li",
-    {
-      key: item.id,
-      "data-hcv-activity-item": item.id
-    },
-    h20("h3", null, item.category === "review" ? t.review : `${item.kinds.includes("skills") ? t.skill : t.memory}${item.name ? " \xB7 " + item.name : ""}`),
-    item.description && h20("p", { "data-hcv-activity-summary": "" }, readable(item.description)),
-    h20("p", { "data-hcv-activity-meta": "" }, `${status2[item.status]} \xB7 ${dateLabel2(item.finished_at || item.started_at)}`)
-  )));
-}
-function ActivityDialog({ model, controller }) {
-  const state = useValue7(model);
-  const t = words2();
-  if (!state.open) return null;
-  const selected2 = state.selected;
-  const detail = state.detail;
-  const loading2 = state.busy === "detail";
-  const mutating = ["approve", "reject"].includes(state.busy);
-  const listReady = state.listStatus === "ready" && state.snapshot;
-  const locked = selected2 && state.locked.includes(itemKey(selected2));
-  const title = selected2 ? nameLabel(detail || selected2, t) : t[state.section];
-  const snapshot = state.snapshot;
-  const creationMatches = detail?.missing_skill ? (snapshot?.items || []).filter((item) => item.kind === "skills" && item.skill_action === "create" && item.names.length === 1 && item.names[0] === detail.missing_skill && itemKey(item) !== itemKey(selected2)) : [];
-  const filteredItems = snapshot?.items.filter((item) => state.filter === "all" || item.kind === state.filter) || [];
-  const filteredEvents = (list) => list.filter((item) => state.filter === "all" || item.kinds.includes(state.filter));
-  const explanation2 = detail?.explanation;
-  const unavailableFragments = detail?.changes.some((change) => change.fragments_unavailable);
-  const unavailableMessage = !detail?.changes.length ? detail?.preview && detail.preview !== detail.reason ? t.summaryUnavailableFull : t.summaryUnavailableOnly : unavailableFragments ? t.summaryUnavailableFull : t.summaryUnavailable;
-  const destructive = detail?.changes.some((change) => change.full_replacement || ["delete", "remove_file", "remove", "edit", "replace"].includes(change.action) || change.action === "write_file" && change.before !== null);
-  return h20(
-    Dialog3,
-    { open: true, onOpenChange: (open) => {
-      if (!open) controller.close();
-    } },
-    h20(
-      DialogContent3,
-      {
-        "data-hcv-activity": "",
-        "data-overlay-surface": "",
-        blurBackdrop: false,
-        onCloseAutoFocus: (event) => {
-          event.preventDefault();
-          controller.returnFocus();
-        }
-      },
-      h20(DialogHeader3, null, h20(DialogTitle3, null, t.title), h20(DialogDescription3, null, t.description)),
-      h20("div", { "data-hcv-activity-meta": "" }, `${t.profile}: ${state.profile}`),
-      !selected2 && h20(
-        "div",
-        { "data-hcv-activity-nav": "", role: "group", "aria-label": t.title },
-        ["proposals", "now", "recent"].map((section2) => h20(Button3, {
-          key: section2,
-          type: "button",
-          variant: "text",
-          "aria-pressed": state.section === section2,
-          onClick: () => controller.section(section2)
-        }, t[section2]))
-      ),
-      !selected2 && h20(
-        "div",
-        { "data-hcv-activity-filter": "", role: "group", "aria-label": t.filter },
-        [["all", "all"], ["skills", "skills"], ["memory", "memories"]].map(([filter, label4]) => h20(Button3, {
-          key: filter,
-          type: "button",
-          variant: "text",
-          "aria-pressed": state.filter === filter,
-          onClick: () => controller.filter(filter)
-        }, t[label4]))
-      ),
-      h20(
-        "div",
-        { "data-hcv-activity-toolbar": "" },
-        selected2 && h20(Button3, { type: "button", variant: "text", disabled: mutating, onClick: controller.back }, t.back),
-        h20("h2", { "data-hcv-activity-heading": "" }, title),
-        h20(Button3, { type: "button", variant: "outline", disabled: Boolean(state.busy), onClick: () => controller.refresh(true) }, t.refresh)
-      ),
-      h20(
-        "div",
-        { "data-hcv-activity-body": "", "aria-busy": Boolean(state.busy) },
-        state.message && h20("p", { "data-hcv-activity-message": "", role: "status", tabIndex: -1 }, state.message),
-        selected2 ? h20(
-          "section",
-          { "data-hcv-activity-detail": "", "aria-label": title },
-          h20("p", { "data-hcv-activity-kind": "" }, kindLabel(detail || selected2, t)),
-          h20("p", { "data-hcv-activity-meta": "" }, `${originLabel(selected2, t)} \xB7 ${dateLabel2(selected2.created_at)}`),
-          loading2 ? h20("p", { role: "status" }, t.previewLoading) : detail ? h20(
-            "div",
-            { "data-hcv-activity-explanation": "" },
-            !detail.applicable && h20("p", { "data-hcv-activity-warning": "", role: "status" }, text6(detail.reason) || t.unavailable),
-            detail.missing_skill && h20("p", null, creationMatches.length ? t.missingSkillCreate : t.missingSkillNext),
-            creationMatches.length === 1 && h20(Button3, {
-              type: "button",
-              variant: "outline",
-              disabled: Boolean(state.busy),
-              onClick: () => controller.inspect(creationMatches[0])
-            }, t.openCreate),
-            detail.proposed_files.length ? h20("p", { "data-hcv-activity-summary": "" }, t.proposedFiles) : explanation2.status === "ready" ? h20("p", { "data-hcv-activity-summary": "" }, explanation2.text) : h20("p", { role: "status" }, explanation2.status === "pending" ? t.waitingSummary : explanation2.status === "error" ? t.summaryError : unavailableMessage),
-            explanation2.status === "ready" && h20("p", { "data-hcv-activity-meta": "" }, t.summaryHint),
-            explanation2.status === "error" && h20(Button3, {
-              type: "button",
-              variant: "outline",
-              disabled: Boolean(state.busy),
-              onClick: controller.retryExplanation
-            }, t.retry),
-            destructive && h20("p", { "data-hcv-activity-warning": "" }, t.destructive)
-          ) : h20("p", { role: "status" }, state.detailError || t.previewError),
-          locked && h20("p", { "data-hcv-activity-warning": "", role: "status" }, t.locked),
-          detail?.proposed_files.length > 0 && h20(
-            "div",
-            { "data-hcv-activity-proposed-files": "" },
-            detail.proposed_files.map((file, index) => h20(
-              "details",
-              { key: index, "data-hcv-activity-full": "" },
-              h20("summary", null, file.heading ? `${file.heading} \xB7 ${file.file}` : file.file),
-              h20("pre", { tabIndex: 0 }, file.content)
-            ))
-          ),
-          detail && h20(
-            "div",
-            { "data-hcv-activity-actions": "" },
-            h20(Button3, {
-              type: "button",
-              variant: "outline",
-              disabled: Boolean(state.busy) || locked || explanation2.status === "pending",
-              onClick: () => controller.decide("reject")
-            }, mutating ? t.working : t.reject),
-            h20(Button3, {
-              type: "button",
-              disabled: Boolean(state.busy) || locked || !detail.applicable || explanation2.status === "pending",
-              onClick: () => controller.decide("approve")
-            }, mutating ? t.working : t.accept)
-          ),
-          detail?.changes.length > 0 && h20(Changes, { changes: detail.changes, t }),
-          detail && !detail.changes.length && detail.preview && detail.preview !== detail.reason && h20(
-            "details",
-            { "data-hcv-activity-fallback": "" },
-            h20("summary", null, t.preview),
-            h20("pre", { "data-hcv-activity-preview": "", tabIndex: 0 }, detail.preview)
-          )
-        ) : state.listStatus === "loading" ? h20("p", { role: "status" }, t.loading) : state.listStatus === "error" ? h20(
-          "div",
-          null,
-          h20("p", { role: "status" }, state.listError || t.loadError),
-          h20(Button3, { type: "button", variant: "outline", disabled: Boolean(state.busy), onClick: () => controller.refresh(true) }, t.retry)
-        ) : listReady && state.section !== "proposals" ? !snapshot.history_available ? h20("p", { role: "status" }, t.historyError) : h20(ActivityEvents, {
-          items: filteredEvents(state.section === "now" ? snapshot.running : snapshot.recent),
-          t,
-          empty: state.section === "now" ? t.noRunning : t.noRecent
-        }) : listReady && h20(
-          "div",
-          null,
-          state.snapshot.invalid_count > 0 && h20("p", { "data-hcv-activity-warning": "", role: "status" }, t.invalid),
-          !filteredItems.length ? state.snapshot.invalid_count === 0 ? h20("p", { role: "status" }, t.noItems) : null : h20("ul", { "data-hcv-activity-list": "" }, filteredItems.map((item) => h20(
-            "li",
-            { key: itemKey(item), "data-hcv-activity-item": itemKey(item) },
-            h20(
-              "div",
-              { "data-hcv-activity-item-title": "" },
-              h20("span", { "data-hcv-activity-kind": "" }, kindLabel(item, t)),
-              h20("h3", null, nameLabel(item, t))
-            ),
-            h20("p", { "data-hcv-activity-meta": "" }, `${originLabel(item, t)} \xB7 ${dateLabel2(item.created_at)}`),
-            item.summary && h20("p", { "data-hcv-activity-summary": "" }, `${t.excerpt}: ${readable(item.summary)}`),
-            h20(Button3, {
-              type: "button",
-              variant: "outline",
-              disabled: Boolean(state.busy),
-              onClick: () => controller.inspect(item)
-            }, item.skill_action === "create" ? t.inspectCreate : t.inspect)
-          )))
-        )
-      )
-    )
-  );
-}
-function registerActivityCenter(ctx, active3) {
-  const root = document.documentElement;
-  const model = atom6({
-    open: false,
-    profile: host23.state.profile.get() || "default",
-    snapshot: null,
-    listStatus: "loading",
-    listError: "",
-    selected: null,
-    detail: null,
-    detailError: "",
-    section: "proposals",
-    filter: "all",
-    busy: null,
-    locked: [],
-    message: ""
-  });
-  let disposed = false, epoch = 0, identity = "", socket = null, gatewayState = "";
-  const busyScopes = /* @__PURE__ */ new Set();
-  const networkBusy = () => busyScopes.has(identity);
-  let pendingRefresh = null, header3 = null, button6 = null, buttonBadge = null;
-  let originFocus = null, scanQueued = false, summaryPoll = null;
-  const locked = /* @__PURE__ */ new Set();
-  const memorySeen = /* @__PURE__ */ new Map();
-  const enabled = () => !disposed && root.matches(active3);
-  const identityNow = () => JSON.stringify([host23.state.connectionId.get() || null, host23.state.profile.get() || "default"]);
-  const current = (token) => enabled() && token === epoch && identityNow() === identity && host23.getGateway() === socket && gatewayState === "open" && host23.state.gateway.get() === "open";
-  const write = (patch) => model.set({ ...model.get(), ...patch, locked: [...locked] });
-  const controller = {
-    open(from) {
-      if (!enabled()) return;
-      scopeChanged();
-      originFocus = from?.isConnected ? from : button6;
-      write({ open: true, section: "proposals", filter: "all", selected: null, detail: null, detailError: "", message: "" });
-      void refresh(false);
-    },
-    close() {
-      stopSummaryPoll();
-      write({ open: false, selected: null, detail: null, detailError: "" });
-    },
-    returnFocus() {
-      const target = originFocus?.isConnected ? originFocus : button6;
-      if (enabled() && target?.isConnected) target.focus({ preventScroll: true });
-    },
-    back() {
-      if (!["approve", "reject"].includes(model.get().busy)) {
-        stopSummaryPoll();
-        write({ selected: null, detail: null, detailError: "", message: "" });
-      }
-    },
-    section: (section2) => write({ section: section2, message: "" }),
-    filter: (filter) => write({ filter, message: "" }),
-    refresh: (explicit) => refresh(explicit),
-    inspect: (item) => inspect(item),
-    decide: (action) => decide(action),
-    retryExplanation: () => retryExplanation()
-  };
-  function stopSummaryPoll() {
-    if (summaryPoll !== null) clearTimeout(summaryPoll);
-    summaryPoll = null;
-  }
-  function finishRequest(token, route, refreshAfter = false) {
-    busyScopes.delete(route);
-    if (route !== identity) return;
-    const stillCurrent = current(token);
-    if (stillCurrent) write({ busy: null });
-    const queued = pendingRefresh;
-    pendingRefresh = null;
-    if (enabled() && (queued !== null || refreshAfter && stillCurrent)) void refresh(queued === true);
-  }
-  function scheduleSummaryPoll(item) {
-    stopSummaryPoll();
-    summaryPoll = setTimeout(() => {
-      summaryPoll = null;
-      const state = model.get();
-      if (!state.open || itemKey(state.selected || {}) !== itemKey(item) || state.selected?.version !== item.version || state.detail?.explanation.status !== "pending") return;
-      if (networkBusy()) scheduleSummaryPoll(item);
-      else void inspect(item, true);
-    }, 2e3);
-  }
-  function paintButton() {
-    if (!button6) return;
-    const state = model.get(), t = words2();
-    const ready = state.listStatus === "ready" && state.snapshot && state.snapshot.invalid_count === 0;
-    const count = ready ? state.snapshot.items.length : null;
-    buttonBadge.textContent = count === null ? "?" : String(count);
-    buttonBadge.hidden = count === 0 && state.snapshot.invalid_count === 0;
-    buttonBadge.dataset.hcvActivityUnknown = String(count === null || state.snapshot?.invalid_count > 0);
-    const unknownMessage = state.snapshot?.invalid_count > 0 ? t.invalid : t.unknown;
-    button6.setAttribute("aria-label", count === null ? `${t.title}: ${unknownMessage}` : `${t.title}: ${t.attention.toLowerCase()} ${count}${state.snapshot.invalid_count ? ". " + t.invalid : ""}`);
-    button6.title = count === null ? `${t.title}: ${unknownMessage}` : `${t.title} \xB7 ${count}`;
-    button6.setAttribute("aria-expanded", String(state.open));
-  }
-  function mountButton() {
-    scanQueued = false;
-    if (!enabled()) {
-      button6?.remove();
-      header3 = null;
-      return;
-    }
-    const next = document.querySelector("[data-hcv-sidebar-bar]");
-    const bell = next?.querySelector("[data-hcv-notifications]");
-    if (!next || !bell) {
-      if (!button6?.isConnected) header3 = null;
-      return;
-    }
-    header3 = next;
-    if (!button6) {
-      button6 = document.createElement("button");
-      button6.type = "button";
-      button6.dataset.hcvActivityButton = "";
-      button6.setAttribute("aria-haspopup", "dialog");
-      const glyph3 = document.createElement("span");
-      glyph3.dataset.hcvActivityGlyph = "";
-      glyph3.setAttribute("aria-hidden", "true");
-      buttonBadge = document.createElement("span");
-      buttonBadge.dataset.hcvActivityCount = "";
-      buttonBadge.setAttribute("aria-hidden", "true");
-      button6.append(glyph3, buttonBadge);
-      button6.addEventListener("click", () => controller.open(button6));
-    }
-    if (button6.parentElement !== next || button6.nextElementSibling !== bell) next.insertBefore(button6, bell);
-    paintButton();
-  }
-  function scheduleMount() {
-    if (scanQueued || disposed) return;
-    scanQueued = true;
-    queueMicrotask(mountButton);
-  }
-  function scopeChanged() {
-    const nextIdentity = identityNow(), nextSocket = host23.getGateway(), nextGatewayState = host23.state.gateway.get();
-    if (nextIdentity === identity && nextSocket === socket && nextGatewayState === gatewayState && enabled()) return false;
-    identity = nextIdentity;
-    socket = nextSocket;
-    gatewayState = nextGatewayState;
-    epoch++;
-    stopSummaryPoll();
-    locked.clear();
-    pendingRefresh = null;
-    write({
-      open: false,
-      profile: host23.state.profile.get() || "default",
-      snapshot: null,
-      listStatus: gatewayState === "open" ? "loading" : "error",
-      listError: gatewayState === "open" ? "" : words2().disconnected,
-      section: "proposals",
-      filter: "all",
-      selected: null,
-      detail: null,
-      detailError: "",
-      busy: null,
-      message: ""
-    });
-    scheduleMount();
-    return true;
-  }
-  function announce(snapshot) {
-    const route = identity, backendScope = snapshot.scope, seenScope = `${route}\0${backendScope}`;
-    const key2 = `hermes-codex-visual:activity-seen:v1:${hashKey(seenScope)}`;
-    let seen = memorySeen.get(seenScope);
-    if (!seen) {
-      try {
-        const stored = JSON.parse(localStorage.getItem(key2) || "null");
-        if (Array.isArray(stored)) seen = stored.filter((item) => typeof item === "string");
-      } catch {
-      }
-      seen ||= [];
-    }
-    const previous = new Set(seen);
-    const fresh = snapshot.items.filter((item) => !previous.has(`${itemKey(item)}:${item.version}`));
-    const next = [.../* @__PURE__ */ new Set([...seen, ...snapshot.items.map((item) => `${itemKey(item)}:${item.version}`)])].slice(-512);
-    memorySeen.set(seenScope, next);
-    try {
-      localStorage.setItem(key2, JSON.stringify(next));
-    } catch {
-    }
-    if (!fresh.length) return;
-    const t = words2();
-    try {
-      host23.notify({
-        id: `hcv-activity-${hashKey(seenScope)}`,
-        kind: "info",
-        title: t.title,
-        message: `${t.attention}: ${snapshot.items.length} \xB7 ${model.get().profile}`,
-        durationMs: 5e3,
-        action: { label: t.inspect, onClick: () => {
-          if (route === identityNow() && model.get().snapshot?.scope === backendScope && enabled()) controller.open(button6);
-        } }
-      });
-    } catch {
-    }
-  }
-  async function refresh(explicit = false) {
-    if (!enabled()) return;
-    scopeChanged();
-    if (gatewayState !== "open") return;
-    if (networkBusy()) {
-      pendingRefresh = Boolean(explicit || pendingRefresh);
-      return;
-    }
-    const token = epoch, route = identity;
-    busyScopes.add(route);
-    if (explicit) {
-      stopSummaryPoll();
-      write({ selected: null, detail: null, detailError: "", message: "" });
-    }
-    write({ busy: "list", listStatus: model.get().snapshot ? model.get().listStatus : "loading", listError: "" });
-    try {
-      const response5 = await ctx.rest("/activity", { timeoutMs: 12e3 });
-      if (!current(token)) return;
-      const snapshot = activitySnapshot(response5);
-      if (!snapshot) throw new Error("Invalid activity snapshot");
-      const previous = model.get();
-      if (previous.snapshot?.scope && previous.snapshot.scope !== snapshot.scope) {
-        locked.clear();
-        write({ selected: null, detail: null, detailError: "", message: "" });
-      }
-      if (explicit) locked.clear();
-      const selected2 = model.get().selected;
-      const selectedNow = selected2 && snapshot.items.find((item) => itemKey(item) === itemKey(selected2));
-      write({
-        snapshot,
-        listStatus: "ready",
-        listError: "",
-        ...selected2 && (!selectedNow || selectedNow.version !== selected2.version) ? { selected: null, detail: null, detailError: "", message: words2().stale } : {}
-      });
-      announce(snapshot);
-    } catch {
-      if (current(token)) write({
-        snapshot: null,
-        listStatus: "error",
-        listError: words2().loadError,
-        selected: null,
-        detail: null,
-        detailError: ""
-      });
-    } finally {
-      finishRequest(token, route);
-    }
-  }
-  async function inspect(item, silent = false) {
-    if (!enabled()) return;
-    scopeChanged();
-    if (networkBusy()) return;
-    const snapshot = model.get().snapshot;
-    const fresh = snapshot?.items.find((candidate2) => itemKey(candidate2) === itemKey(item) && candidate2.version === item.version);
-    if (!fresh) return;
-    const token = epoch, route = identity;
-    busyScopes.add(route);
-    if (!silent) stopSummaryPoll();
-    write(silent ? { busy: "summary" } : { selected: fresh, detail: null, detailError: "", busy: "detail", message: "" });
-    try {
-      const response5 = await ctx.rest(proposalPath(fresh), { timeoutMs: 12e3 });
-      if (!current(token)) return;
-      if (itemKey(model.get().selected || {}) !== itemKey(fresh) || model.get().selected?.version !== fresh.version || model.get().snapshot?.scope !== snapshot.scope) return;
-      const detail = activityDetail(response5, fresh, snapshot.scope);
-      if (!detail) throw new Error("Invalid activity detail");
-      write({ detail, detailError: "" });
-      if (detail.explanation.status === "pending") scheduleSummaryPoll(fresh);
-    } catch {
-      if (current(token) && itemKey(model.get().selected || {}) === itemKey(fresh) && model.get().selected?.version === fresh.version) {
-        if (silent && model.get().detail) write({ detail: { ...model.get().detail, explanation: { status: "error", text: "" } } });
-        else write({ detail: null, detailError: words2().previewError });
-      }
-    } finally {
-      finishRequest(token, route);
-    }
-  }
-  async function retryExplanation() {
-    if (!enabled()) return;
-    scopeChanged();
-    if (networkBusy()) return;
-    const state = model.get(), item = state.selected, detail = state.detail;
-    if (!item || !detail || !state.snapshot) return;
-    const token = epoch, route = identity;
-    busyScopes.add(route);
-    write({ busy: "summary" });
-    try {
-      const response5 = await ctx.rest(`${proposalPath(item)}/explanation`, {
-        method: "POST",
-        timeoutMs: 12e3,
-        body: { scope: state.snapshot.scope, version: detail.version, signature: detail.signature }
-      });
-      if (!current(token)) return;
-      if (itemKey(model.get().selected || {}) !== itemKey(item) || model.get().selected?.version !== item.version || model.get().snapshot?.scope !== state.snapshot.scope) return;
-      if (response5?.scope !== state.snapshot.scope || !response5.explanation || !["pending", "ready", "error", "unavailable"].includes(response5.explanation.status) || typeof response5.explanation.text !== "string") throw new Error("Invalid explanation");
-      write({ detail: { ...detail, explanation: response5.explanation } });
-      if (response5.explanation.status === "pending") scheduleSummaryPoll(item);
-    } catch {
-      if (current(token) && itemKey(model.get().selected || {}) === itemKey(item) && model.get().selected?.version === item.version)
-        write({ detail: { ...detail, explanation: { status: "error", text: "" } } });
-    } finally {
-      finishRequest(token, route);
-    }
-  }
-  async function decide(action) {
-    if (!enabled() || !["approve", "reject"].includes(action)) return;
-    scopeChanged();
-    if (networkBusy()) return;
-    const state = model.get(), item = state.selected, detail = state.detail;
-    if (!state.snapshot || !item || !detail || detail.explanation.status === "pending" || locked.has(itemKey(item)) || action === "approve" && !detail.applicable) return;
-    const token = epoch, route = identity;
-    const key2 = itemKey(item);
-    busyScopes.add(route);
-    write({ busy: action, message: "" });
-    try {
-      const response5 = await ctx.rest(`${proposalPath(item)}/${action}`, {
-        method: "POST",
-        timeoutMs: 3e4,
-        body: { scope: state.snapshot.scope, version: detail.version, signature: detail.signature }
-      });
-      if (!current(token)) return;
-      if (response5?.scope !== state.snapshot.scope || response5.status !== (action === "approve" ? "approved" : "rejected"))
-        throw new Error("Unconfirmed decision");
-      write({
-        selected: null,
-        detail: null,
-        detailError: "",
-        snapshot: {
-          ...state.snapshot,
-          items: state.snapshot.items.filter((candidate2) => itemKey(candidate2) !== key2)
-        },
-        message: action === "approve" ? words2().approved : words2().rejected
-      });
-      stopSummaryPoll();
-    } catch (error) {
-      if (!current(token)) return;
-      locked.add(key2);
-      write({ message: /\b409\b|stale|conflict/i.test(String(error?.message)) ? words2().stale : words2().uncertain });
-    } finally {
-      finishRequest(token, route, true);
-    }
-  }
-  const unsubscribe = model.listen(paintButton);
-  const changes2 = new MutationObserver((records) => {
-    if (records.some((record2) => record2.type === "attributes")) {
-      scopeChanged();
-      scheduleMount();
-      if (enabled()) void refresh(false);
-      return;
-    }
-    if (!header3?.isConnected || !button6?.isConnected) scheduleMount();
-  });
-  changes2.observe(document.body, { childList: true, subtree: true });
-  const theme2 = new MutationObserver(() => {
-    scopeChanged();
-    scheduleMount();
-    if (enabled()) void refresh(false);
-  });
-  theme2.observe(root, { attributes: true, attributeFilter: ["data-hermes-theme", "lang"] });
-  const scopeSubscriptions = [host23.state.connectionId, host23.state.profile, host23.state.gateway].filter(Boolean).map((value2) => value2.listen(() => {
-    scopeChanged();
-    if (enabled()) void refresh(false);
-  }));
-  const poll = setInterval(() => {
-    if (!document.hidden && enabled() && !networkBusy()) void refresh(false);
-  }, 1e4);
-  ctx.addEventListener(window, "focus", () => {
-    if (enabled()) void refresh(false);
-  });
-  ctx.addEventListener(document, "visibilitychange", () => {
-    if (!document.hidden && enabled()) void refresh(false);
-  });
-  ctx.onEvent?.("review.summary", () => {
-    if (enabled()) void refresh(false);
-  });
-  ctx.register({ id: "activity-center", area: TITLEBAR_AREAS6.center, render: () => h20(ActivityDialog, { model, controller }) });
-  mountCSS(ctx, "data-hcv-activity-style", activityStyles(active3), { surface: "[data-hcv-activity-button], [data-hcv-activity]" });
-  scopeChanged();
-  mountButton();
-  if (enabled()) void refresh(false);
-  ctx.onDispose(() => {
-    disposed = true;
-    epoch++;
-    stopSummaryPoll();
-    clearInterval(poll);
-    changes2.disconnect();
-    theme2.disconnect();
-    unsubscribe();
-    scopeSubscriptions.forEach((stop) => stop());
-    button6?.remove();
-    model.set({ ...model.get(), open: false, snapshot: null, selected: null, detail: null });
-    memorySeen.clear();
-    locked.clear();
-  });
-  return controller;
-}
-function activityStyles(active3) {
-  const dialog3 = `${active3} [data-hcv-activity]`;
-  return `
-    ${active3} [data-hcv-activity-button] { position: relative; flex: none; inline-size: 30px; block-size: 30px; display: grid; place-items: center; border: 0; border-radius: 8px; background: transparent; color: var(--hcv-muted); cursor: pointer; }
-    ${active3} [data-hcv-activity-button]:is(:hover, [aria-expanded="true"]) { background: var(--hcv-hover); color: var(--hcv-text); }
-    ${active3} [data-hcv-activity-button]:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }
-    ${active3} [data-hcv-activity-glyph] { inline-size: 18px; block-size: 18px; background: currentColor; mask: ${codexMask("bolt")} center / contain no-repeat; }
-    ${active3} [data-hcv-activity-count] { position: absolute; inset-block-start: -2px; inset-inline-end: -3px; min-inline-size: 15px; block-size: 15px; padding-inline: 3px; border-radius: 8px; background: var(--hcv-action); color: var(--hcv-ink); font: 600 10px/15px var(--hcv-ui-font); text-align: center; }
-    ${active3} [data-hcv-activity-count][data-hcv-activity-unknown="true"] { background: var(--hcv-hover); color: var(--hcv-text); }
-    ${active3} [data-hcv-activity-count][hidden] { display: none; }
-    ${dialog3} { inline-size: min(760px, calc(100vw - 32px)); max-inline-size: none; max-block-size: calc(100dvh - 48px); display: flex; flex-direction: column; gap: 12px; overflow: hidden; border-radius: 16px; background: var(--hcv-menu); color: var(--hcv-text); font-family: var(--hcv-ui-font); }
-    /* Codex 26.1111.2228.0: Sm6l/L4lx default, cardAction and dialogAction
-       use rounded-full; 66582da7ee6b.css defines --radius-full as 9999px. */
-    ${dialog3} [data-slot="button"] { border-radius: 9999px; }
-    ${dialog3} [data-slot="dialog-header"] { flex: none; padding-inline-end: 28px; text-align: start; }
-    ${dialog3} [data-slot="dialog-title"] { font-size: 20px; line-height: 28px; font-weight: 600; }
-    ${dialog3} [data-slot="dialog-description"] { color: var(--hcv-muted); font-size: 14px; line-height: 21px; }
-    ${dialog3} [data-hcv-activity-meta] { margin: 0; color: var(--hcv-muted); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
-    ${dialog3} [data-hcv-activity-nav], ${dialog3} [data-hcv-activity-filter] { display: flex; flex-wrap: wrap; gap: 4px; }
-    ${dialog3} :is([data-hcv-activity-nav], [data-hcv-activity-filter]) [aria-pressed="true"] { background: var(--hcv-hover); color: var(--hcv-text); }
-    ${dialog3} [data-hcv-activity-toolbar] { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; flex: none; }
-    ${dialog3} [data-hcv-activity-heading] { flex: 1; min-inline-size: 0; margin: 0; font-size: 14px; line-height: 21px; font-weight: 600; overflow-wrap: anywhere; }
-    ${dialog3} [data-hcv-activity-body] { min-block-size: 0; min-inline-size: 0; overflow: auto; overscroll-behavior: contain; font-size: 14px; line-height: 21px; }
-    ${dialog3} [data-hcv-activity-list] { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
-    ${dialog3} [data-hcv-activity-item] { display: grid; gap: 8px; min-inline-size: 0; padding: 14px 16px; border: 1px solid var(--hcv-stroke); border-radius: 14px; background: var(--hcv-panel); }
-    ${dialog3} [data-hcv-activity-item] > button { justify-self: start; }
-    ${dialog3} [data-hcv-activity-item-title] { display: grid; gap: 2px; }
-    ${dialog3} [data-hcv-activity-item-title] h3 { margin: 0; font-size: 14px; line-height: 21px; font-weight: 600; overflow-wrap: anywhere; }
-    ${dialog3} [data-hcv-activity-kind] { color: var(--hcv-muted); font-size: 12px; }
-    ${dialog3} [data-hcv-activity-summary], ${dialog3} [data-hcv-activity-message], ${dialog3} [data-hcv-activity-warning] { margin: 0 0 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
-    ${dialog3} [data-hcv-activity-detail] { display: grid; gap: 12px; }
-    ${dialog3} [data-hcv-activity-explanation] { display: grid; gap: 8px; }
-    ${dialog3} [data-hcv-activity-explanation] > p { margin: 0; }
-    ${dialog3} [data-hcv-activity-explanation] > button { justify-self: start; }
-    ${dialog3} :is([data-hcv-activity-changes], [data-hcv-activity-full], [data-hcv-activity-fallback]) > summary { cursor: pointer; color: var(--hcv-text); font-weight: 600; }
-    ${dialog3} [data-hcv-activity-change] { margin-block: 12px; padding: 12px; border: 1px solid var(--hcv-stroke); border-radius: 8px; }
-    ${dialog3} [data-hcv-activity-change] h3 { margin: 0 0 8px; font-size: 14px; line-height: 21px; overflow-wrap: anywhere; }
-    ${dialog3} [data-hcv-activity-fragment] { display: grid; gap: 8px; margin-block: 10px; }
-    ${dialog3} [data-hcv-activity-fragment] p { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-    ${dialog3} [data-hcv-activity-full] pre { max-block-size: 45dvh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/20px var(--hcv-ui-font); user-select: text; }
-    ${dialog3} [data-hcv-activity-proposed-files] { display: grid; gap: 8px; min-inline-size: 0; }
-    ${dialog3} [data-hcv-activity-proposed-files] summary { overflow-wrap: anywhere; }
-    ${dialog3} [data-hcv-activity-preview] { margin: 8px 0; padding: 12px; border: 1px solid var(--hcv-stroke); border-radius: 8px; max-block-size: min(52dvh, 460px); overflow: auto; overscroll-behavior: contain; background: var(--hcv-chat); white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/20px var(--hcv-ui-font); user-select: text; }
-    ${dialog3} [data-hcv-activity-preview]:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }
-    ${dialog3} [data-hcv-activity-actions] { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
-    @media (max-width: 520px) { ${dialog3} { inline-size: calc(100vw - 16px); max-block-size: calc(100dvh - 24px); } ${dialog3} [data-hcv-activity-item] { padding: 12px; } }
-  `;
 }
 
 // source/draft-setup.js
@@ -21687,7 +22202,7 @@ function newDraftBar(form, current, localEnvironment) {
   const projects2 = button4("folder", labels12().noProject);
   const device = button4("laptop", labels12().device);
   const gear = button4("settings", "");
-  const search = node3("input", { type: "search", "data-hcv-draft-search": "" });
+  const search2 = node3("input", { type: "search", "data-hcv-draft-search": "" });
   const results = node3("div", { "data-hcv-draft-projects": "" });
   const create = button4("plus", labels12().create, () => void createProject());
   const noProject = button4("close", labels12().none, () => void selectProject(null));
@@ -21695,7 +22210,7 @@ function newDraftBar(form, current, localEnvironment) {
   projectFooter.append(create.element, noProject.element);
   const searchRow = node3("label", { "data-hcv-draft-search-row": "" });
   const separator = () => node3("div", { "data-hcv-draft-menu-separator": "", role: "separator" });
-  searchRow.append(icon7("activitySearch"), search);
+  searchRow.append(icon7("activitySearch"), search2);
   projectMenu2.append(searchRow, separator(), results, separator(), projectFooter);
   function bind(opener, popup, end = false) {
     opener.popoverTargetElement = popup;
@@ -21762,10 +22277,10 @@ function newDraftBar(form, current, localEnvironment) {
     const trigger2 = worktreeTrigger();
     if (trigger2) return trigger2.click();
     if (!worktree.projectId) return error();
-    const sidebar3 = await sidebarFor(sidebarSelector, key2);
-    if (!sidebar3 || !ready()) return;
-    sidebar3.querySelector("[data-hcv-show-projects]")?.click();
-    sidebar3.querySelector('[data-sessions-mode="project"] button[class~="group/back"]')?.click();
+    const sidebar6 = await sidebarFor(sidebarSelector, key2);
+    if (!sidebar6 || !ready()) return;
+    sidebar6.querySelector("[data-hcv-show-projects]")?.click();
+    sidebar6.querySelector('[data-sessions-mode="project"] button[class~="group/back"]')?.click();
     const projectRow2 = sidebarSelector + ' [data-sessions-project="' + CSS.escape(worktree.projectId) + '"] [data-hcv-native-project-action][data-slot="row-button"]';
     const projectButton = await sidebarFor(projectRow2, key2);
     if (!ready()) return;
@@ -21785,7 +22300,7 @@ function newDraftBar(form, current, localEnvironment) {
       };
       const observer = new MutationObserver(open);
       const timeout = setTimeout(() => done(false), 1e3);
-      observer.observe(sidebar3, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-sessions-mode"] });
+      observer.observe(sidebar6, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-sessions-mode"] });
       projectButton.click();
       open();
     });
@@ -21878,14 +22393,14 @@ function newDraftBar(form, current, localEnvironment) {
   let catalog2;
   let catalogRequest;
   function renderProjects() {
-    const text7 = search.value.trim().toLowerCase();
+    const text7 = search2.value.trim().toLowerCase();
     const cwd = normalized(host24.state.cwd.get());
     const list = catalog2?.filter(({ label: label4, path }) => (label4 + " " + path).toLowerCase().includes(text7)) || [];
     const focusedPath = results.contains(document.activeElement) ? document.activeElement.title : null;
     if (!list.length) {
       const message = catalog2 ? labels12().empty : catalog2 === null || !canRequest() ? labels12().projectError : labels12().loading;
       results.replaceChildren(node3("p", { role: "status" }, message));
-      if (focusedPath) search.focus({ preventScroll: true });
+      if (focusedPath) search2.focus({ preventScroll: true });
       return;
     }
     results.replaceChildren(...list.map(({ label: label4, path }) => {
@@ -21898,7 +22413,7 @@ function newDraftBar(form, current, localEnvironment) {
       return row5;
     }));
     if (focusedPath) {
-      const target = Array.from(results.children).find((item) => item.title === focusedPath) || search;
+      const target = Array.from(results.children).find((item) => item.title === focusedPath) || search2;
       target.focus({ preventScroll: true });
     }
   }
@@ -21919,16 +22434,16 @@ function newDraftBar(form, current, localEnvironment) {
   projectMenu2.addEventListener("beforetoggle", (event) => {
     if (event.newState !== "open") return;
     results.style.blockSize = catalog2 === void 0 && canRequest() ? "84px" : "";
-    search.value = "";
+    search2.value = "";
     renderProjects();
     loadCatalog(scope4());
   });
   projectMenu2.addEventListener("toggle", (event) => {
     if (event.newState !== "open") return;
     results.style.blockSize = results.getBoundingClientRect().height + "px";
-    search.focus({ preventScroll: true });
+    search2.focus({ preventScroll: true });
   });
-  search.addEventListener("input", renderProjects);
+  search2.addEventListener("input", renderProjects);
   projectMenu2.addEventListener("keydown", (event) => {
     if (!["ArrowUp", "ArrowDown"].includes(event.key)) return;
     const options = [...results.querySelectorAll("button")];
@@ -21936,7 +22451,7 @@ function newDraftBar(form, current, localEnvironment) {
     event.preventDefault();
     const index = options.indexOf(document.activeElement);
     const target = index < 0 ? event.key === "ArrowDown" ? 0 : options.length - 1 : index + (event.key === "ArrowDown" ? 1 : -1);
-    if (target < 0) search.focus();
+    if (target < 0) search2.focus();
     else options[Math.min(target, options.length - 1)].focus();
   });
   async function sidebarFor(selector, key2) {
@@ -21955,8 +22470,8 @@ function newDraftBar(form, current, localEnvironment) {
     projectMenu2.hidePopover();
     if (normalized(path) === normalized(host24.state.cwd.get())) return;
     const draft = await host24.composer.getDraft(null).catch(() => null);
-    const sidebar3 = await sidebarFor(sidebarSelector, key2);
-    const openDraft = nativeDraftWorkspaceAction(sidebar3);
+    const sidebar6 = await sidebarFor(sidebarSelector, key2);
+    const openDraft = nativeDraftWorkspaceAction(sidebar6);
     if (!activeHere(key2)) return;
     if (!openDraft) return error();
     openDraft(path);
@@ -21973,10 +22488,10 @@ function newDraftBar(form, current, localEnvironment) {
   async function createProject() {
     const key2 = scope4();
     projectMenu2.hidePopover();
-    const sidebar3 = await sidebarFor(sidebarSelector, key2);
-    if (!sidebar3 || !activeHere(key2)) return;
-    sidebar3.querySelector("[data-hcv-show-projects]")?.click();
-    sidebar3.querySelector('[data-sessions-mode="project"] button[class~="group/back"]')?.click();
+    const sidebar6 = await sidebarFor(sidebarSelector, key2);
+    if (!sidebar6 || !activeHere(key2)) return;
+    sidebar6.querySelector("[data-hcv-show-projects]")?.click();
+    sidebar6.querySelector('[data-sessions-mode="project"] button[class~="group/back"]')?.click();
     const create2 = await sidebarFor(sidebarSelector + " [data-hcv-projects-actions] button:has(> .codicon-add)", key2);
     if (activeHere(key2)) {
       if (create2) create2.click();
@@ -21993,8 +22508,8 @@ function newDraftBar(form, current, localEnvironment) {
     gear.element.setAttribute("aria-label", t.configure);
     gear.element.title = t.configure;
     gearMenu.setAttribute("aria-label", t.configure);
-    search.setAttribute("aria-label", t.search);
-    search.placeholder = t.search;
+    search2.setAttribute("aria-label", t.search);
+    search2.placeholder = t.search;
     localHeading.textContent = t.location;
     gitHeading.textContent = t.configure;
     create.label.textContent = t.create;
@@ -22206,10 +22721,10 @@ var icons2 = {
 function commandPaletteStyles(active3) {
   const dialog3 = `${active3} ${paletteDialog}:has(> ${paletteRoot})`;
   const root = `${active3} ${paletteDialog} > ${paletteRoot}`;
-  const search = `${root} > [data-slot="command-input-wrapper"]`;
+  const search2 = `${root} > [data-slot="command-input-wrapper"]`;
   const list = `${root} > [data-slot="command-list"]`;
   const item = `${list} [data-slot="command-item"]`;
-  const enabled = `${item}:not([aria-disabled="true"], [data-disabled="true"])`;
+  const enabled2 = `${item}:not([aria-disabled="true"], [data-disabled="true"])`;
   const heading = `${list} [cmdk-group-heading]`;
   return `
   /* Codex global search (757723.3067c948bc.js, 20dca5934f5d.css).
@@ -22239,27 +22754,27 @@ function commandPaletteStyles(active3) {
     color: inherit;
     font: 430 14px/20px var(--hcv-ui-font);
   }
-  ${search} {
+  ${search2} {
     flex: none;
     block-size: 44px;
     padding-inline: 10px;
     border-block-end: 1px solid var(--hcv-dropdown-outline);
     color: var(--hcv-muted);
   }
-  ${search} > input {
+  ${search2} > input {
     min-inline-size: 0;
     block-size: 100%;
     padding: 0;
     color: var(--hcv-dropdown-text);
     font: inherit;
   }
-  ${search} > input::placeholder { color: var(--hcv-muted); opacity: 1; }
-  ${search} > svg {
+  ${search2} > input::placeholder { color: var(--hcv-muted); opacity: 1; }
+  ${search2} > svg {
     inline-size: 16px;
     block-size: 16px;
     color: inherit;
   }
-  ${codexIconRules(`${search} > svg.tabler-icon-search`, "search")}
+  ${codexIconRules(`${search2} > svg.tabler-icon-search`, "search")}
   ${root} > button:first-of-type {
     flex: none;
     border-radius: 8px;
@@ -22293,15 +22808,15 @@ function commandPaletteStyles(active3) {
     font: inherit;
     transition: none;
   }
-  ${enabled} { cursor: pointer; opacity: .75; }
-  ${enabled}:is([data-selected="true"], :focus-visible, :active) {
+  ${enabled2} { cursor: pointer; opacity: .75; }
+  ${enabled2}:is([data-selected="true"], :focus-visible, :active) {
     background-color: var(--hcv-dropdown-hover);
     color: inherit;
     opacity: 1;
   }
   @media (hover: hover) and (pointer: fine) {
-    ${enabled}:hover { opacity: 1; }
-    ${enabled}:hover:not([data-selected="true"], :active, :focus-visible) {
+    ${enabled2}:hover { opacity: 1; }
+    ${enabled2}:hover:not([data-selected="true"], :active, :focus-visible) {
       background-color: color-mix(in srgb, var(--hcv-dropdown-hover) 25%, transparent);
     }
   }
@@ -22344,7 +22859,6 @@ var items = ':is([data-slot^="dropdown-menu-"][role^="menuitem"], [data-slot^="c
 var menuRows = `${menus} ${items}`;
 var popover2 = '[data-slot="popover-content"]';
 var button5 = ':is(button, [role="button"], [data-slot="button"])';
-var quietIcon = '[data-variant="ghost"][data-size^="icon"]';
 var dialog = '[data-slot="dialog-content"]';
 var dialogOverlay = '[data-slot="dialog-overlay"]';
 var notification = '[data-slot="card-stack-surface"] > div > [data-slot="alert"][aria-live]';
@@ -22450,11 +22964,11 @@ function catalogGroupHover(ctx) {
       }
     }
   });
-  function sync(enabled) {
-    if (enabled === watching) return;
-    watching = enabled;
+  function sync(enabled2) {
+    if (enabled2 === watching) return;
+    watching = enabled2;
     mounts.disconnect();
-    if (enabled) {
+    if (enabled2) {
       disable(document.body);
       mounts.observe(document.body, { subtree: true, childList: true });
     } else {
@@ -22471,9 +22985,9 @@ function registerInterface(ctx, active3) {
   const contrast = matchMedia("(forced-colors: none)");
   const setScreen = () => {
     const screen = screenFromRoute();
-    const enabled = root.matches(active3);
-    suppressCatalogHover(enabled && contrast.matches && screen === "capabilities");
-    if (!enabled || !screen) root.removeAttribute("data-hcv-screen");
+    const enabled2 = root.matches(active3);
+    suppressCatalogHover(enabled2 && contrast.matches && screen === "capabilities");
+    if (!enabled2 || !screen) root.removeAttribute("data-hcv-screen");
     else if (root.dataset.hcvScreen !== screen) root.dataset.hcvScreen = screen;
     if (root.dataset.hcvScreen === "settings") {
       const params = new URLSearchParams(location.hash.split("?")[1]);
@@ -22595,7 +23109,6 @@ function registerInterface(ctx, active3) {
   ${active3} :is(${button5}, ${button5} :where(.underline, [class*=':underline'])) {
     text-decoration-line: none;
   }
-  ${active3} :where(${quietIcon}) { border-radius: ${codexReference.quietControl.radius}; }
     ${active3} ${notificationStack} :is([data-slot="card-stack-surface"], [data-slot="card-stack-edge"]) {
     border-color: var(--hcv-hairline);
     border-radius: var(--hcv-menu-radius);
@@ -22724,7 +23237,6 @@ function registerInterface(ctx, active3) {
     margin-inline: 2px;
     border-radius: 7px;
   }
-  ${active3} [data-titlebar-cluster] button[data-size="icon-titlebar"] { border-radius: 8px; }
   ${codexIconRules(`${active3} [data-titlebar-cluster] .codicon-settings-gear`, "settings")}
   ${codexIconRules(`${active3} [data-titlebar-cluster] .codicon-comment-discussion`, "hud")}
   ${codexIconRules(`${active3} [data-titlebar-cluster] .codicon-arrow-swap`, "swap")}
@@ -22739,7 +23251,7 @@ function registerInterface(ctx, active3) {
   ${projectRow2} [data-slot="row-button"] > span { text-decoration: none; }
   ${projectRow2} [data-row-actions] button:focus-visible,
   ${projectRow2}[data-hcv-preview-open] [data-row-actions] button,
-  ${projectRow2}:has([data-state="open"][aria-haspopup="menu"]) [data-row-actions] button { opacity: 1; }
+  ${projectRow2} > [data-row-actions]:has(> [data-state="open"][aria-haspopup="menu"]) button { opacity: 1; }
   ${projectRow2} [data-row-actions] button > .codicon { font-size: 14px !important; }
   ${codexIconRules(`${projectRow2} [data-row-actions] .codicon-kebab-vertical`, "more")}
   ${codexIconRules(`${projectRow2} [data-row-actions] .codicon-add`, "newChat")}
@@ -22768,10 +23280,6 @@ function registerInterface(ctx, active3) {
   }
 
   @media (hover: hover) and (pointer: fine) {
-    ${active3} :where(${quietIcon}):hover:not(:disabled, [aria-disabled="true"], [aria-pressed="true"], [data-state="open"]) {
-      background-color: var(--hcv-dropdown-hover);
-      color: var(--hcv-text);
-    }
     ${active3} ${menuButtons}:hover:not(:disabled, [aria-disabled="true"]) {
       background-color: var(--hcv-dropdown-hover);
     }
@@ -23255,7 +23763,6 @@ ${active3} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/la
   }
   ${nav} button.row-hover[aria-current="page"] { background: var(--hcv-selected); color: var(--hcv-text); }
   ${nav} button.row-hover > svg { width: 16px; height: 16px; }
-  ${shown} button[data-size="icon-titlebar"] { border-radius: 8px; }
   ${codexIconRules(`${shown} button[data-size="icon-titlebar"] .codicon-close`, "close")}
   ${codexIconRules(`${nav} button[data-tour="nav-sessions"] > svg`, "messages")}
   ${codexIconRules(`${nav} button[data-tour="nav-system"] > svg`, "system")}
@@ -23551,9 +24058,12 @@ function styles5(active3) {
   ${row5} { grid-area: dictation; display: flex; min-inline-size: 0; align-items: center; gap: 8px; color: var(--hcv-muted); }
   ${row5} button, ${hub} {
     display: grid; place-items: center; flex: none; inline-size: 28px; block-size: 28px; padding: 0;
-    border-radius: 50%; color: var(--hcv-text); background: color-mix(in srgb, currentColor 6%, transparent);
+    border-radius: 50%; color: var(--hcv-text); background: transparent; transition: none;
   }
-  ${row5} button:hover, ${hub}:hover { background: color-mix(in srgb, currentColor 13%, transparent); }
+  ${row5} [data-hcv-dictation-stop], ${hub} { box-shadow: inset 0 0 0 1px var(--hcv-control-hover); }
+  @media (hover: hover) and (pointer: fine) {
+    ${row5} button:not(:disabled):hover, ${hub}:not(:disabled):hover { background: var(--hcv-control-hover); }
+  }
   ${row5} button:focus-visible, ${hub}:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }
   ${row5} button::before, ${hub}::after { content: ''; }
   ${row5} [data-hcv-dictation-cancel]::before {
@@ -23594,7 +24104,7 @@ function registerDictation(ctx, active3) {
   const selections = /* @__PURE__ */ new WeakMap();
   let current;
   let frame;
-  const enabled = () => contrast.matches && root.matches(active3);
+  const enabled2 = () => contrast.matches && root.matches(active3);
   function rememberSelection() {
     const editor2 = window.getSelection()?.anchorNode;
     const input = (editor2 instanceof Element ? editor2 : editor2?.parentElement)?.closest(editorSelector);
@@ -23602,7 +24112,7 @@ function registerDictation(ctx, active3) {
     if (position2) selections.set(input, { ...position2, text: draftText(input) });
   }
   function valid(run) {
-    const live2 = enabled() && nativeVoice(run.form);
+    const live2 = enabled2() && nativeVoice(run.form);
     return live2 && live2.address === run.address && live2.editor === run.editor && live2.grid === run.grid;
   }
   function restoreHub(run) {
@@ -23721,7 +24231,7 @@ function registerDictation(ctx, active3) {
     }
   }
   function toggle2(form) {
-    if (!enabled() || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") return false;
+    if (!enabled2() || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") return false;
     if (current?.form === form) {
       stop(current);
       return true;
@@ -23806,10 +24316,15 @@ function registerDictation(ctx, active3) {
   });
 }
 
+// source/tooltip-copy.js
+function tooltipCopy(value2) {
+  return value2.replace(/(^|[^\S\r\n]+)[·•](?:[^\S\r\n]+|$)/gu, " ").replaceAll("\u2014", "-");
+}
+
 // source/tooltips.js
 var radix = '[data-slot="tooltip-content"]';
 var nativeTip = "[data-hcv-title-tip]";
-var bubbles = [
+var tooltipSurfaces = [
   radix,
   nativeTip,
   "[data-hcv-reply-copy-tip]",
@@ -23817,19 +24332,22 @@ var bubbles = [
   "[data-hcv-table-tip]",
   "[data-hcv-queue-tooltip]"
 ].join(", ");
+var sidebar = "[data-hcv-sidebar-bar]";
+var search = "[data-hcv-search-toggle]";
+var hoverDelay = 150;
+var warmDelay = 300;
+var gap = 2;
+var viewportMargin = 8;
 var videoHint = "[data-hcv-video] .hcv-video-button::after";
 var ownTooltip = '[data-slot="tooltip-trigger"], button[data-hcv-terminal-copy], [data-hcv-table-action]';
 var titleScope = 'button, [role="button"], a[href], [role="tab"], [role^="menuitem"], [role="option"], label';
 var editor = 'iframe, webview, svg, math, [data-terminal], .cm-editor, [contenteditable]:not([contenteditable="false"])';
 var hint = ":is(kbd, span.ms-2.opacity-55:last-child)";
-var mic = `[data-slot="composer-surface"] ${hubSelector}:not([aria-pressed="true"])`;
-function tooltipCopy(value2) {
-  return value2.replace(/(?<=\S)[^\S\r\n]+[·•][^\S\r\n]+(?=\S)/gu, " ").replaceAll("\u2014", "-");
-}
+var mic = `[data-slot="composer-surface"] ${hubSelector}`;
 function registerTooltips(ctx, active3) {
   mountCSS(ctx, "data-hcv-tooltip-style", `
 @media (forced-colors: none) {
-  ${active3} :is(${bubbles}),
+  ${active3} :is(${tooltipSurfaces}),
   ${active3} ${videoHint} {
     box-sizing: border-box;
     max-inline-size: min(320px, calc(100vw - 20px), var(--radix-tooltip-content-available-width, 320px));
@@ -23846,14 +24364,16 @@ function registerTooltips(ctx, active3) {
     text-align: center;
     filter: none;
     backdrop-filter: none;
+    animation: none;
+    transition: none;
   }
   @supports (corner-shape: superellipse(1.5)) {
-    ${active3} :is(${bubbles}),
+    ${active3} :is(${tooltipSurfaces}),
     ${active3} ${videoHint} { border-radius: 20px; corner-shape: superellipse(1.5); }
   }
-  ${active3} ${radix} { animation: none; }
   ${active3} ${radix} :is([data-slot="tooltip-arrow"], span:has(> [data-slot="tooltip-arrow"])) { display: none; }
-  ${active3} ${radix} [data-slot="tooltip-label"] > ${hint} {
+  ${active3} ${radix} [data-slot="tooltip-label"] > ${hint},
+  ${active3} ${nativeTip} > kbd {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -23877,14 +24397,6 @@ function registerTooltips(ctx, active3) {
     pointer-events: none;
     user-select: none;
   }
-  @media (prefers-reduced-motion: no-preference) {
-    ${active3} :is(${nativeTip}:popover-open, ${radix}:is([data-state="delayed-open"], [data-state="instant-open"])) {
-      animation: hcv-tooltip-in 150ms var(--hcv-enter) both;
-    }
-    ${active3} ${radix}[data-state="closed"] { animation: hcv-tooltip-out 150ms var(--hcv-enter) both; }
-  }
-  @keyframes hcv-tooltip-in { from { opacity: 0; scale: .97; } to { opacity: 1; scale: 1; } }
-  @keyframes hcv-tooltip-out { from { opacity: 1; scale: 1; } to { opacity: 0; scale: .97; } }
 }
 `);
   const root = document.documentElement;
@@ -23896,6 +24408,7 @@ function registerTooltips(ctx, active3) {
   bubble.setAttribute("role", "tooltip");
   let current;
   let timer;
+  let warmUntil = 0;
   function close2() {
     window.clearTimeout(timer);
     if (!current) return;
@@ -23905,6 +24418,7 @@ function registerTooltips(ctx, active3) {
     if (anchor.getAttribute("title") === "") anchor.setAttribute("title", title);
     if (anchor.getAttribute("aria-describedby") === description) anchor.removeAttribute("aria-describedby");
     if (nameAdded && anchor.getAttribute("aria-label") === nameAdded) anchor.removeAttribute("aria-label");
+    if (bubble.matches(":popover-open")) warmUntil = performance.now() + warmDelay;
     bubble.hidePopover();
     bubble.remove();
   }
@@ -23919,14 +24433,25 @@ function registerTooltips(ctx, active3) {
       close2();
       return;
     }
-    bubble.textContent = tooltipCopy(title);
+    bubble.textContent = tooltipCopy(title).trim();
+    const shortcut = anchor.matches(search) && keybindLabel("session.focusSearch", "mod+shift+f", "+");
+    if (shortcut) {
+      const badge = document.createElement("kbd");
+      badge.textContent = shortcut;
+      bubble.append(badge);
+    }
     document.body.append(bubble);
-    bubble.showPopover();
+    if (!bubble.matches(":popover-open")) bubble.showPopover();
     const { offsetWidth: width, offsetHeight: height } = bubble;
-    const x = Math.max(8, Math.min(innerWidth - width - 8, target.left + (target.width - width) / 2));
-    const top = target.top >= height + 10 ? target.top - height - 5 : Math.min(innerHeight - height - 5, target.bottom + 5);
+    const x = Math.max(viewportMargin, Math.min(innerWidth - width - viewportMargin, target.left + (target.width - width) / 2));
+    const above = target.top - height - gap;
+    const below = target.bottom + gap;
+    const fitsAbove = above >= viewportMargin;
+    const fitsBelow = below + height <= innerHeight - viewportMargin;
+    const preferBelow = anchor.closest(sidebar);
+    const top = preferBelow && fitsBelow || !fitsAbove ? below : above;
     bubble.style.left = String(x) + "px";
-    bubble.style.top = String(Math.max(5, top)) + "px";
+    bubble.style.top = String(Math.max(viewportMargin, Math.min(top, innerHeight - height - viewportMargin))) + "px";
     if (!anchor.hasAttribute("aria-describedby")) {
       current.description = bubble.id;
       anchor.setAttribute("aria-describedby", current.description);
@@ -23950,7 +24475,8 @@ function registerTooltips(ctx, active3) {
     }
     anchor.setAttribute("title", "");
     changes2.observe(anchor, { attributes: true, attributeFilter: ["title"] });
-    timer = window.setTimeout(show, keyboard ? 0 : 150);
+    if (keyboard || performance.now() < warmUntil) show();
+    else timer = window.setTimeout(show, hoverDelay);
   }
   const changes2 = new MutationObserver(() => {
     const next = current?.anchor.getAttribute("title");
@@ -23972,21 +24498,29 @@ function registerTooltips(ctx, active3) {
     if (node4?.nodeType !== Node.TEXT_NODE || label4.childNodes.length !== 1) return;
     const original = node4.data;
     const word = root.matches(":lang(ru)") ? ["\u0413\u043E\u043B\u043E\u0441\u043E\u0432\u0430\u044F \u0434\u0438\u043A\u0442\u043E\u0432\u043A\u0430", "\u0414\u0438\u043A\u0442\u043E\u0432\u0430\u0442\u044C"] : ["Voice dictation", "Dictate"];
-    if (original !== word[0] || !document.querySelector(mic + ":is(:hover, :focus-visible)")) return;
-    const shown = word[1];
+    if (original !== word[0]) return;
+    const trigger2 = document.querySelector(mic + ":is(:hover, :focus-visible)");
+    if (!trigger2) return;
+    const phase = trigger2.getAttribute("data-hcv-dictation-hub");
+    const shown = phase ? trigger2.getAttribute("aria-label") : word[1];
+    if (!shown) return;
     node4.data = shown;
-    const key2 = keybindLabel("composer.dictate", void 0, "+");
+    const description = tip2.querySelector('[role="tooltip"]')?.firstChild;
+    const described = description?.nodeType === Node.TEXT_NODE && description.data === original ? description : null;
+    if (described) described.data = shown;
+    const key2 = phase !== "transcribing" && keybindLabel("composer.dictate", void 0, "+");
     const badge = key2 && document.createElement("kbd");
     if (badge) {
       badge.textContent = key2;
       badge.setAttribute("aria-hidden", "true");
       label4.append(badge);
     }
-    decorated.set(tip2, { node: node4, original, shown, badge });
+    decorated.set(tip2, { node: node4, described, original, shown, badge });
   }
   function clearDictationLabels() {
-    for (const { node: node4, original, shown, badge } of decorated.values()) {
+    for (const { node: node4, described, original, shown, badge } of decorated.values()) {
       if (node4.data === shown) node4.data = original;
+      if (described?.data === shown) described.data = original;
       badge?.remove();
     }
     decorated.clear();
@@ -24027,6 +24561,81 @@ function registerTooltips(ctx, active3) {
   return dictationLabel;
 }
 
+// source/control-hover.js
+var titlebar = '[data-titlebar-cluster] [data-size="icon-titlebar"], [data-hcv-right-mirror] [data-tour="right-pane-toggle"]';
+var summary2 = "[data-hcv-context-toggle]";
+var sidebar2 = "[data-hcv-sidebar-bar] > button, [data-hcv-history] > button";
+var quiet = ':is([data-variant="ghost"], [data-variant="outline"], [data-variant="secondary"])';
+var nativeIcon2 = '[data-size^="icon"]' + quiet;
+var nativeAction = ':is([data-size="xs"], [data-size="sm"], [data-size="default"], [data-size="lg"])' + quiet + ':not([role], [data-slot="input-group-button"])';
+var localIcon = [
+  "[data-hcv-context-card] .hcv-context-icon",
+  ".hcv-sources-add",
+  "[data-hcv-summary-add-tab]",
+  "[data-hcv-queue-more]",
+  "[data-hcv-archive-close]",
+  '[data-hcv-table-action="close"]',
+  "[data-hcv-usage-page] [data-u-history-arrow]",
+  ".hcv-changes-refresh",
+  "[data-hcv-recents-actions] > button",
+  "[data-hcv-cron-manage]",
+  'button[data-tour^="nav-toggle-"]'
+].join(", ");
+var enabled = ':not(:disabled, [aria-disabled="true"])';
+function registerControlHover(ctx, active3) {
+  const toolbar2 = active3 + " :is(" + [titlebar, summary2, sidebar2].join(", ") + ")";
+  const icon8 = active3 + " :is(" + [nativeIcon2, localIcon].join(", ") + ")";
+  const rail = toolbar2 + ":where(" + sidebar2 + ")";
+  const open = ':is([aria-pressed="true"], [aria-expanded="true"], [data-state="open"])';
+  const rightSelected = active3 + ' [data-hcv-right-mirror][data-hcv-right-open] [data-tour="right-pane-toggle"]';
+  mountCSS(ctx, "data-hcv-control-hover", [
+    "@media (forced-colors: none) {",
+    active3 + " {",
+    "  --hcv-control-hover: light-dark(rgb(26 28 31 / .05), rgb(255 255 255 / .08));",
+    "  --hcv-control-selected: color-mix(in srgb, var(--hcv-text) 5%, transparent);",
+    "}",
+    active3 + " :where(" + nativeAction + ") {",
+    "  border-radius: 8px;",
+    "  --chrome-action-hover: var(--hcv-control-hover);",
+    "}",
+    toolbar2 + ", " + icon8 + " {",
+    "  border-radius: 999px;",
+    "  corner-shape: round;",
+    "  --chrome-action-hover: var(--hcv-control-hover);",
+    "}",
+    active3 + " :is(" + titlebar + ", " + summary2 + ") {",
+    "  inline-size: 28px;",
+    "  block-size: 28px;",
+    "}",
+    // The sidebar fades its fill while the titlebar paints immediately.
+    toolbar2 + " { transition: none; }",
+    "@media (prefers-reduced-motion: no-preference) {",
+    rail + " { transition: background-color 150ms ease, color 150ms ease; }",
+    "}",
+    toolbar2 + ":not(:where(" + summary2 + "))" + enabled + open + " {",
+    "  background-color: var(--hcv-control-hover);",
+    "  color: var(--hcv-text);",
+    "}",
+    rightSelected + " { background-color: var(--hcv-control-selected); }",
+    toolbar2 + enabled + ":focus-visible {",
+    "  outline: 2px solid var(--hcv-focus);",
+    "  outline-offset: 0;",
+    "  box-shadow: none;",
+    "}",
+    "@media (hover: hover) and (pointer: fine) {",
+    toolbar2 + enabled + ":hover, " + icon8 + enabled + ":hover {",
+    "  background-color: var(--hcv-control-hover);",
+    "  color: var(--hcv-text);",
+    "}",
+    rightSelected + enabled + ":hover { background-color: color-mix(in srgb, var(--hcv-text) 10%, transparent); }",
+    "}",
+    "@media (prefers-reduced-motion: reduce) {",
+    icon8 + " { transition: none; }",
+    "}",
+    "}"
+  ].join("\n"));
+}
+
 // source/interface-copy.js
 var dialog2 = '[data-slot="dialog-content"]';
 var noticeCopy = [
@@ -24039,7 +24648,6 @@ var literal = [
   "pre, code, kbd, samp, svg, math, script, style, textarea",
   '[contenteditable]:not([contenteditable="false"]), .cm-editor, [data-terminal], [data-ref], [data-hcv-file-reference]'
 ].join(", ");
-var tooltip = '[data-slot="tooltip-content"]';
 var dash = "\u2014";
 var notices = /* @__PURE__ */ new Map([
   ["!!! LARGE CONTEXT MODEL SWITCH !!!", "\u0421\u043C\u0435\u043D\u0430 \u043C\u043E\u0434\u0435\u043B\u0438 \u0432 \u0434\u043B\u0438\u043D\u043D\u043E\u043C \u0447\u0430\u0442\u0435"],
@@ -24130,7 +24738,7 @@ function translateNotice(value2) {
 function registerInterfaceCopy(ctx, active3, decorateTooltip) {
   const root = document.documentElement;
   const edits = /* @__PURE__ */ new Map();
-  let enabled = false;
+  let enabled2 = false;
   let russian = false;
   let themed = false;
   function restore(node4, edit3) {
@@ -24143,18 +24751,21 @@ function registerInterfaceCopy(ctx, active3, decorateTooltip) {
   }
   function updateText2(node4) {
     const parent = node4.parentElement;
-    const tooltipContent = themed && parent.closest(tooltip);
-    if (tooltipContent && /^(?:Голосовая диктовка|Voice dictation)$/i.test(node4.data)) decorateTooltip(tooltipContent);
+    if (themed && /^(?:Голосовая диктовка|Voice dictation)$/i.test(node4.data)) {
+      const tip2 = parent.closest('[data-slot="tooltip-content"]');
+      if (tip2) decorateTooltip(tip2);
+    }
     const original = node4.data;
     const previous = edits.get(node4);
     if (previous?.shown === original) return;
     const notice2 = russian && parent.closest(noticeCopy);
-    if (!notice2 && !original.includes(dash) && !(themed && /[·•]/u.test(original))) {
+    const separated = themed && /[·•]/u.test(original) && parent.closest(tooltipSurfaces);
+    if (!notice2 && !original.includes(dash) && !separated) {
       if (previous) edits.delete(node4);
       return;
     }
     const translated = notice2 ? translateNotice(original) : original;
-    const shown = tooltipContent ? tooltipCopy(translated) : translated.replaceAll(dash, "-");
+    const shown = separated ? tooltipCopy(translated) : translated.replaceAll(dash, "-");
     if (shown === original) {
       edits.delete(node4);
       return;
@@ -24217,12 +24828,12 @@ function registerInterfaceCopy(ctx, active3, decorateTooltip) {
     const nextEnabled = root.hasAttribute("data-hermes-codex-visual");
     const nextTheme = root.matches(active3);
     const nextRussian = nextTheme && /^ru(?:-|$)/i.test(root.lang);
-    if (nextEnabled === enabled && nextRussian === russian && nextTheme === themed) return;
+    if (nextEnabled === enabled2 && nextRussian === russian && nextTheme === themed) return;
     stop();
-    enabled = nextEnabled;
+    enabled2 = nextEnabled;
     russian = nextRussian;
     themed = nextTheme;
-    if (enabled) {
+    if (enabled2) {
       visit(document.body);
       content3.observe(document.body, {
         childList: true,
@@ -26051,10 +26662,10 @@ function registerMcpCatalogRussian(ctx) {
     changes2.clear();
   }
   function sync() {
-    const enabled = /^ru(?:-|$)/i.test(root.lang) && /^#\/capabilities(?:[/?#]|$)/.test(location.hash);
-    if (enabled === watching) return;
-    watching = enabled;
-    if (enabled) {
+    const enabled2 = /^ru(?:-|$)/i.test(root.lang) && /^#\/capabilities(?:[/?#]|$)/.test(location.hash);
+    if (enabled2 === watching) return;
+    watching = enabled2;
+    if (enabled2) {
       visit(document.body);
       content3.observe(document.body, { childList: true, subtree: true, characterData: true });
     } else stop();
@@ -26175,10 +26786,10 @@ function registerSystemStaticRussian(ctx) {
       about = route.pathname === "/settings" && route.searchParams.get("tab") === "about";
     } catch {
     }
-    const enabled = /^ru(?:-|$)/i.test(root.lang) && about;
-    if (enabled === watching) return;
-    watching = enabled;
-    if (enabled) {
+    const enabled2 = /^ru(?:-|$)/i.test(root.lang) && about;
+    if (enabled2 === watching) return;
+    watching = enabled2;
+    if (enabled2) {
       visit(document.body);
       content3.observe(document.body, { childList: true, subtree: true, characterData: true });
     } else stop();
@@ -26276,10 +26887,10 @@ function registerSystemToastRussian(ctx) {
     changes2.clear();
   }
   function sync() {
-    const enabled = /^ru(?:-|$)/i.test(root.lang);
-    if (enabled === watching) return;
-    watching = enabled;
-    if (enabled) {
+    const enabled2 = /^ru(?:-|$)/i.test(root.lang);
+    if (enabled2 === watching) return;
+    watching = enabled2;
+    if (enabled2) {
       syncRegions();
       body2.observe(document.body, { childList: true });
     } else stop();
@@ -26556,7 +27167,7 @@ async function restoreArchivedChat({
 }
 
 // source/sidebar-archive-action.js
-var sidebar = '[data-tour="sessions-sidebar"]';
+var sidebar3 = '[data-tour="sessions-sidebar"]';
 var trigger = "[data-row-actions] > button[data-session-actions]";
 var replaced = "[data-hcv-archive-menu-replaced]";
 var archiveButton = "[data-hcv-sidebar-archive]";
@@ -26621,13 +27232,13 @@ function styles6(active3, rowSelector5) {
 function registerSidebarArchiveAction(ctx, active3, rowSelector5, readRow3, archive) {
   const root = document.documentElement;
   const contrast = matchMedia("(forced-colors: none)");
-  const enabled = () => contrast.matches && root.matches(active3);
+  const enabled2 = () => contrast.matches && root.matches(active3);
   const tip2 = document.createElement("div");
   tip2.dataset.hcvSidebarArchiveTip = "";
   tip2.setAttribute("aria-hidden", "true");
   tip2.hidden = true;
   document.body.append(tip2);
-  mountCSS(ctx, "data-hcv-sidebar-archive-css", styles6(active3, rowSelector5), { surface: sidebar });
+  mountCSS(ctx, "data-hcv-sidebar-archive-css", styles6(active3, rowSelector5), { surface: sidebar3 });
   let anchor;
   let timer;
   function closeTip() {
@@ -26636,7 +27247,7 @@ function registerSidebarArchiveAction(ctx, active3, rowSelector5, readRow3, arch
     tip2.hidden = true;
   }
   function showTip(button6) {
-    if (!button6.isConnected || !enabled() || !button6.checkVisibility({ opacityProperty: true, visibilityProperty: true })) {
+    if (!button6.isConnected || !enabled2() || !button6.checkVisibility({ opacityProperty: true, visibilityProperty: true })) {
       closeTip();
       return;
     }
@@ -26673,7 +27284,7 @@ function registerSidebarArchiveAction(ctx, active3, rowSelector5, readRow3, arch
     });
     button6.addEventListener("click", (event) => {
       event.stopPropagation();
-      if (enabled()) archive(row5);
+      if (enabled2()) archive(row5);
     });
     button6.addEventListener("pointerenter", (event) => {
       if (event.pointerType === "touch" || event.buttons) return;
@@ -26705,10 +27316,10 @@ function registerSidebarArchiveAction(ctx, active3, rowSelector5, readRow3, arch
     if (anchor && !anchor.isConnected) closeTip();
     for (const { target, addedNodes } of records) {
       if (!addedNodes.length || target.closest?.("[data-chat-surface]")) continue;
-      const inside = target.closest?.(sidebar);
+      const inside = target.closest?.(sidebar3);
       for (const node4 of addedNodes) {
         if (!(node4 instanceof Element) || node4.matches(archiveButton)) continue;
-        if (inside || node4.matches(sidebar) || node4.querySelector(sidebar)) scan(node4);
+        if (inside || node4.matches(sidebar3) || node4.querySelector(sidebar3)) scan(node4);
       }
     }
   });
@@ -26719,8 +27330,8 @@ function registerSidebarArchiveAction(ctx, active3, rowSelector5, readRow3, arch
     for (const node4 of document.querySelectorAll(replaced)) delete node4.dataset.hcvArchiveMenuReplaced;
   }
   function sync() {
-    if (!enabled()) return reset();
-    for (const panel2 of document.querySelectorAll(sidebar)) scan(panel2);
+    if (!enabled2()) return reset();
+    for (const panel2 of document.querySelectorAll(sidebar3)) scan(panel2);
     rows2.observe(document.body, { subtree: true, childList: true });
   }
   const theme2 = new MutationObserver((records) => {
@@ -26832,13 +27443,13 @@ var copy7 = {
 };
 function registerArchiveToast(ctx, active3) {
   const root = document.documentElement;
-  const enabled = () => root.matches(active3);
+  const enabled2 = () => root.matches(active3);
   const words5 = () => /^ru(?:-|$)/i.test(root.lang) ? copy7.ru : copy7.en;
   const loading2 = nativeBridge();
   const container = document.createElement("div");
   container.dataset.hcvArchiveToasts = "";
   container.dataset.hcvArchiveBridge = "loading";
-  container.hidden = !enabled();
+  container.hidden = !enabled2();
   container.setAttribute("role", "region");
   container.setAttribute("aria-label", words5().notifications);
   document.body.append(container);
@@ -27051,7 +27662,7 @@ ${active3} [data-hcv-archive-close]::before { content:''; inline-size:16px; bloc
       operations.delete(key2);
       return;
     }
-    if (!bridge || !enabled() || disposed) {
+    if (!bridge || !enabled2() || disposed) {
       try {
         props.onArchive();
       } finally {
@@ -27102,7 +27713,7 @@ ${active3} [data-hcv-archive-close]::before { content:''; inline-size:16px; bloc
         }),
         changed: ({ phase, wantsUndo }) => {
           card2.update(phase, wantsUndo);
-          if (phase === "restored" && !disposed && enabled()) toast().success();
+          if (phase === "restored" && !disposed && enabled2()) toast().success();
         }
       });
       card2.undo.addEventListener("click", () => {
@@ -27126,7 +27737,7 @@ ${active3} [data-hcv-archive-close]::before { content:''; inline-size:16px; bloc
     void runArchive(row5, props, owner, key2);
   }
   registerSidebarArchiveAction(ctx, active3, rowSelector3, readRow2, (row5) => {
-    if (!enabled() || disposed) return;
+    if (!enabled2() || disposed) return;
     const props = readRow2(row5);
     if (!props || props.session.archived) return;
     const connectionId = host27.state.connectionId.get();
@@ -27151,7 +27762,7 @@ ${active3} [data-hcv-archive-close]::before { content:''; inline-size:16px; bloc
     menuTrigger = null;
   }, true);
   ctx.addEventListener(document, "click", (event) => {
-    if (!enabled() || disposed) return;
+    if (!enabled2() || disposed) return;
     const target = event.target instanceof Element ? event.target : event.target?.parentElement;
     const item = target?.closest('[role="menuitem"]');
     const menu = item?.closest('[role="menu"]');
@@ -27179,7 +27790,7 @@ ${active3} [data-hcv-archive-close]::before { content:''; inline-size:16px; bloc
     for (const control4 of timerControls) document.hidden ? control4.stop() : control4.start();
   });
   const themeObserver = new MutationObserver(() => {
-    container.hidden = !enabled();
+    container.hidden = !enabled2();
     for (const control4 of timerControls) container.hidden ? control4.stop() : control4.start();
   });
   themeObserver.observe(root, { attributes: true, attributeFilter: ["data-hermes-codex-visual", "data-hermes-theme"] });
@@ -27624,7 +28235,7 @@ function registerSettingsStyle(ctx, active3) {
   const rail = `${settings} [data-tour="overlay-nav"]`;
   const searchButton = "button[data-glass-opaque]";
   const searchIcon = "svg.tabler-icon-search";
-  const search = `${settings} ${searchButton}:has(> ${searchIcon})`;
+  const search2 = `${settings} ${searchButton}:has(> ${searchIcon})`;
   const searchPosition = `${settings} > div > div:has(> ${searchButton} > ${searchIcon})`;
   const compact = `${rail} + div button[aria-haspopup="menu"]`;
   const settingsMenu = `${active3}[data-hcv-screen="settings"] [data-slot="dropdown-menu-content"] [role="menuitem"]`;
@@ -27682,13 +28293,13 @@ function registerSettingsStyle(ctx, active3) {
       inline-size: calc(var(--hcv-settings-rail-width) - 2 * var(--hcv-settings-rail-inset));
       translate: none;
     }
-    ${search} {
+    ${search2} {
       inline-size: 100%;
       block-size: 36px;
       justify-content: flex-start;
     }
   }
-  ${search} {
+  ${search2} {
     gap: 8px;
     padding-inline: 12px;
     border: 0;
@@ -27698,14 +28309,14 @@ function registerSettingsStyle(ctx, active3) {
     color: var(--hcv-muted);
     text-align: start;
   }
-  ${search} > span:not([data-slot]) {
+  ${search2} > span:not([data-slot]) {
     flex: 1;
     min-inline-size: 0;
     font-size: 14px;
     line-height: 18px;
   }
-  ${search} > svg { inline-size: 16px; block-size: 16px; }
-  ${codexIconRules(`${search} > ${searchIcon}`, "search")}
+  ${search2} > svg { inline-size: 16px; block-size: 16px; }
+  ${codexIconRules(`${search2} > ${searchIcon}`, "search")}
   ${rail} button.row-hover {
     min-block-size: 30px;
     padding-inline: 8px;
@@ -27720,9 +28331,8 @@ function registerSettingsStyle(ctx, active3) {
   ${rail} button.row-hover > :is(svg, .codicon) { color: inherit; }
   ${rail} div[id] > button.row-hover { min-block-size: 30px; font-size: 14px; }
   ${rail} div[id] > button.row-hover > svg { inline-size: 14px; block-size: 14px; }
-  ${rail} button[data-tour^="nav-toggle-"] { border-radius: 6px; }
   ${rail} :is(button.row-hover, button[data-tour^="nav-toggle-"]):focus-visible,
-  ${search}:focus-visible, ${compact}:focus-visible {
+  ${search2}:focus-visible, ${compact}:focus-visible {
     outline: 2px solid var(--hcv-focus);
     outline-offset: -2px;
   }
@@ -27985,7 +28595,7 @@ function registerSettingsStyle(ctx, active3) {
     padding: 4px 8px;
     font: 430 13px/18px var(--hcv-ui-font);
   }
-  ${quietButton}[data-size^="icon"] { inline-size: 28px; block-size: 28px; border-radius: 8px; }
+  ${quietButton}[data-size^="icon"] { inline-size: 28px; block-size: 28px; border-radius: 999px; }
   ${focusable2}:focus-visible {
     outline: 2px solid var(--hcv-focus);
     outline-offset: -2px;
@@ -27997,7 +28607,7 @@ function registerSettingsStyle(ctx, active3) {
   @media (hover: hover) and (pointer: fine) {
     ${mode}:hover:not(:disabled)::before,
     ${mode}:hover:not(:disabled) + button::before { visibility: hidden; }
-    ${search}:hover { color: var(--hcv-text); }
+    ${search2}:hover { color: var(--hcv-text); }
     ${segmented} > button:hover:not(:disabled, [aria-pressed="true"]) {
       background: var(--hcv-hover-menu);
       color: var(--hcv-text);
@@ -28040,7 +28650,7 @@ function registerSettingsStyle(ctx, active3) {
     ${main} { padding-block-start: 8px; --hcv-settings-gutter: 16px; --hcv-settings-inset: 12px; }
     ${crumbWrap}, ${directCrumbs} { margin-block-end: 12px; }
     ${crumbs} > [aria-current="page"] { font-size: 24px; line-height: 28px; }
-    ${search} { background-color: color-mix(in srgb, var(--hcv-text) 8%, var(--hcv-sidebar)); }
+    ${search2} { background-color: color-mix(in srgb, var(--hcv-text) 8%, var(--hcv-sidebar)); }
   }
 }
 @media (forced-colors: active) {
@@ -28069,7 +28679,7 @@ function registerSettingsProviders(ctx, active3) {
   const localFiles = `${localMain} #local-model-browse .flex.flex-col.rounded-md.border`;
   const localQuickstart = `${localMain} [class~="min-h-[60dvh]"] > .max-w-md`;
   const searchField = '.inline-flex:has(> svg.tabler-icon-search + input[type="text"])';
-  const search = `${providerMain} ${searchField}`;
+  const search2 = `${providerMain} ${searchField}`;
   const badges = `:is(${accounts2} > div.group.grid > button > div > span.inline-flex,
     ${accounts2} > button > div > :is(div > span.inline-flex, span.inline-flex),
     ${providerMain} [data-slot="badge"])`;
@@ -28119,7 +28729,7 @@ function registerSettingsProviders(ctx, active3) {
 
   /* The search settings variant (okCa in 739301.37a39f26d6.js)
      uses a hairline, an inset glyph and the settings control radius. */
-  ${search} {
+  ${search2} {
     min-block-size: 32px;
     gap: 8px;
     padding-inline: 10px;
@@ -28131,13 +28741,13 @@ function registerSettingsProviders(ctx, active3) {
   ${endpointShortcut} + .grid:has(> .inline-flex > svg.tabler-icon-search + input[type="text"]) {
     margin-block-start: var(--hcv-settings-block-gap);
   }
-  ${search}:focus-within { border-color: var(--hcv-focus); }
-  ${search} > input {
+  ${search2}:focus-within { border-color: var(--hcv-focus); }
+  ${search2} > input {
     min-block-size: 30px;
     font-size: 13px;
     line-height: 18px;
   }
-  ${codexIconRules(`${search} > svg.tabler-icon-search`, "search")}
+  ${codexIconRules(`${search2} > svg.tabler-icon-search`, "search")}
 
   :is(${endpointList}, ${endpointForm}, ${localFiles}) {
     border-color: var(--hcv-settings-group-stroke);
@@ -28160,7 +28770,7 @@ function registerSettingsProviders(ctx, active3) {
       background-color: color-mix(in srgb, var(--hcv-settings-group) 90%, var(--hcv-text));
     }
     ${endpointName}:hover { color: var(--hcv-text); text-decoration: underline; }
-    ${search}:hover:not(:focus-within) { border-color: var(--hcv-stroke); }
+    ${search2}:hover:not(:focus-within) { border-color: var(--hcv-stroke); }
   }
 }
 @media (forced-colors: active) {
@@ -29015,7 +29625,7 @@ function registerShellSurfaces(ctx, active3) {
     letter-spacing: normal;
     text-transform: none;
   }
-  ${gatewayTools} { inline-size: 24px; block-size: 24px; border-radius: 7px; }
+  ${gatewayTools} { inline-size: 24px; block-size: 24px; border-radius: 999px; }
   ${codexIconRules(`${gatewayTools} > svg.tabler-icon-refresh:not(.animate-spin)`, "refresh")}
   ${codexIconRules(`${gatewayTools} > svg.tabler-icon-layout-dashboard`, "system")}
 
@@ -29106,6 +29716,8 @@ import {
 var tilePrefix = "session-tile:";
 var workspaceTab = '[role="tab"][data-tree-tab="workspace"]';
 var chatTab2 = `${workspaceTab}, [role="tab"][data-tree-tab^="${tilePrefix}"]`;
+var tabStrip = "[data-zone-tabstrip]";
+var sidebar4 = '[data-tour="sessions-sidebar"]';
 var sidebarChatRow = '[data-sessions-mode="projects"] [data-sessions-project] .row-hover';
 var sidebarChatButton = 'button[data-slot="row-button"]:has(.hover-marquee)';
 var labelSelector2 = ".pane-tab-content .truncate";
@@ -29361,7 +29973,7 @@ function registerSessionTabs(ctx, active3) {
   let openingSidebar = false;
   const words5 = () => root.matches(":lang(ru)") ? copy8.ru : copy8.en;
   const close2 = () => model.set(null);
-  const enabled = () => !disposed && root.matches(active3);
+  const enabled2 = () => !disposed && root.matches(active3);
   const restore = (text7, entry) => {
     if (text7.data === entry.shown) text7.data = entry.original;
     if (entry.label.title === entry.shown) entry.label.title = entry.tooltip;
@@ -29399,9 +30011,12 @@ function registerSessionTabs(ctx, active3) {
   const labels13 = () => {
     frame = 0;
     for (const [text7, entry] of translated) {
-      if (!enabled() || !text7.isConnected || text7.data !== entry.shown) restore(text7, entry);
+      if (!enabled2() || !text7.isConnected || text7.data !== entry.shown) restore(text7, entry);
     }
-    if (!enabled()) return measureTitles();
+    if (!enabled2()) {
+      watchLabels([]);
+      return measureTitles();
+    }
     const openIds = /* @__PURE__ */ new Set();
     const mainLabels = [];
     for (const tab of document.querySelectorAll(chatTab2)) {
@@ -29469,6 +30084,7 @@ function registerSessionTabs(ctx, active3) {
     }
     measureTitles(mainLabels);
     for (const key2 of named.keys()) if (!openIds.has(key2)) named.delete(key2);
+    watchLabels(document.querySelectorAll(sidebarNamed.size ? `${tabStrip}, ${sidebar4}` : tabStrip));
   };
   const schedule = () => {
     frame ||= requestAnimationFrame(labels13);
@@ -29477,23 +30093,36 @@ function registerSessionTabs(ctx, active3) {
   sheet.dataset.hcvSessionTabs = "";
   sheet.textContent = sessionTabStyles(active3);
   mountStyle(ctx, sheet);
-  const observer = new MutationObserver((changes2) => {
-    if (!enabled()) return;
-    if (changes2.some(({ target, addedNodes }) => {
+  let labelScopes = [];
+  const labelObserver = new MutationObserver((changes2) => {
+    if (!enabled2()) return;
+    if (changes2.some((record2) => {
+      const { target } = record2;
       const element7 = target instanceof Element ? target : target.parentElement;
-      return element7?.closest("[data-zone-tabstrip]") || sidebarNamed.size && element7?.closest(sidebarChatRow) || [...addedNodes].some((node4) => node4 instanceof Element && (node4.matches(chatTab2) || node4.querySelector(chatTab2) || sidebarNamed.size && (node4.matches(sidebarChatRow) || node4.querySelector(sidebarChatRow))));
+      return element7?.closest(tabStrip) || sidebarNamed.size && (element7?.closest(sidebarChatRow) || movedElementMatches(record2, sidebarChatRow));
     })) schedule();
   });
+  function watchLabels(scopes2) {
+    if (scopes2.length === labelScopes.length && labelScopes.every((scope4, index) => scope4 === scopes2[index])) return;
+    labelObserver.disconnect();
+    labelScopes = Array.from(scopes2);
+    for (const scope4 of labelScopes) labelObserver.observe(scope4, { subtree: true, childList: true, characterData: true });
+  }
+  const mounts = new MutationObserver((changes2) => {
+    if (!enabled2()) return;
+    const selector = sidebarNamed.size ? `${tabStrip}, ${chatTab2}, ${sidebar4}` : `${tabStrip}, ${chatTab2}`;
+    if (changes2.some((record2) => !record2.target.closest("[data-chat-surface]") && movedElementMatches(record2, selector))) schedule();
+  });
   const themeObserver = new MutationObserver(() => {
-    if (!enabled()) close2();
+    if (!enabled2()) close2();
     schedule();
   });
   themeObserver.observe(root, { attributes: true, attributeFilter: ["data-hermes-theme", "lang"] });
-  observer.observe(document.body, { subtree: true, childList: true, characterData: true });
+  mounts.observe(document.body, { subtree: true, childList: true });
   function targetState(target) {
     const current = target.sidebar ? sidebarSession(target.tab) : null;
     const currentId = target.sidebar ? current?.id : tabId(target.tab);
-    if (!enabled() || !target.tab.isConnected || currentId !== target.id) throw new Error("Chat changed");
+    if (!enabled2() || !target.tab.isConnected || currentId !== target.id) throw new Error("Chat changed");
     const currentOwner = current && sidebarOwner(current);
     if (current && (currentOwner?.connectionId !== target.owner?.connectionId || currentOwner?.profile !== target.owner?.profile)) throw new Error("Chat owner changed");
     const owner = target.owner;
@@ -29579,7 +30208,7 @@ function registerSessionTabs(ctx, active3) {
     render: () => h21(RenameSlot, { model, close: close2, save, recover, unsettled })
   });
   const showSidebarRename = async (button6) => {
-    if (!enabled() || !button6?.isConnected || model.get() || openingSidebar) return;
+    if (!enabled2() || !button6?.isConnected || model.get() || openingSidebar) return;
     const session = sidebarSession(button6);
     const owner = session && sidebarOwner(session);
     if (!session || !owner) return;
@@ -29604,7 +30233,7 @@ function registerSessionTabs(ctx, active3) {
       }
       const actual = sidebarSession(button6);
       const actualOwner = actual && sidebarOwner(actual);
-      if (!enabled() || !button6.isConnected || model.get() || actual?.id !== session.id || actualOwner?.connectionId !== owner.connectionId || actualOwner?.profile !== owner.profile) return;
+      if (!enabled2() || !button6.isConnected || model.get() || actual?.id !== session.id || actualOwner?.connectionId !== owner.connectionId || actualOwner?.profile !== owner.profile) return;
       const focused = session.id === host28.state.focusedStoredSessionId.get();
       const focusedOwner = focused && host28.state.focusedSessionOwner.get();
       const sameOwner2 = focusedOwner?.connectionId === owner.connectionId && focusedOwner?.profile === owner.profile;
@@ -29620,7 +30249,7 @@ function registerSessionTabs(ctx, active3) {
       });
     } catch {
       if (stale && sidebarNamed.get(key2) === entry && entry.readVersion === version2) entry.failed = true;
-      if (enabled()) host28.notify({ kind: "error", message: words5().unverified });
+      if (enabled2()) host28.notify({ kind: "error", message: words5().unverified });
     } finally {
       openingSidebar = false;
     }
@@ -29639,7 +30268,7 @@ function registerSessionTabs(ctx, active3) {
     sidebarMenuTrigger = null;
   }, true);
   ctx.addEventListener(document, "click", (event) => {
-    if (!enabled() || model.get()) return;
+    if (!enabled2() || model.get()) return;
     const origin = event.target instanceof Element ? event.target : event.target?.parentElement;
     const item = origin?.closest('[role="menuitem"]');
     const menu = item?.closest('[role="menu"]');
@@ -29670,7 +30299,7 @@ function registerSessionTabs(ctx, active3) {
     }
   }, true);
   ctx.addEventListener(document, "dblclick", (event) => {
-    if (!enabled() || event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    if (!enabled2() || event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
     const origin = event.target instanceof Element ? event.target : event.target?.parentElement;
     const sidebarRow = origin?.closest(sidebarChatRow);
     if (sidebarRow && !model.get()) {
@@ -29716,7 +30345,7 @@ function registerSessionTabs(ctx, active3) {
   ctx.onDispose(() => {
     disposed = true;
     close2();
-    observer.disconnect();
+    mounts.disconnect();
     themeObserver.disconnect();
     cancelAnimationFrame(frame);
     labels13();
@@ -30377,7 +31006,7 @@ function queueStyles(active3) {
   const steerButton = entry + " [data-hcv-queue-steer]";
   const sendButton = entry + " .status-row-actions > " + send;
   const primary5 = `:is(${steerButton}, ${sendButton})`;
-  const tooltip2 = active3 + " [data-hcv-queue-tooltip]";
+  const tooltip = active3 + " [data-hcv-queue-tooltip]";
   return `
     ${active3}[data-hermes-mode="dark"] {
       --hcv-queue-text: #dfdfdf;
@@ -30580,12 +31209,13 @@ function queueStyles(active3) {
     }
     ${popup} button[hidden] { display: none; }
     ${popup} button:disabled { opacity: .45; cursor: default; }
-    ${tooltip2} {
+    ${tooltip} {
       position: fixed;
       inset: auto;
       translate: -50% -100%;
       box-sizing: border-box;
       margin: 0;
+      inline-size: max-content;
       max-inline-size: calc(100vw - 16px);
       padding: 5px 12px;
       border: 1px solid var(--hcv-dropdown-outline);
@@ -30740,8 +31370,8 @@ function registerComposerApproval(ctx, active3) {
   };
   function sync() {
     frame = 0;
-    const enabled = contrast.matches && root.matches(active3);
-    if (enabled) {
+    const enabled2 = contrast.matches && root.matches(active3);
+    if (enabled2) {
       registration ??= ctx.register({
         id: "composer-approval",
         area: COMPOSER_AREAS.leading,
@@ -30751,7 +31381,7 @@ function registerComposerApproval(ctx, active3) {
       registration?.();
       registration = void 0;
     }
-    const nextFooter = enabled ? document.querySelector(nativeSelector) : null;
+    const nextFooter = enabled2 ? document.querySelector(nativeSelector) : null;
     if (nextFooter !== footer2) {
       statusChanges.disconnect();
       footer2 = nextFooter;
@@ -31161,7 +31791,7 @@ function registerComposerLayout(ctx, active3) {
         --composer-control-primary-size: 28px;
         --composer-surface-pad-x: 8px;
         --composer-surface-pad-y: 8px;
-        --hcv-composer-hover: var(--hcv-dropdown-hover);
+        --hcv-composer-hover: var(--hcv-control-hover);
       }
       ${surface5} ${backing}, ${fallback} ${backing},
       ${dock2} > [data-slot="composer-root"] > .pointer-events-none.absolute.inset-0 {
@@ -31472,7 +32102,7 @@ function queueWithNativeShortcut(event, input) {
     composed: true
   }));
 }
-function registerQueueShortcut(ctx, enabled, queueing) {
+function registerQueueShortcut(ctx, enabled2, queueing) {
   const composing = /* @__PURE__ */ new WeakSet();
   const inputOf = (event) => event.target instanceof Element ? event.target.closest(composerRichInput) : null;
   ctx.addEventListener(document, "compositionstart", (event) => {
@@ -31486,7 +32116,7 @@ function registerQueueShortcut(ctx, enabled, queueing) {
   ctx.addEventListener(document, "compositionend", stopComposing, true);
   ctx.addEventListener(document, "focusout", stopComposing, true);
   ctx.addEventListener(document, "keydown", (event) => {
-    if (event.defaultPrevented || event.key !== "Enter" || event.ctrlKey || event.metaKey || event.altKey || event.isComposing || event.keyCode === 229 || !enabled()) return;
+    if (event.defaultPrevented || event.key !== "Enter" || event.ctrlKey || event.metaKey || event.altKey || event.isComposing || event.keyCode === 229 || !enabled2()) return;
     const input = inputOf(event);
     const form = input?.closest(composerRoot);
     if (!form) return;
@@ -31499,14 +32129,14 @@ function registerQueueShortcut(ctx, enabled, queueing) {
     if ((queueing() || empty) && shouldQueue(form, input)) queueWithNativeShortcut(event, input);
   }, true);
   ctx.addEventListener(document, "submit", (event) => {
-    if (event.defaultPrevented || !enabled() || !queueing() || !event.submitter) return;
+    if (event.defaultPrevented || !enabled2() || !queueing() || !event.submitter) return;
     const form = event.target;
     if (!(form instanceof HTMLFormElement) || !form.matches(composerRoot) || !form.querySelector(queueButton)) return;
     const input = form.querySelector(composerRichInput);
     if (input && !composing.has(input) && shouldQueue(form, input)) queueWithNativeShortcut(event, input);
   }, true);
 }
-function registerSlashGroups(ctx, root, enabled) {
+function registerSlashGroups(ctx, root, enabled2) {
   ctx.i18n.register({
     en: { slashGroups: Object.fromEntries(Object.keys(russianGroups).map((label4) => [label4, label4])) },
     ru: { slashGroups: russianGroups }
@@ -31520,7 +32150,7 @@ function registerSlashGroups(ctx, root, enabled) {
     translated.clear();
   };
   const sync = () => {
-    if (!enabled()) {
+    if (!enabled2()) {
       restore();
       return;
     }
@@ -31566,7 +32196,7 @@ function registerSlashGroups(ctx, root, enabled) {
 }
 function registerComposer(ctx, active3) {
   const root = document.documentElement;
-  const enabled = () => root.matches(active3);
+  const enabled2 = () => root.matches(active3);
   const menu = `${active3} ${composerRoot} [data-slot="composer-completion-drawer"]`;
   const suggestions = `${active3} ${composerRoot} ${composerCompletionDrawer}`;
   const slash2 = `${active3} ${composerRoot} ${slashMenu}`;
@@ -31632,10 +32262,10 @@ function registerComposer(ctx, active3) {
     }
   `;
   mountStyle(ctx, sheet, chatStyles);
-  registerSlashGroups(ctx, root, enabled);
+  registerSlashGroups(ctx, root, enabled2);
   registerComposerLayout(ctx, active3);
   const queueing = () => queueingPreference(ctx);
-  registerQueueShortcut(ctx, enabled, queueing);
+  registerQueueShortcut(ctx, enabled2, queueing);
   registerQueueAppearance(ctx, active3);
 }
 
@@ -31795,7 +32425,7 @@ function registerModelSpeed(ctx, active3) {
   let observed = [];
   const views = /* @__PURE__ */ new Map();
   const writtenText = /* @__PURE__ */ new Map();
-  const effortLabels2 = /* @__PURE__ */ new Map();
+  const controlLabels = /* @__PURE__ */ new Map();
   const added = /* @__PURE__ */ new Set();
   const catalogRetries = /* @__PURE__ */ new Map();
   function stopCatalogRetry(menu) {
@@ -31862,6 +32492,15 @@ function registerModelSpeed(ctx, active3) {
       editText(accessible, format);
     }
   }
+  function editControlLabel(button6, format) {
+    const title = button6.getAttribute("aria-label");
+    const previous = controlLabels.get(button6);
+    const original = previous?.value === title ? previous.original : title;
+    const value2 = original && format(original);
+    if (value2 && value2 !== original) controlLabels.set(button6, { original, value: value2 });
+    else controlLabels.delete(button6);
+    setAttribute(button6, "aria-label", value2);
+  }
   function writeElement(parent, marker5, tag, text7, before = null) {
     let node4 = parent.querySelector(`:scope > ${marker5}`);
     if (!node4) {
@@ -31883,10 +32522,10 @@ function registerModelSpeed(ctx, active3) {
     added.clear();
     for (const [node4, { original, value: value2 }] of writtenText) if (node4.data === value2) node4.data = original;
     writtenText.clear();
-    for (const [button6, { original, value: value2 }] of effortLabels2) {
+    for (const [button6, { original, value: value2 }] of controlLabels) {
       if (button6.getAttribute("aria-label") === value2) button6.setAttribute("aria-label", original);
     }
-    effortLabels2.clear();
+    controlLabels.clear();
     for (const node4 of document.querySelectorAll(marked3)) {
       for (const key2 of ["model-label", "model-speed", "provider-label", "model-options", "speed-option", "effort-ultra"]) node4.removeAttribute(`data-hcv-${key2}`);
     }
@@ -31895,6 +32534,7 @@ function registerModelSpeed(ctx, active3) {
   }
   function labelText() {
     const seen = /* @__PURE__ */ new Set();
+    for (const button6 of document.querySelectorAll(pill2)) editControlLabel(button6, tooltipCopy);
     for (const node4 of document.querySelectorAll(`${pill2} > span.truncate`)) {
       const view = sessionView(node4);
       if (!view) {
@@ -31915,15 +32555,7 @@ function registerModelSpeed(ctx, active3) {
       const label4 = editText(button6.querySelector(":scope > span"), (original) => compactEffort(original, root.lang));
       setAttribute(button6, "data-hcv-effort-ultra", label4 === "Ultra" ? "true" : "");
       editTooltip(button6, (original) => effortMenuLabel(original, root.lang));
-      const title = button6.getAttribute("aria-label");
-      if (title) {
-        const previous = effortLabels2.get(button6);
-        const original = title === previous?.value ? previous.original : title;
-        const value2 = effortMenuLabel(original, root.lang);
-        if (value2 !== original) effortLabels2.set(button6, { original, value: value2 });
-        else effortLabels2.delete(button6);
-        setAttribute(button6, "aria-label", value2);
-      }
+      editControlLabel(button6, (original) => effortMenuLabel(original, root.lang));
     }
     for (const [view, dispose] of views) if (!seen.has(view)) {
       for (const off of dispose) off();
@@ -31993,7 +32625,7 @@ function registerModelSpeed(ctx, active3) {
     for (const menu of catalogRetries.keys()) if (!menu.isConnected) stopCatalogRetry(menu);
     for (const node4 of added) if (!node4.isConnected) added.delete(node4);
     for (const node4 of writtenText.keys()) if (!node4.isConnected) writtenText.delete(node4);
-    for (const node4 of effortLabels2.keys()) if (!node4.isConnected) effortLabels2.delete(node4);
+    for (const node4 of controlLabels.keys()) if (!node4.isConnected) controlLabels.delete(node4);
   }
   function sync() {
     frame = 0;
@@ -32279,7 +32911,7 @@ function targetFor(surface5) {
 function registerTurnControl(ctx, active3, turnTimeline) {
   const entries = /* @__PURE__ */ new Map();
   let frame = 0, disposed = false;
-  const enabled = () => !disposed && document.documentElement.matches(active3);
+  const enabled2 = () => !disposed && document.documentElement.matches(active3);
   const words5 = () => copy9[document.documentElement.lang.startsWith("ru") ? "ru" : "en"];
   const schedule = () => {
     if (!disposed && !frame) frame = requestAnimationFrame(sync);
@@ -32333,7 +32965,7 @@ function registerTurnControl(ctx, active3, turnTimeline) {
     void control4.stop(target, attempt).catch(fail);
   }
   ctx.addEventListener(document, "click", (event) => {
-    if (!enabled() || !(event.target instanceof Element)) return;
+    if (!enabled2() || !(event.target instanceof Element)) return;
     const button6 = event.target.closest(nativeStop);
     if (button6 && !button6.disabled) stop(event, surfaceForComposer(button6.closest(composerRoot)));
     else {
@@ -32344,7 +32976,7 @@ function registerTurnControl(ctx, active3, turnTimeline) {
     }
   }, true);
   ctx.addEventListener(document, "submit", (event) => {
-    if (!enabled() || !(event.target instanceof HTMLFormElement)) return;
+    if (!enabled2() || !(event.target instanceof HTMLFormElement)) return;
     const surface5 = surfaceForComposer(event.target);
     if (event.submitter?.matches(nativeStop)) {
       stop(event, surface5);
@@ -32359,7 +32991,7 @@ function registerTurnControl(ctx, active3, turnTimeline) {
     } else if (state) control4.invalidate(target);
   }, true);
   ctx.addEventListener(document, "keydown", (event) => {
-    if (!enabled() || event.key !== "Escape" || event.defaultPrevented || event.isComposing || event.keyCode === 229 || document.querySelector('[data-overlay-surface], [role="dialog"], [role="menu"][data-state="open"]')) return;
+    if (!enabled2() || event.key !== "Escape" || event.defaultPrevented || event.isComposing || event.keyCode === 229 || document.querySelector('[data-overlay-surface], [role="dialog"], [role="menu"][data-state="open"]')) return;
     const form = event.target instanceof Element ? event.target.closest(composerRoot) : null;
     if (!form || form.querySelector(composerCompletionDrawer + ", " + composerQueuedEdit) || composerAwaitingInput(form, committedFiber)) return;
     const button6 = form.querySelector(composerStopButton);
@@ -32409,7 +33041,7 @@ function registerTurnControl(ctx, active3, turnTimeline) {
   function sync() {
     frame = 0;
     const seen = /* @__PURE__ */ new Set();
-    for (const surface5 of enabled() ? document.querySelectorAll(composerChatSurface) : []) {
+    for (const surface5 of enabled2() ? document.querySelectorAll(composerChatSurface) : []) {
       const form = composerForSurface(surface5), target = targetFor(surface5);
       if (!form || !target) continue;
       seen.add(surface5);
@@ -33574,10 +34206,10 @@ function groupUsage(usage, dimension) {
   }
   return [...groups2].map(([name, n]) => ({ name, share: total && n !== null ? n / total * 100 : null })).sort((a, b) => (b.share ?? -1) - (a.share ?? -1));
 }
-function useResource(ctx, path, localScope, expected, enabled, revision, preserve = false) {
+function useResource(ctx, path, localScope, expected, enabled2, revision, preserve = false) {
   const [state, setState] = useState18({ localScope: null, expected: null, status: "loading", data: null });
   useEffect13(() => {
-    if (!enabled) return;
+    if (!enabled2) return;
     let live2 = true;
     setState((previous) => preserve && previous.localScope === localScope && previous.expected === expected && previous.data ? { ...previous, status: "refreshing" } : { localScope, expected, status: "loading", data: null });
     Promise.resolve().then(() => ctx.rest(path, { timeoutMs: 6e4 })).then((data) => {
@@ -33591,8 +34223,8 @@ function useResource(ctx, path, localScope, expected, enabled, revision, preserv
     return () => {
       live2 = false;
     };
-  }, [ctx, path, localScope, expected, enabled, revision, preserve]);
-  if (!enabled || state.localScope !== localScope || state.expected !== expected) return { status: "loading", data: null };
+  }, [ctx, path, localScope, expected, enabled2, revision, preserve]);
+  if (!enabled2 || state.localScope !== localScope || state.expected !== expected) return { status: "loading", data: null };
   return state;
 }
 function State({ state, retry }) {
@@ -33722,15 +34354,15 @@ function Overview({ ctx, data, scopeKey: scopeKey3, currentScope: currentScope2,
   useEffect13(() => {
     if (settingValue !== null && data?.assistant_enabled === settingValue) setSettingValue(null);
   }, [data?.assistant_enabled, settingValue]);
-  async function setAssistant(enabled) {
-    if (settingBusy || !data.assistant_available && enabled) return;
+  async function setAssistant(enabled2) {
+    if (settingBusy || !data.assistant_available && enabled2) return;
     onBusyChange(true);
     setSettingBusy(true);
     setSettingError("");
     try {
-      const response5 = await ctx.rest("/assistant/setting", { method: "POST", body: { enabled, scope: data.scope }, timeoutMs: 6e4 });
+      const response5 = await ctx.rest("/assistant/setting", { method: "POST", body: { enabled: enabled2, scope: data.scope }, timeoutMs: 6e4 });
       if (currentScope2() !== scopeKey3 || response5?.scope !== data.scope) throw new Error("scope");
-      setSettingValue(enabled);
+      setSettingValue(enabled2);
       reload();
     } catch {
       setSettingError(t.settingFailed);
@@ -34005,8 +34637,15 @@ function UsagePage({ ctx }) {
   const currentScope2 = () => JSON.stringify([host36.state.connectionId.get() || null, host36.state.profile.get() || "default"]);
   const [tab, setTab] = useState18("overview"), [revision, setRevision] = useState18(0);
   const [overviewRevision, setOverviewRevision] = useState18(0), actionBusy = useRef11(false);
+  const windowVisible = useRef11(false), refreshOnIdle = useRef11(false);
   const onBusyChange = useRef11((value2) => {
     actionBusy.current = value2;
+    if (!value2 && refreshOnIdle.current) queueMicrotask(() => {
+      if (!actionBusy.current && windowVisible.current && refreshOnIdle.current) {
+        refreshOnIdle.current = false;
+        setOverviewRevision((n) => n + 1);
+      }
+    });
   }).current;
   const tabBase = useId5();
   const overview = useResource(ctx, "/overview", localScope, null, true, revision + ":" + overviewRevision, true);
@@ -34014,10 +34653,55 @@ function UsagePage({ ctx }) {
   const expected = overviewReady ? overview.data.scope : null;
   const reload = () => setRevision((n) => n + 1);
   useEffect13(() => {
-    const timer = setInterval(() => {
-      if (!document.hidden && !actionBusy.current) setOverviewRevision((n) => n + 1);
-    }, 3e4);
-    return () => clearInterval(timer);
+    const root = document.documentElement;
+    const pausedAttribute = "data-renderer-animations-paused";
+    let nativeHidden = null;
+    const hidden2 = () => document.hidden || (nativeHidden === null ? root.hasAttribute(pausedAttribute) : nativeHidden);
+    let paused = hidden2(), timer = null;
+    windowVisible.current = !paused;
+    const stop = () => {
+      if (timer !== null) clearInterval(timer);
+      timer = null;
+    };
+    const start = () => {
+      if (timer !== null) return;
+      timer = setInterval(() => {
+        if (!hidden2() && !actionBusy.current) setOverviewRevision((n) => n + 1);
+      }, 3e4);
+    };
+    const sync = () => {
+      const next = hidden2();
+      if (next === paused) return;
+      paused = next;
+      windowVisible.current = !paused;
+      if (paused) {
+        stop();
+        return;
+      }
+      start();
+      if (actionBusy.current) refreshOnIdle.current = true;
+      else {
+        refreshOnIdle.current = false;
+        setOverviewRevision((n) => n + 1);
+      }
+    };
+    const unsubscribe = window.hermesDesktop?.onWindowStateChanged?.((state) => {
+      if (typeof state?.isMinimized !== "boolean" && typeof state?.isVisible !== "boolean") return;
+      nativeHidden = state.isMinimized === true || state.isVisible === false;
+      sync();
+    });
+    const observer = new MutationObserver(sync);
+    observer.observe(root, { attributes: true, attributeFilter: [pausedAttribute] });
+    document.addEventListener("visibilitychange", sync);
+    if (!paused) start();
+    return () => {
+      windowVisible.current = false;
+      refreshOnIdle.current = false;
+      stop();
+      observer.disconnect();
+      document.removeEventListener("visibilitychange", sync);
+      unsubscribe?.();
+    };
   }, [localScope]);
   function keyTabs(e) {
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
@@ -34102,9 +34786,9 @@ function registerUsageNavigation(ctx, active3) {
     queued = false;
     if (disposed) return;
     const inSettings = location.hash.startsWith("#/settings");
-    const enabled = root.matches(active3) && inSettings;
-    root.toggleAttribute("data-hcv-usage-active", enabled && selected());
-    if (!enabled) {
+    const enabled2 = root.matches(active3) && inSettings;
+    root.toggleAttribute("data-hcv-usage-active", enabled2 && selected());
+    if (!enabled2) {
       observe(null);
       document.querySelectorAll("[data-hcv-usage-nav]").forEach((node4) => node4.remove());
       return;
@@ -34613,7 +35297,7 @@ var id = "hermes-codex-visual";
 var marker4 = `data-${id}`;
 var themeName = "codex-workspace";
 var active2 = `:root[${marker4}][data-hermes-theme="${themeName}"]`;
-var sidebar2 = `${active2} [data-slot="sidebar"][data-tour="sessions-sidebar"]`;
+var sidebar5 = `${active2} [data-slot="sidebar"][data-tour="sessions-sidebar"]`;
 var chat2 = `${active2} [data-chat-surface]`;
 var dock = `${chat2} [data-slot="composer-dock"]`;
 var composerSurface = `${dock} [data-slot="composer-surface"]`;
@@ -34708,22 +35392,22 @@ function paletteVariables({ error, errorInk, ...colors }) {
 }
 var newChatLabel = '[data-tour="sidebar-nav-new-session"]';
 var chevron = "svg.tabler-icon-chevron-down";
-var sidebarMenuButton = `${sidebar2} [data-sidebar="menu-button"]`;
+var sidebarMenuButton = `${sidebar5} [data-sidebar="menu-button"]`;
 var sidebarNav = `${sidebarMenuButton}[data-hcv-sidebar-nav]`;
 var sidebarFill = `${sidebarNav} > [data-hcv-sidebar-fill]`;
 var navButton = (name) => `${sidebarMenuButton}:has(> [data-tour="sidebar-nav-${name}"])`;
 var localizedNewChat = `${navButton("new-session")}:is(:lang(ru), :lang(en))`;
 var titleButton = `${active2} [data-titlebar-cluster] button[data-size="icon-titlebar"]`;
 var foldOnly = `${composerSurface} button:has(> ${chevron}):not(:has(> :not(${chevron})))`;
-var sidebarChatRow2 = `${sidebar2} ${sidebarSessionRow}`;
+var sidebarChatRow2 = `${sidebar5} ${sidebarSessionRow}`;
 var runningDot = '[role="status"]:is([class~="bg-(--ui-accent)"], [class~="border-(--ui-accent)"])';
 var unreadDot = '[role="status"][class~="bg-(--ui-success)"]';
 var trailingDot = `:is(${runningDot}, ${unreadDot})`;
 var busyRowState = `:has(${runningDot})`;
 var unreadRowState = `:has(${unreadDot})`;
 var activeSidebarChatRow = `${sidebarChatRow2}:is(${busyRowState}, ${unreadRowState})`;
-var sidebarStatus = `${sidebar2} [data-hcv-project-status]:not([hidden])`;
-var sidebarWorking = `${sidebar2} [data-hcv-project-status="working"]:not([hidden])`;
+var sidebarStatus = `${sidebar5} [data-hcv-project-status]:not([hidden])`;
+var sidebarWorking = `${sidebar5} [data-hcv-project-status="working"]:not([hidden])`;
 var workingChatIcon = `${sidebarChatRow2}${busyRowState}::after`;
 var changedFiles = `${chat2} [data-slot="aui_changed-files"]`;
 var fileSummary = `${changedFiles}[data-hcv-file-card]`;
@@ -34750,10 +35434,10 @@ var glyphs3 = [
   [`${composerSurface} button[type="submit"]`, ".codicon-arrow-up", "send"]
 ];
 function iconRules() {
-  return glyphs3.map(([button6, nativeIcon2, icon8, flip]) => {
-    const selector = `${button6}:has(> ${nativeIcon2})`;
+  return glyphs3.map(([button6, nativeIcon3, icon8, flip]) => {
+    const selector = `${button6}:has(> ${nativeIcon3})`;
     return `
-  ${selector} > ${nativeIcon2} { display: none; }
+  ${selector} > ${nativeIcon3} { display: none; }
   ${selector}::before {
     content: '';
     display: block;
@@ -34820,8 +35504,8 @@ var styles7 = `
     font-family: var(--hcv-ui-font);
   }
 
-  ${active2} :is([data-sidebar="menu-button"], [data-slot="pane-tab"], [data-slot="dropdown-menu-item"], [data-slot="dropdown-menu-sub-trigger"], [data-slot="dropdown-menu-radio-item"], [data-slot="dropdown-menu-checkbox-item"], [data-tour="overlay-nav"] button, [data-titlebar-cluster] [data-size="icon-titlebar"]),
-  ${sidebar2} .row-hover {
+  ${active2} :is([data-sidebar="menu-button"], [data-slot="pane-tab"], [data-slot="dropdown-menu-item"], [data-slot="dropdown-menu-sub-trigger"], [data-slot="dropdown-menu-radio-item"], [data-slot="dropdown-menu-checkbox-item"], [data-tour="overlay-nav"] button),
+  ${sidebar5} .row-hover {
     border-radius: 8px;
   }
 
@@ -34916,7 +35600,7 @@ var styles7 = `
     animation: hcv-sidebar-spin 2s steps(60, end) infinite;
   }
   ${workingChatIcon} { inset-inline-end: 8px; }
-  ${sidebar2} [data-hcv-project-status="unread"]:not([hidden])::before {
+  ${sidebar5} [data-hcv-project-status="unread"]:not([hidden])::before {
     content: ''; inline-size: 7px; block-size: 7px; border-radius: 50%; background: var(--hcv-unread);
   }
   ${sidebarChatRow2}${unreadRowState}:not(${busyRowState})::after {
@@ -35037,15 +35721,12 @@ var styles7 = `
 
   ${composerSurface} button[type="submit"] {
     border-radius: 50%;
+    transition: none;
   }
 
   ${composerSurface} button[type="submit"]:not(:disabled) {
     background-color: var(--hcv-action);
     color: var(--hcv-ink);
-  }
-
-  ${composerSurface} button[type="submit"]:not(:disabled):hover {
-    background-color: color-mix(in srgb, var(--hcv-action) 85%, var(--hcv-ink));
   }
 
   ${iconRules()}
@@ -35203,7 +35884,8 @@ var plugin_default = {
     overflow: hidden;
     box-shadow: 0 0 0 .5px var(--hcv-file-stroke);
     background: light-dark(#fff, #222222);
-    margin: 14px .5px 8px;
+    /* The message container clips content at its edges. */
+    margin: 14px 1px 8px;
     padding: 0;
     color: var(--hcv-file-text);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -35446,10 +36128,11 @@ var plugin_default = {
     registerDictation(ctx, active2);
     registerZoomBanner(ctx, active2, themeName);
     registerTypography(ctx, active2);
+    registerControlHover(ctx, active2);
     registerInterfaceCopy(ctx, active2, registerTooltips(ctx, active2));
     if (ctx.files) {
       void ctx.files.writeText(ctx.files.dataFolder, "loaded-version.json", JSON.stringify({
-        version: "0.15.135",
+        version: "0.15.137",
         theme: root.dataset.hermesTheme,
         loadedAt: (/* @__PURE__ */ new Date()).toISOString()
       }) + "\n");

@@ -39,8 +39,6 @@ const labels = {
     project: 'Проект',
     show: 'Показать сводку',
     hide: 'Скрыть сводку',
-    pin: 'Закрепить сводку',
-    unpin: 'Открепить сводку',
     actions: 'Действия со сводкой',
     setup: 'Настроить локальное окружение',
     terminal: 'Открыть терминал',
@@ -56,8 +54,6 @@ const labels = {
     project: 'Project',
     show: 'Show summary',
     hide: 'Hide summary',
-    pin: 'Pin summary',
-    unpin: 'Unpin summary',
     actions: 'Summary actions',
     setup: 'Set up local environment',
     terminal: 'Open terminal',
@@ -97,11 +93,11 @@ function currentChat() {
 }
 
 function useRoomForCard(eligible) {
-  const [room, setRoom] = useState(false)
+  const [room, setRoom] = useState(null)
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!eligible) {
-      setRoom(false)
+      setRoom(null)
       return
     }
 
@@ -156,7 +152,7 @@ function useRoomForCard(eligible) {
     window.addEventListener('hashchange', queue)
     window.navigation?.addEventListener('currententrychange', queue)
     contrast.addEventListener('change', queue)
-    queue()
+    measure()
 
     return () => {
       if (frame) cancelAnimationFrame(frame)
@@ -170,7 +166,7 @@ function useRoomForCard(eligible) {
     }
   }, [eligible])
 
-  return eligible && room
+  return room
 }
 
 function useWorkspaceData(draftCwd, enabled, isTile = false, nativeOwner = null) {
@@ -350,9 +346,10 @@ function ExpandedChanges({ selection }) {
   })
 }
 
-function FocusedSubagentsPane({ roster }) {
+function FocusedSubagentsPane({ roster, visibility }) {
   const focus = useFocusedWorkspace()
-  return focus ? h(SubagentsPane, { roster, focus }) : null
+  const shown = useValue(visibility)
+  return focus ? h(SubagentsPane, { roster, focus, shown }) : null
 }
 
 function DiffStats({ repo, copy }) {
@@ -382,15 +379,19 @@ function useLiveWorkspaceRepository(data, shown, updates) {
     let debounce = 0
     let lastStarted = 0
     let burstStart = 0
+    let timer = null
+    let nativeWindowHidden = false
+    const visible = () => live && document.visibilityState === 'visible' && !nativeWindowHidden &&
+      !document.documentElement.hasAttribute('data-renderer-animations-paused')
 
     async function read() {
-      if (!live || document.visibilityState !== 'visible') return
+      if (!visible()) return
       if (inFlight) { queued = true; return }
       inFlight = true
       lastStarted = Date.now()
       try {
         const status = await readWorkspaceRepository(cwd, { connectionId, profile })
-        if (live && host.state.connectionId.get() === connectionId && host.state.profile.get() === profile &&
+        if (visible() && host.state.connectionId.get() === connectionId && host.state.profile.get() === profile &&
             host.state.focusedSessionId.get() === runtime) data.updateRepository(key, status)
       } catch {
         // A transient unavailable profile should not break the card or leave
@@ -402,6 +403,7 @@ function useLiveWorkspaceRepository(data, shown, updates) {
     }
 
     function schedule() {
+      if (!visible()) return
       const now = Date.now()
       if (!burstStart) burstStart = now
       window.clearTimeout(debounce)
@@ -414,20 +416,48 @@ function useLiveWorkspaceRepository(data, shown, updates) {
     // Changes by a tool update immediately; the visible-only fallback also
     // catches changes made in another application, including nested folders.
     const off = updates.listen(schedule)
-    const timer = window.setInterval(schedule, 10000)
+    function updateVisibility() {
+      if (!visible()) {
+        if (timer !== null) window.clearInterval(timer)
+        timer = null
+        window.clearTimeout(debounce)
+        debounce = 0
+        burstStart = 0
+        queued = false
+        return
+      }
+      if (timer === null) {
+        timer = window.setInterval(schedule, 10000)
+        schedule()
+      }
+    }
+    // Hermes can keep the document visible for an Electron window that is
+    // minimized. Its own pause marker and window-state event cover that case.
+    const offWindowState = window.hermesDesktop?.onWindowStateChanged?.(state => {
+      nativeWindowHidden = state?.isMinimized === true || state?.isVisible === false
+      updateVisibility()
+    })
+    const visibilityObserver = new MutationObserver(updateVisibility)
+    visibilityObserver.observe(document.documentElement, {
+      attributes: true, attributeFilter: ['data-renderer-animations-paused'],
+    })
     window.addEventListener('focus', schedule)
-    schedule()
+    document.addEventListener('visibilitychange', updateVisibility)
+    updateVisibility()
     return () => {
       live = false
       off()
       window.clearTimeout(debounce)
-      window.clearInterval(timer)
+      if (timer !== null) window.clearInterval(timer)
+      offWindowState?.()
+      visibilityObserver.disconnect()
       window.removeEventListener('focus', schedule)
+      document.removeEventListener('visibilitychange', updateVisibility)
     }
   }, [shown, cwd, connectionId, profile, key, updates])
 }
 
-function WorkspaceCard({ id, close, copy, shown, pinned, onPin, roster, panes, actions, localEnvironment, data,
+function WorkspaceCard({ id, copy, shown, roster, panes, actions, localEnvironment, data,
   projectActions, disclosure, selection, updates, isTile, focus }) {
   const { scope, snapshot, refresh } = data
   useLiveWorkspaceRepository(data, shown, updates)
@@ -504,13 +534,10 @@ function WorkspaceCard({ id, close, copy, shown, pinned, onPin, roster, panes, a
             h(DropdownMenuItem, {
               disabled: isTile || !local || !runtime || !session || busy,
               onSelect: () => actions.openMove({ ...target, trigger: trigger.current }, refresh),
-            }, snapshot.isWorktree ? copy.toMain : copy.toTree)),
-          h(DropdownMenuSeparator),
-          h(DropdownMenuItem, { onSelect: onPin }, icon(pinned ? 'unpin' : 'pin'), pinned ? copy.unpin : copy.pin),
-          h(DropdownMenuItem, { onSelect: close }, icon('close'), copy.hide)))
+            }, snapshot.isWorktree ? copy.toMain : copy.toTree))))
 
   return h('aside',
-    { ref: card, id, 'data-hcv-context-card': '', 'data-pinned': pinned, 'aria-label': copy.card, 'aria-hidden': !shown, inert: !shown },
+    { ref: card, id, 'data-hcv-context-card': '', 'aria-label': copy.card, 'aria-hidden': !shown, inert: !shown },
     (snapshot?.repo || related.length > 0) ? h(SummarySection, {
       ...disclosure('changes'), kind: 'changes', title: copy.changes, action: projectMenu,
     }, snapshot?.repo && changeRow(snapshot, snapshot.root || cwd, true),
@@ -518,7 +545,7 @@ function WorkspaceCard({ id, close, copy, shown, pinned, onPin, roster, panes, a
       : cwd && h(SummarySection, { ...disclosure('project'), kind: 'project', title, action: projectMenu }),
     ['pullRequests', 'outputs'].map(kind => h(CompactSummaryItems, { key: JSON.stringify([data.key, kind]), kind, onOpenSource: sources.onOpenSource,
       rows: sources.rows.filter(row => row.section === kind), disclosure: disclosure(kind) })),
-    h(SummarySubagents, { roster, focus, disclosure: disclosure('agents'), onExpand: () => panes.open('agents') }),
+    h(SummarySubagents, { roster, focus, shown, disclosure: disclosure('agents'), onExpand: () => panes.open('agents') }),
     h(CompactSources, { ...sources, rows: sources.rows.filter(row => !row.section), disclosure: disclosure('sources'),
       onExpand: () => panes.open('sources') }))
 }
@@ -537,7 +564,7 @@ function ProjectActions({ entries, cwd, localEnvironment, copy }) {
       }, icon(entry.icon), entry.label))))
 }
 
-function CardSlot({ storage, roster, panes, actions, localEnvironment, selection, updates, summaryStarts }) {
+function CardSlot({ roster, panes, actions, localEnvironment, selection, updates, summaryStarts, hiddenSummary, setLayout }) {
   const { locale } = useI18n()
   const copy = labels[locale] || labels.en
   const focus = useFocusedWorkspace(true)
@@ -552,16 +579,21 @@ function CardSlot({ storage, roster, panes, actions, localEnvironment, selection
   const agents = useValue(panes.visibility.agents)
   const sources = useValue(panes.visibility.sources)
   const changes = useValue(panes.visibility.changes)
-  const roomy = useRoomForCard(Boolean(focus) && !files && !review && !agents && !sources && !changes)
-  const [pinned, setPinned] = useState(() => storage.get('summary-pinned', true) !== false)
+  const eligible = Boolean(focus) && !files && !review && !agents && !sources && !changes
+  const roomy = useRoomForCard(eligible)
   const summaryStart = useValue(summaryStarts)
   const summaryKey = JSON.stringify([focus?.storedId, focus?.runtimeId, focus?.owner?.profile,
     focus?.owner?.connectionId, summaryStart])
-  const [hiddenFor, setHiddenFor] = useState(null)
+  const hiddenFor = useValue(hiddenSummary)
   const open = hiddenFor !== summaryKey
   const [closed, setClosed] = useState(null)
-  const toggleRef = useRef(null)
   const cardId = useId()
+
+  useLayoutEffect(() => {
+    if (focus?.surface && (!eligible || roomy !== null)) {
+      setLayout(focus.surface, eligible && roomy && open)
+    }
+  }, [focus?.surface, eligible, roomy, open, setLayout])
 
   useEffect(() => {
     if (!cwd) return
@@ -572,40 +604,8 @@ function CardSlot({ storage, roster, panes, actions, localEnvironment, selection
     return () => { live = false }
   }, [cwd, localEnvironment, actionRevision])
 
-  useEffect(() => {
-    if (!roomy || !open || pinned) return
-    function onOutside(event) {
-      if (event.target instanceof Element && !event.target.closest(
-        '[data-hcv-context-card], [data-hcv-context-toggle], [data-hcv-summary-menu], [data-hcv-sources-add-menu], [data-hcv-project-actions], [data-hcv-project-actions-menu], [data-slot="dialog-overlay"]',
-      )) setHiddenFor(summaryKey)
-    }
-    function onEscape(event) {
-      if (event.key === 'Escape' && !event.defaultPrevented &&
-        !document.querySelector('[role="menu"][data-state="open"], [role="dialog"][data-state="open"], [popover]:popover-open')) {
-        setHiddenFor(summaryKey)
-        toggleRef.current?.focus({ preventScroll: true })
-      }
-    }
-    document.addEventListener('pointerdown', onOutside, true)
-    document.addEventListener('keydown', onEscape, true)
-    return () => {
-      document.removeEventListener('pointerdown', onOutside, true)
-      document.removeEventListener('keydown', onEscape, true)
-    }
-  }, [roomy, open, pinned, summaryKey])
-
   const projectToolbar = h(ProjectActions, { entries: projectActions, cwd, localEnvironment, copy })
-  if (!roomy) return projectToolbar
-
-  function togglePin() {
-    storage.set('summary-pinned', !pinned)
-    setPinned(!pinned)
-  }
-
-  function closeFromMenu() {
-    setHiddenFor(summaryKey)
-    requestAnimationFrame(() => toggleRef.current?.focus({ preventScroll: true }))
-  }
+  if (!eligible || !roomy) return projectToolbar
 
   function disclosure(section) {
     return {
@@ -623,20 +623,19 @@ function CardSlot({ storage, roster, panes, actions, localEnvironment, selection
     Fragment,
     null,
     projectToolbar,
-    h(Tip, { label: open ? copy.hide : copy.show }, h(
+    h(Tip, { label: open ? copy.hide : copy.show, delayDuration: 250, sideOffset: 2 }, h(
       'button',
       {
-        ref: toggleRef,
         type: 'button',
         'data-hcv-context-toggle': '',
         'aria-expanded': open,
         'aria-controls': cardId,
         'aria-label': open ? copy.hide : copy.show,
-        onClick: () => setHiddenFor(previous => previous === summaryKey ? null : summaryKey),
+        onClick: () => hiddenSummary.set(open ? summaryKey : null),
       },
       icon('panel'),
     )),
-    h(WorkspaceCard, { id: cardId, copy, close: closeFromMenu, shown: open, pinned, onPin: togglePin,
+    h(WorkspaceCard, { id: cardId, copy, shown: open,
       roster, panes, actions, localEnvironment, data, projectActions, disclosure, selection, updates, isTile, focus }),
   )
 }
@@ -653,6 +652,18 @@ export function registerWorkspaceCard(ctx, themeName, roster, localEnvironment) 
   const selection = atom(null)
   const updates = atom(0)
   const summaryStarts = atom(0)
+  const hiddenSummary = atom(null)
+  const layoutMarker = 'data-hcv-summary-layout'
+  let layoutPane = null
+  function setLayout(surface, shown) {
+    // Route overlays unmount the chat and titlebar. The native pane keeps
+    // the layout available for the first frame when the chat returns.
+    const pane = surface.closest('[data-pane-host], [data-tree-group]') || surface
+    if (pane !== layoutPane) layoutPane?.removeAttribute(layoutMarker)
+    layoutPane = pane
+    pane.toggleAttribute(layoutMarker, shown)
+  }
+  ctx.onDispose(() => layoutPane?.removeAttribute(layoutMarker))
   const ownsEvent = event => !event.replayed && event.session_id === host.state.focusedSessionId.get() &&
     (!event.connectionId || event.connectionId === host.state.connectionId.get()) &&
     (!event.profile || event.profile === host.state.profile.get())
@@ -669,7 +680,7 @@ export function registerWorkspaceCard(ctx, themeName, roster, localEnvironment) 
   })
   ctx.onDispose(() => window.clearTimeout(updateTimer))
   const panes = registerSummaryPanes(ctx, scope, {
-    agents: () => h(FocusedSubagentsPane, { roster }),
+    agents: () => h(FocusedSubagentsPane, { roster, visibility: panes.visibility.agents }),
     sources: () => h(ExpandedSources),
     changes: () => h(ExpandedChanges, { selection }),
   })
@@ -679,7 +690,8 @@ export function registerWorkspaceCard(ctx, themeName, roster, localEnvironment) 
   registerSummarySources(ctx, scope)
   registerSummaryChanges(ctx, scope)
   const surfaces = `${scope} [data-hcv-context-card]`
-  const chat = `${scope} [data-chat-surface][data-hcv-summary-focused]`
+  const layout = `[${layoutMarker}]`
+  const chat = `${scope} :is([data-chat-surface][data-hcv-summary-focused], ${layout} [data-chat-surface]:not(:is([data-pane-hidden], [hidden]) *))`
   const bounds = `${chat} > [data-slot="composer-bounds"]`
   const dock = `${chat} [data-slot="composer-dock"]:not([data-popped-out])`
   const fallback = `${chat} [data-slot="composer-root"]:has(> .composer-fallback-surface)`
@@ -696,7 +708,7 @@ ${scope} {
   --hcv-summary-width: 280px;
   --hcv-summary-layout-inset: calc((var(--hcv-summary-width) + 12px) * var(--hcv-summary-progress));
 }
-${scope}:has([data-hcv-context-card][aria-hidden="false"]) { --hcv-summary-progress: 1; }
+${scope}:has(${layout}) { --hcv-summary-progress: 1; }
 @media (forced-colors: none) {
   ${chat} {
     --hcv-summary-composer-width: min(var(--composer-width), 100% - var(--hcv-summary-layout-inset) - 2rem);
@@ -824,10 +836,6 @@ ${scope} [data-hcv-context-toggle] {
   color: var(--hcv-muted);
   flex: 0 0 auto;
 }
-${scope} [data-hcv-context-toggle][aria-expanded="true"] {
-  color: var(--hcv-text);
-  background: var(--hcv-selected);
-}
 ${scope} [data-hcv-project-actions] {
   display: inline-flex;
   align-items: center;
@@ -845,8 +853,7 @@ ${scope} [data-hcv-project-actions]:is(:hover, [data-state="open"]) {
 ${scope} [data-hcv-project-actions-menu] { z-index: calc(var(--z-modal-backdrop, 120) - 1); }
 @media (hover: hover) and (pointer: fine) {
   ${surfaces} button.hcv-context-row:hover:not(:disabled) { color: var(--hcv-text); }
-  ${surfaces} button.hcv-context-icon:hover:not(:disabled),
-  ${scope} [data-hcv-context-toggle]:hover { background: var(--hcv-hover); color: var(--hcv-text); }
+  ${surfaces} button.hcv-context-icon:hover:not(:disabled) { background: var(--hcv-control-hover); color: var(--hcv-text); }
 }
 @media (prefers-reduced-motion: no-preference) {
   /* The Codex panel travel and the chat inset share one interpolated value. */
@@ -855,10 +862,11 @@ ${scope} [data-hcv-project-actions-menu] { z-index: calc(var(--z-modal-backdrop,
   ${scope} [data-hcv-context-card][aria-hidden="true"] { transition-delay: ${codex.summaryTime}; }
 }
 `
-  mountStyle(ctx, style, { surface: '[data-hcv-context-card], [data-hcv-context-toggle], [data-hcv-project-actions]', retainAcrossChatTabs: true })
+  mountStyle(ctx, style, { surface: '[data-tree-group="grp-main"], [data-hcv-context-card], [data-hcv-context-toggle], [data-hcv-project-actions]', retainAcrossChatTabs: true })
   ctx.register({
     id: 'workspace-card',
     area: TITLEBAR_AREAS.right,
-    render: () => h(ThemeCardSlot, { themeName, storage: ctx.storage, roster, panes, actions, localEnvironment, selection, updates, summaryStarts }),
+    render: () => h(ThemeCardSlot, { themeName, roster, panes, actions, localEnvironment, selection, updates,
+      summaryStarts, hiddenSummary, setLayout }),
   })
 }

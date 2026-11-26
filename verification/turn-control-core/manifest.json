@@ -1,0 +1,109 @@
+{
+  "runtime": "C:\\Users\\Arseniy\\AppData\\Local\\hermes\\hermes-agent",
+  "files": {
+    "tui_gateway/methods_session_interrupt.py": {
+      "before": "e327de782c891ab9da2295bb8526bb903d591b60ec9068f47f91b6c315ff901f",
+      "after": "503fbecb3c61a8feb583c458dc581619dc1f23155175f81469adf15a7799abb6"
+    },
+    "tui_gateway/host_supervisor.py": {
+      "before": "f5ea04a264461e925698be512be1eba09fe110cf6cac2c5b176ed54509b6e7c8",
+      "after": "58fa79c0e56a7c7e6f05155f6f89e37f8e04876e834f3c240849a4f79e9f1144"
+    },
+    "tui_gateway/compute_host.py": {
+      "before": "cabdb65a879dfd4fd859cefaadc3b66d8497473c8e4d9bda871830c0a705dadf",
+      "after": "3bdeba8ef90b893c9e1fa02cbe263a4dccaae5782b0d9bb60c7cbfe6f84975ec"
+    },
+    "tui_gateway/prompt_turn.py": {
+      "before": "4bb5469f2aeeaac2807cb303b90643018378577fbd6ac236d50da63e2eb2dd8e",
+      "after": "766bc6a9a267600a0df3f0e0d6cd77c3efa46f8f6ffa36dcb517644359e078a6"
+    },
+    "tui_gateway/contracts/sessions.py": {
+      "before": "2e5702fab044a82e7607e849799cdd25cd51e21044a8b68e7097be8dfd8d6300",
+      "after": "ad05f33189e81740be1889324a118cad1a4400a4848b8ad0286cbd49fe5cd0c6"
+    },
+    "tui_gateway/server.py": {
+      "before": "740de39f23dd4bd40221d23aef425b2d06388fc931c451fd91a65075fadef5a7",
+      "after": "3e1e35f96f403582fbee0b5c73c6d41310c9eb35021a01f063caa0ad7ee623a9"
+    },
+    "tools/delegate_tool.py": {
+      "before": "a650b1a05c7699436c33332684ee6cfdf59cc998cc6127b55ade1e9015da6193",
+      "after": "aebec6491bae909c0cf05e512755b0f4d9a887006b240b523e1ee94a82290311"
+    },
+    "agent/runtime_session_child.py": {
+      "before": "67e0baed5881efb23943c6ed1b1963646e25d426dcffdb5ee8aa39b41d69f3ff",
+      "after": "7ea8ab60ebc2b14bc05e675c6166d0dbc9068aab0b6212f48dde82481abb86e1"
+    },
+    "gateway/session_worker_child.py": {
+      "before": "85659f5013a335ed148f8e098a4d4085db3ff42d7e0029934fc8998c31917012",
+      "after": "527f7c802f3c928cacb9a739223ef305c5c056865f3d4add1045a7771a594613"
+    },
+    "tools/delegate_tool_child_run.py": {
+      "before": "6e04ede31d2b09af5e46a83ea380d0ea6d1f6471e42ac7a396a4873c0e3355ef",
+      "after": "4647c5a9898397dedaf5b9224fb1b8e7f31758ff61ce8211540ab9baa0c10b73"
+    },
+    "hermes_state_worker_compression.py": {
+      "before": "be9b9e8d24a8e5b6070b80b828feb83d32a170cbcd4284a027ec45fa9557eac8",
+      "after": "0e056908d4a387e35767ec309ea4ea9eaf5783404a6bce47ce1f93841bfcf19f"
+    },
+    "tools/async_delegation.py": {
+      "before": "cab19fe630694adcd23660f1d92a2715a98c591bda62292608c26304ce8efa5c",
+      "after": "a01a89bfef0f54cbd453396c18a0a393fe2187fd5aafb0aa828d92b4474763f0"
+    },
+    "tools/process_registry.py": {
+      "before": "e5845e23e6930a6ba2e4ca93609a724447714fa2a206cfa5675852cb31e41af5",
+      "after": "3fc4c4c2534b40f1c45ba960cac1b117bc1cb9797aae0be308f7fc603d56b17d"
+    },
+    "agent/managed_worker.py": {
+      "before": "e7c800c2452ff76c085abcaac09394240196f9d221bdcea24fe78ce2b305d662",
+      "after": "3f1aa63a5e4ace5174e674bac0636b3da28d08dc7dff5f29f997474427229a2f"
+    },
+    "gateway/session_managed_worker.py": {
+      "before": "43e91bbe0dff1a07e32f8c6d608a7243795f112b8c342276b940495e55c3971b",
+      "after": "c8333859d888d86d63cae3ba2d5ac29a22740c6963d95d75574878cec130c2fc"
+    },
+    "gateway/run_turn_runner.py": {
+      "before": "76a97f48cc5f769c84991644957e0e9d64c4be60dbd0774ec7457e740da253fb",
+      "after": "acce79a3df8c7d2ab02a167bdf71073ec1cb37dd4ff11ed8b3990d4f2dab2cd9"
+    },
+    "gateway/session_controls.py": {
+      "before": "44624fbc34c86529db0963eb9dd2183b56b2c8034650053c6a6dc8c3556dc352",
+      "after": "d32875419abfa442196f35df4e31cb615135e8e1dfd224bd9fed5b5fa20bce8e"
+    },
+    "tui_gateway/contracts/canonical_sessions.py": {
+      "before": "b6f9d9e4f0ef233b386f5dd56e406f4168c3e123abc892300e4f256d7f8eac4a",
+      "after": "587f17c56632c853dc541c8e3196aef21dba050ee7be0fccaf69327b044a63cb"
+    },
+    "gateway/session_authority.py": {
+      "before": "c1630f3e564f55549390cb97b86d6d15549eff2d142942d9ebcd6098119f8605",
+      "after": "9db8ed2979f83e325aa1e21cbda013f78fafcfc78836cc7ac952a6b48706f389"
+    },
+    "tui_gateway/hcv_stop_tree.py": {
+      "before": null,
+      "after": "58d09e6772e7349aa52eb623f0a507fe309c71eff54ecaed1e8d9dcefd63ef3e"
+    },
+    "tools/delegate_tree_lineage.py": {
+      "before": null,
+      "after": "b126fb5b86835a2823f3e1c1722f25724b14905a5581a987c2e43c72af4ad492"
+    },
+    "tools/hcv_managed_tree.py": {
+      "before": null,
+      "after": "4d0f98eace80d75170b18d6a4a78030aa08ab9ba3a2ab6c5fc4a59799eb1cd77"
+    },
+    "tools/hcv_inproc_tree.py": {
+      "before": null,
+      "after": "dcd080ae91084ed24ee775edbe8fbd6c4264c4a94172cc5228b591abe5edaa2a"
+    },
+    "tools/delegate_tree_resume.py": {
+      "before": null,
+      "after": "f9855bda9e26d2274a6b7faf32a23541d28d6cf2fda31f23f3c54a641b97a8ad"
+    },
+    "gateway/hcv_tree_owner.py": {
+      "before": null,
+      "after": "c3cb19e9b47ae880769b2ff7dc00d13d0889b15de753cb1b7525d2d58a6811f0"
+    },
+    "gateway/session_queued_controls.py": {
+      "before": "0c4e6a7054a891c5a625d4ce4940c2257555d75ac217ab8db6ce2302052ef903",
+      "after": "45271fe67db2de46a8830b270432ded1d821354802df75d1bd7a03f0c204fa27"
+    }
+  }
+}

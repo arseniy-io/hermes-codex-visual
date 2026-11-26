@@ -28,6 +28,15 @@ export async function verifySidebarActivity({
   const chatRow = sessionRow(chat)
   const recentMore = recents.getByRole('button', { name: 'Действия с недавними', exact: true })
 
+  const profileRail = sidebar.locator('[data-slot="profile-rail"]')
+  const defaultProfile = profileRail.getByRole('button', { name: 'Показать все профили', exact: true })
+  const returnToDefault = profileRail.getByRole('button', { name: 'Переключиться на default', exact: true })
+  await expect(defaultProfile.or(returnToDefault)).toBeVisible({ timeout: 30000 })
+  if (await returnToDefault.isVisible()) await returnToDefault.click()
+  await expect(defaultProfile).toBeVisible({ timeout: 30000 })
+  await auditLocalRoute?.('default')
+  await expect(project).toBeVisible({ timeout: 30000 })
+
   await expect(newChat).toHaveAccessibleName('Новый чат')
   await expect(newChat.locator('[data-slot="kbd-group"]')).toBeHidden()
   await expect(projects).toHaveAttribute('aria-expanded', 'true')

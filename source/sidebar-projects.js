@@ -210,10 +210,11 @@ function openNativeRename(entry, alive) {
 export function positionSidebarPreview(card, rect) {
   const gap = codex.sidebar.previewOffset
   const width = card.offsetWidth
+  const height = card.offsetHeight
   const fitsRight = rect.right + width + gap + 8 <= innerWidth
   const left = fitsRight ? rect.right + gap : rect.left - width - gap
   card.style.left = `${Math.max(8, Math.min(innerWidth - width - 8, left))}px`
-  card.style.top = `${Math.max(8, Math.min(innerHeight - card.offsetHeight - 8, rect.top))}px`
+  card.style.top = `${Math.max(8, Math.min(innerHeight - height - 8, rect.top))}px`
 }
 
 function projectPreview(content, t) {
@@ -246,6 +247,7 @@ function projectPreview(content, t) {
   let alive = true
   const supportsHover = window.matchMedia('(any-hover: hover) and (any-pointer: fine)')
   function close() {
+    if (!hovered && !showing && card.hidden) return
     clearTimeout(timer)
     clearTimeout(delay)
     hovered = undefined

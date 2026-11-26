@@ -28,7 +28,7 @@ async function measure(turn) {
 export async function verifyActivityHotSwap({ page, expect, projectChat, sandbox, screenshot }) {
   const replacement = process.env.HERMES_VISUAL_REPLACEMENT_PLUGIN
   assert(replacement, 'Set HERMES_VISUAL_REPLACEMENT_PLUGIN to the new module')
-  await projectChat('Проверка каталога').click()
+  await projectChat('Интервалы уведомлений').click()
   const chat = page.locator('[data-chat-surface][data-composer-target="main"]:visible')
   const turn = chat.locator('[data-slot="aui_turn-pair"]').filter({ hasText: 'Проверь интервалы уведомления агента.' })
   const status = turn.locator('button[data-hcv-agent-rows][aria-controls] [data-hcv-agent-activity]')

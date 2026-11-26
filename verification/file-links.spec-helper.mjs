@@ -48,8 +48,10 @@ export async function verifyFileLinks({ app, page, expect, projectChat, screensh
     await expect(turn.locator('[data-hcv-skill-link]').filter({ hasText: 'инструкцию' })).toBeVisible()
     const delivery = turn.locator('span[title$="План-проекта.md"]').last().locator('..')
     await expect(delivery).not.toHaveAttribute('data-hcv-file-reference', '')
-    await expect(delivery).toBeVisible()
-    await expect(delivery.getByRole('button', { name: 'Открыть предпросмотр', exact: true })).toBeVisible()
+    const deliveryMedia = turn.locator('span[title$="Рабочие-заметки.md"]').last().locator('..')
+    await expect(delivery).toBeHidden()
+    await expect(deliveryMedia).toBeHidden()
+    await expect(turn.getByRole('button', { name: 'Открыть предпросмотр', exact: true })).toHaveCount(0)
 
     await paragraph.scrollIntoViewIfNeeded()
     const box = await paragraph.boundingBox()
@@ -122,14 +124,18 @@ export async function verifyFileLinks({ app, page, expect, projectChat, screensh
     await page.setViewportSize({ width: 1440, height: 920 })
 
     await page.emulateMedia({ forcedColors: 'active' })
-    await expect(turn.locator('[data-hcv-file-reference-control]')).toHaveCount(0)
-    await expect(file).toBeVisible()
+    await expect(turn.locator('[data-hcv-file-reference-control]')).toHaveCount(2)
+    await expect(plan).toBeVisible()
+    await expect(delivery).toBeHidden()
+    await expect(deliveryMedia).toBeHidden()
     await page.emulateMedia({ forcedColors: 'none' })
     await expect(plan).toBeVisible()
     await openThemeSettings()
     await page.getByText(/^(Светлая|Light)$/).first().click()
     await closeSettings()
     await expect(plan).toHaveCSS('color', 'rgb(1, 105, 204)')
+    await expect(delivery).toBeHidden()
+    await expect(deliveryMedia).toBeHidden()
     await openThemeSettings()
     await themeCard('Nous').click()
     await closeSettings()
@@ -148,7 +154,7 @@ export async function verifyFileLinks({ app, page, expect, projectChat, screensh
     await source.click()
     await expect(plan.locator('..').locator(':scope > button:last-child')).toHaveText('Скрыть')
     return { dark, narrow, filePreviewByMouseAndKeyboard: true, secondaryAction: true,
-      explicitDeliveryCard: true, skillPreserved: true, summarySource: true, themeAndForcedColors: true }
+      standalonePreviewsHidden: true, skillPreserved: true, summarySource: true, themeAndForcedColors: true }
   }
   await expect(file).toBeVisible()
   await file.scrollIntoViewIfNeeded()

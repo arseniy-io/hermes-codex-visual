@@ -29,13 +29,14 @@ function fixture({ routeAvailable = true, delayed = false, duplicate = false } =
       pagination: { order: 'oldest', offset: 0, limit: 100, returned: 1 } }
   } } }
   const doc = { visibilityState: 'visible', addEventListener() {}, removeEventListener() {} }
+  const observeWindowVisibility = () => ({ hidden: () => doc.visibilityState === 'hidden', dispose() {} })
   const IntersectionObserver = class { observe() {} disconnect() {} }
-  const invoke = new Function('useState', 'useEffect', 'host', 'window', 'document', 'IntersectionObserver',
+  const invoke = new Function('useState', 'useEffect', 'useRef', 'observeWindowVisibility', 'host', 'window', 'IntersectionObserver',
     'mergeAgentTranscript', 'agentSessionMetadata', 'finished', 'normalizeProfile', 'savedResponse', 'uniqueTileRoute', 'tileOwner',
     hook + `\nreturn useChildResponse({subagentId:'worker', status:'completed', model:'model', effort:'max'},
-      '["tile-connection","tile-profile","tile-runtime"]', {current:{checkVisibility:()=>true}}, tileOwner)`)
-  invoke(() => [null, value => updates.push(value)], callback => { cleanup = callback() }, host, window, doc,
-    IntersectionObserver, mergeAgentTranscript, agentSessionMetadata,
+      '["tile-connection","tile-profile","tile-runtime"]', {current:{checkVisibility:()=>true}}, tileOwner, true)`)
+  invoke(() => [null, value => updates.push(value)], callback => { cleanup = callback() },
+    current => ({ current }), observeWindowVisibility, host, window, IntersectionObserver, mergeAgentTranscript, agentSessionMetadata,
     agent => ['completed','failed','interrupted'].includes(agent.status), value => (value || 'default').trim().toLowerCase(),
     rows => rows.filter(row => row.role === 'assistant').map(row => ({ text: row.content })),
     uniqueTileRoute, { isCurrent: () => current, storedId: 'tile-stored', surface: {}, view: {},

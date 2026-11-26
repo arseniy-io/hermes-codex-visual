@@ -20,6 +20,8 @@ __pycache__/
 /verification/synthetic-*/
 /verification/test-runtime-pin.json
 /verification/*.py
+!/verification/isolated-chat-limit.py
+!/verification/isolated-chat-limit.test.py
 !/verification/stop-isolated-gateway.py
 !/verification/release-lock.test.py
 !/verification/release-batch.test.py

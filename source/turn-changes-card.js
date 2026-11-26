@@ -150,8 +150,8 @@ export function turnChangesCardStyles(scope) {
   const card = scope + ' [data-hcv-saved-turn-card]'
   const header = card + ' > [data-hcv-turn-card-header]'
   return `
-${card} { --hcv-card-stroke:light-dark(rgb(26 28 31 / 12%),rgb(255 255 255 / 16%)); --hcv-card-border:light-dark(rgb(26 28 31 / 8%),rgb(255 255 255 / 8%)); --hcv-card-hover:light-dark(rgb(26 28 31 / 5%),rgb(255 255 255 / 8%)); --hcv-card-text:light-dark(#1a1c1f,#dfdfdf); --hcv-card-description:color-mix(in srgb,var(--hcv-card-text) 70%,transparent); --hcv-card-radius:10px; position:relative; margin:14px .5px 8px; border:0; border-radius:var(--hcv-card-radius); overflow:hidden; box-shadow:0 0 0 .5px var(--hcv-card-stroke); background:light-dark(#fff,#222); color:var(--hcv-card-text); font:430 14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; min-inline-size:0; }
-${card}::after { content:''; position:absolute; inset:0; z-index:2; border-radius:inherit; box-shadow:inset 0 0 0 .5px var(--hcv-card-stroke); pointer-events:none; }
+/* Leave room for the outer stroke inside Hermes' clipped assistant message. */
+${card} { --hcv-card-stroke:light-dark(rgb(26 28 31 / 12%),rgb(255 255 255 / 16%)); --hcv-card-border:light-dark(rgb(26 28 31 / 8%),rgb(255 255 255 / 8%)); --hcv-card-hover:light-dark(rgb(26 28 31 / 5%),rgb(255 255 255 / 8%)); --hcv-card-text:light-dark(#1a1c1f,#dfdfdf); --hcv-card-description:color-mix(in srgb,var(--hcv-card-text) 70%,transparent); --hcv-card-radius:10px; position:relative; margin:14px 1px 8px; border:0; border-radius:var(--hcv-card-radius); overflow:hidden; box-shadow:0 0 0 .5px var(--hcv-card-stroke); background:light-dark(#fff,#222); color:var(--hcv-card-text); font:430 14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; min-inline-size:0; }
 ${header} { position:relative; display:flex; align-items:center; gap:10px; min-inline-size:0; padding:12px; }
 ${card} button { cursor:pointer; color:inherit; font:inherit; border:0; background:transparent; }
 ${card} button:disabled { opacity:.5; cursor:default; }

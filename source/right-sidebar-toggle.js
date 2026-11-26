@@ -43,8 +43,9 @@ function RightSidebarMirror({ themeName }) {
       return
     }
     data.target.style.display = 'contents'
+    data.target.toggleAttribute('data-hcv-right-open', data.open === true)
     data.original.setAttribute('data-hcv-right-original', '')
-  }, [data?.original, data?.target, data?.type, data?.props, data?.label, theme.themeName, themeName])
+  }, [data?.original, data?.target, data?.type, data?.props, data?.label, data?.open, theme.themeName, themeName])
 
   // React removes a portal during the commit, before passive effect cleanup.
   // Restore keyboard focus in layout cleanup, while the clone is still mounted.

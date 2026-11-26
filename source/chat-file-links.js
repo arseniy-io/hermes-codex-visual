@@ -81,10 +81,13 @@ export function registerChatFileLinks(ctx, active, candidate) {
       inline-size: 20px; block-size: 20px; margin-inline-start: 3px;
     }
     ${secondaryCSS} > svg { inline-size: 14px; block-size: 14px; flex: none; }
+    @media (forced-colors: active) {
+      ${linkCSS} { color: LinkText; forced-color-adjust: none; }
+      ${linkCSS}:focus-visible, ${secondaryCSS}:focus-visible { outline-color: Highlight; }
+    }
   `, chatStyles)
 
   const pending = new Set()
-  const forcedColors = window.matchMedia('(forced-colors: active)')
   let frame = 0
   let connected = false
 
@@ -154,7 +157,7 @@ export function registerChatFileLinks(ctx, active, candidate) {
     schedule()
   })
   function sync() {
-    const enabled = document.documentElement.matches(active) && !forcedColors.matches
+    const enabled = document.documentElement.matches(active)
     if (connected === enabled) return
     connected = enabled
     observer.disconnect()
@@ -172,7 +175,6 @@ export function registerChatFileLinks(ctx, active, candidate) {
   }
   const theme = new MutationObserver(sync)
   theme.observe(document.documentElement, { attributes: true, attributeFilter: ['data-hermes-theme'] })
-  ctx.addEventListener(forcedColors, 'change', sync)
   sync()
   ctx.onDispose(() => {
     observer.disconnect()

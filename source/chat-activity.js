@@ -2,6 +2,7 @@ import { mountStyle } from './style-scope.js'
 import { fileActivityData, fileActivityLabel, fileActivityStyles } from './chat-file-activity.js'
 import { codexIconRules, codexMask, codexReference as codex } from './codex-reference.js'
 import { committedFiber } from './sidebar-recents.js'
+import { observeChatText } from './chat-text-observation.js'
 import { agentDisplayName } from './agent-display-name.js'
 import { registerChatImages } from './chat-images.js'
 import { registerChatReasoning } from './chat-reasoning.js'
@@ -16,6 +17,7 @@ const surface = '[data-chat-surface]:not([data-hud-shell] *)'
 const rowSelector = '[data-tool-row][data-slot="tool-block"]'
 const summarySelector = '[data-tool-group] > [data-tool-summary]'
 const activitySelector = `${rowSelector}, ${summarySelector}`
+const responseSelector = '[data-slot="aui_response-group"]'
 const messageContent = '[data-slot="aui_assistant-message-content"]'
 const thinkingSelector = '[data-slot="aui_thinking-disclosure"]'
 const thinkingBody = '[data-slot="aui_thinking-body"]'
@@ -80,16 +82,16 @@ const rowProps = row => {
   return props?.part ? { ...props, part: activityToolPart(props.part) } : props
 }
 const directSummary = ':scope > [data-tool-summary]'
-function partsForBlock(block) {
+function partsForBlock(block, readRow, readRun) {
   if (block.matches(rowSelector)) {
-    const part = rowProps(block)?.part
+    const part = readRow(block)?.part
     return part?.toolName ? [part] : []
   }
   if (!block.matches('[data-tool-group]')) return []
   const summary = block.querySelector(directSummary)
-  if (summary) return runParts(summary)
+  if (summary) return readRun(summary)
   const row = block.querySelector(`:scope > div > ${rowSelector}`)
-  return row ? partsForBlock(row) : []
+  return row ? partsForBlock(row, readRow, readRun) : []
 }
 
 const findTitle = (entry, summary) => (summary ? entry : entry.firstElementChild)
@@ -114,6 +116,7 @@ const receiptStatuses = new Map([
   ['Timed Out', ['не уложился во время', 'не уложились во время']],
   ['Stalled', ['остановился', 'остановились']],
 ])
+let receiptSubjects
 
 function receiptLabel(text) {
   const match = /^Subagent (Task|Tasks) ([^:]+): (.+)$/.exec(text)
@@ -124,7 +127,8 @@ function receiptLabel(text) {
   const status = receiptStatuses.get(outcome)?.[Number(plural)]
   if (!status) return ''
   const goals = plural ? goal.replace(/ \(\d+ tasks\)$/, '').split('; ') : [goal]
-  const subject = new Intl.ListFormat('ru').format(goals.map(goal => agentDisplayName({ goal }, 'Субагент')))
+  receiptSubjects ??= new Intl.ListFormat('ru')
+  const subject = receiptSubjects.format(goals.map(goal => agentDisplayName({ goal }, 'Субагент')))
   return subject + ' ' + status
 }
 
@@ -416,7 +420,23 @@ export function registerChatActivity(ctx, active) {
 
   const pending = new Set()
   const pendingResponses = new Set()
-  const groups = activityGroups(partsForBlock, (...args) => setSite(...args))
+  // Group captions and individual entries use the same committed metadata
+  // within a pass. Read it again on the next pass in case React has updated it.
+  const rowReads = new Map()
+  const runReads = new Map()
+  const readRow = entry => {
+    if (!rowReads.has(entry)) rowReads.set(entry, rowProps(entry))
+    return rowReads.get(entry)
+  }
+  const readRun = entry => {
+    if (!runReads.has(entry)) runReads.set(entry, runParts(entry))
+    return runReads.get(entry)
+  }
+  function clearReads() {
+    rowReads.clear()
+    runReads.clear()
+  }
+  const groups = activityGroups(block => partsForBlock(block, readRow, readRun), (...args) => setSite(...args), clearReads)
   const siteEntries = new WeakMap()
   const siteIcons = new Map()
   const forcedColors = window.matchMedia('(forced-colors: active)')
@@ -539,13 +559,13 @@ export function registerChatActivity(ctx, active) {
     }
   }
   function queueResponse(response) {
-    if (response && (groups.has(response) || response.querySelector('[data-slot="tool-block"]'))) {
+    if (response && !pendingResponses.has(response) && (groups.has(response) || response.querySelector('[data-slot="tool-block"]'))) {
       pendingResponses.add(response)
     }
   }
   function queue(entry) {
     pending.add(entry)
-    queueResponse(entry.closest('[data-slot="aui_response-group"]'))
+    queueResponse(entry.closest(responseSelector))
   }
   function collect(node) {
     if (!(node instanceof Element)) return
@@ -563,12 +583,16 @@ export function registerChatActivity(ctx, active) {
     }
     pendingResponses.clear()
     for (const entry of pending) {
-      if (!entry.isConnected || !entry.closest(surface)) continue
+      if (!entry.isConnected || !entry.closest(surface)) {
+        textChanges.set(entry)
+        continue
+      }
       if (entry.matches(thinkingSelector) || entry.matches(receiptSelector)) {
         const thinking = entry.matches(thinkingSelector)
         const title = (thinking ? entry : entry.querySelector(':scope > [data-conversation-scaffold]'))
           ?.querySelector(':scope > div > button > span:first-child > span:first-child')
         const native = thinking ? title?.firstElementChild : title?.querySelector(':scope > span.truncate')
+        textChanges.set(entry, native)
         const text = native?.textContent.trim()
         const localized = russian && text && (thinking ? thoughtLabel(text) : receiptLabel(text))
         setLabel(title, native, localized)
@@ -579,7 +603,7 @@ export function registerChatActivity(ctx, active) {
         continue
       }
       const summary = entry.hasAttribute('data-tool-summary')
-      const props = rowProps(entry)
+      const props = readRow(entry)
       const part = props?.part
       if (!summary && part) updateActivityDetails(entry, part.toolName, russian)
       // Hermes marks streaming on a hidden child of the message root, not on
@@ -587,7 +611,7 @@ export function registerChatActivity(ctx, active) {
       const streaming = entry.closest('[data-message-streaming="true"]') ||
         entry.closest(assistant)?.querySelector('[data-message-streaming="true"]')
       const live = summary ? props?.live : Boolean(part && part.result === undefined && part.completedAt == null && streaming)
-      const parts = summary ? runParts(entry) : part?.toolName ? [part] : []
+      const parts = summary ? readRun(entry) : part?.toolName ? [part] : []
       const view = activityPresentation(parts, live, russian, !summary &&
         (entry.closest(`[${activityMember}]`) || entry.closest('[data-tool-group]')?.querySelector(directSummary) ||
           ['write_file', 'edit_file', 'patch'].includes(part?.toolName)), summary)
@@ -596,6 +620,9 @@ export function registerChatActivity(ctx, active) {
       if (icon) entry.setAttribute(iconAttribute, icon)
       else entry.removeAttribute(iconAttribute)
       const title = findTitle(entry, summary)
+      // Some native tools update result text without remounting their header.
+      // Watch those tool rows, while ordinary assistant prose stays outside.
+      textChanges.set(entry, summary ? title : entry)
       title?.toggleAttribute(fallbackIcon, Boolean(!summary && icon && !title.querySelector(':scope > span > :is(svg, .codicon, [role="status"])')))
       // The outer live summary already names Chrome. Keep the native action
       // name inside its disclosure (and in Hermes's native ticker).
@@ -606,18 +633,21 @@ export function registerChatActivity(ctx, active) {
       setSite(entry, title, view?.site)
     }
     pending.clear()
+    clearReads()
+    textChanges.refresh()
   }
-  const observer = new MutationObserver(records => {
+  function markChanges(records) {
     for (const { type, target, addedNodes, removedNodes } of records) {
       const element = target instanceof Element ? target : target.parentElement
-      if (!element || element.closest(thinkingBody) || element.closest(`[${activityGroup}], [${activityRepeatGroup}]`)) continue
+      // Translated captions are our own output. Changes to the native row still queue it.
+      if (!element || element.hasAttribute(customLabel) || element.closest(thinkingBody) || element.closest(`[${activityGroup}], [${activityRepeatGroup}]`)) continue
       if (type === 'attributes') {
-        queueResponse(element.closest('[data-slot="aui_response-group"]'))
+        queueResponse(element.closest(responseSelector))
         continue
       }
       if (type === 'characterData' && element.closest('time, [class~="tabular-nums"], [role="status"]')) continue
-      if (element.matches(`:is(${messageContent}, ${assistant}, [data-slot="aui_response-group"])`)) {
-        queueResponse(element.closest('[data-slot="aui_response-group"]'))
+      if (element.matches(`:is(${messageContent}, ${assistant}, ${responseSelector})`)) {
+        queueResponse(element.closest(responseSelector))
       }
       const entry = element.closest(labelSelector)
       if (entry) queue(entry)
@@ -625,15 +655,22 @@ export function registerChatActivity(ctx, active) {
       // Do not let an observed, collapsed browser row keep an old chat alive.
       for (const node of removedNodes) {
         if (!(node instanceof Element) || node.isConnected) continue
-        if (node.matches('[data-slot="aui_response-group"]') || node.querySelector('[data-slot="aui_response-group"]')) {
+        if (node.matches(responseSelector) || node.querySelector(responseSelector)) {
           pruneNeeded = true
         }
         if (siteEntries.has(node)) setSite(node)
-        for (const entry of node.querySelectorAll(activitySelector)) if (siteEntries.has(entry)) setSite(entry)
+        if (node.matches(labelSelector)) textChanges.set(node)
+        for (const entry of node.querySelectorAll(labelSelector)) {
+          if (siteEntries.has(entry)) setSite(entry)
+          textChanges.set(entry)
+        }
       }
     }
+    textChanges.refresh()
     if ((pruneNeeded || pending.size || pendingResponses.size) && !frame) frame = requestAnimationFrame(flush)
-  })
+  }
+  const observer = new MutationObserver(markChanges)
+  const textChanges = observeChatText(markChanges)
   function clearActivity() {
     groups.clear()
     clearActivityDetails()
@@ -654,6 +691,7 @@ export function registerChatActivity(ctx, active) {
     if (connected === next) return
     connected = next
     observer.disconnect()
+    textChanges.clear()
     sites.disconnect()
     cancelAnimationFrame(frame)
     frame = 0
@@ -663,7 +701,7 @@ export function registerChatActivity(ctx, active) {
     if (next) {
       collect(document.body)
       flush()
-      observer.observe(document.body, { childList: true, characterData: true, subtree: true,
+      observer.observe(document.body, { childList: true, subtree: true,
         attributes: true, attributeFilter: ['data-message-streaming'] })
     } else clearActivity()
   }
@@ -680,6 +718,7 @@ export function registerChatActivity(ctx, active) {
   ctx.onDispose(() => {
     disposed = true
     observer.disconnect()
+    textChanges.clear()
     theme.disconnect()
     sites.disconnect()
     cancelAnimationFrame(frame)

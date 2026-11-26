@@ -339,7 +339,7 @@ test('consecutive identical MCP calls get a closed nested disclosure without mov
 })
 
 
-test('a new overall disclosure starts closed even if Hermes auto-expanded its native summary', () => {
+test('a closed overall disclosure leaves hidden native summaries untouched until the user opens it', () => {
   const dom = new JSDOM(`<!doctype html><div data-slot="aui_response-group">
     <div data-slot="aui_assistant-message-root"><div data-slot="aui_assistant-message-content">
     <div data-slot="aui_thinking-disclosure"></div>
@@ -351,15 +351,32 @@ test('a new overall disclosure starts closed even if Hermes auto-expanded its na
     const doc = dom.window.document
     const response = doc.querySelector('[data-slot="aui_response-group"]')
     const native = response.querySelector('[data-tool-summary] button')
-    native.addEventListener('click', () => native.setAttribute('aria-expanded', String(native.getAttribute('aria-expanded') !== 'true')))
+    let nativeClicks = 0
+    let invalidated = 0
+    native.addEventListener('click', () => {
+      nativeClicks++
+      native.setAttribute('aria-expanded', String(native.getAttribute('aria-expanded') !== 'true'))
+    })
     const groups = activityGroups(node => node.matches('[data-tool-group]')
-      ? [{ toolName: 'terminal', args: { command: 'echo one' }, result: {}, completedAt: 1 }] : [])
+      ? [{ toolName: 'terminal', args: { command: 'echo one' }, result: {}, completedAt: 1 }] : [],
+    undefined, () => { invalidated++ })
     groups.sync(response, true)
     const header = response.querySelector(`[${activityGroup}] > button`)
     assert.equal(header.getAttribute('aria-expanded'), 'false')
+    assert.equal(native.closest('[data-tool-group]').getAttribute(activityMember), 'closed')
+    groups.sync(response, true)
+    assert.equal(nativeClicks, 0)
+    assert.equal(invalidated, 0)
+    assert.equal(native.getAttribute('aria-expanded'), 'true')
+    header.click()
+    assert.equal(native.getAttribute('aria-expanded'), 'true')
+    header.click()
     assert.equal(native.getAttribute('aria-expanded'), 'false')
+    assert.equal(nativeClicks, 1)
+    assert.equal(invalidated, 1)
     groups.clear()
     assert.equal(native.getAttribute('aria-expanded'), 'true')
+    assert.equal(invalidated, 2)
   } finally {
     globalThis.document = previousDocument
     dom.window.close()

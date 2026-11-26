@@ -139,6 +139,33 @@ test('complete detail is required and unknown decisions stay locked until refres
   } finally { e.cleanup() }
 })
 
+test('reopening shows the saved explanation while the source is being checked', async () => {
+  const checked = deferred()
+  let reopened = false
+  const e = setup(route => route === '/activity' ? snapshot() : reopened ? checked.promise : detail())
+  try {
+    await flush()
+    e.controller.open()
+    await flush()
+    await e.controller.inspect(skill)
+    e.controller.close()
+    e.controller.open()
+    await flush()
+    reopened = true
+    const request = e.controller.inspect(skill)
+    assert.equal(e.model().busy, 'detail')
+    assert.match(JSON.stringify(e.view()), /Проверять результат и сохранять подтверждённые сведения/)
+    await e.controller.decide('approve')
+    assert.equal(e.calls.filter(call => call.options?.method === 'POST').length, 0)
+    checked.resolve({ ...detail(), signature: 'changed-source',
+      explanation: { status: 'ready', text: 'Пояснение изменённой правки.' } })
+    await request
+    assert.match(JSON.stringify(e.view()), /Пояснение изменённой правки/)
+    assert.equal(e.controller.savedExplanation(skill).text, 'Пояснение изменённой правки.')
+    assert.equal(e.controller.savedExplanation({ ...skill, version: 'replaced' }), null)
+  } finally { e.cleanup() }
+})
+
 test('a pending explanation blocks the decision and navigation changes clear it', async () => {
   const e = setup(route => route === '/activity' ? snapshot() :
     { ...detail(), explanation: { status: 'pending', text: '' } })

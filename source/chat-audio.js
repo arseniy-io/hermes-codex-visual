@@ -120,9 +120,8 @@ function attachPlayer(card, audio) {
   }
 }
 
-export function registerChatAudio(ctx, active, selector) {
+export function registerChatAudio(ctx, active, selector, forcedColors) {
   const root = document.documentElement
-  const forcedColors = window.matchMedia('(forced-colors: active)')
   const players = new Map()
   const card = `${active} [${mark}]`
   const waveform = localAssets?.icons.resourceAudioLight && localAssets?.icons.resourceAudioDark
@@ -287,19 +286,14 @@ export function registerChatAudio(ctx, active, selector) {
     changes.observe(document.body, { childList: true, subtree: true })
   }
 
-  const theme = new MutationObserver(records => {
-    if (records.some(record => record.attributeName === 'data-hermes-theme')) reconcile()
-    if (records.some(record => record.attributeName === 'lang')) {
-      for (const player of players.values()) player.sync()
-    }
-  })
-  theme.observe(root, { attributes: true, attributeFilter: ['data-hermes-theme', 'lang'] })
-  forcedColors.addEventListener('change', reconcile)
-  reconcile()
   ctx.onDispose(() => {
-    theme.disconnect()
     changes.disconnect()
-    forcedColors.removeEventListener('change', reconcile)
     clear()
   })
+  return {
+    reconcile,
+    localize() {
+      for (const player of players.values()) player.sync()
+    },
+  }
 }

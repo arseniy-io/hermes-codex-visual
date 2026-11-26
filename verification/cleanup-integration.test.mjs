@@ -12,7 +12,7 @@ function makeRun(settings = {}) {
   const end = source.indexOf('\n  }\n})', start)
   assert(start > 0 && end > start)
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor
-  const names = ['firstToken', 'voiceRequests', 'chatFixture', 'composerFixture', 'mock', 'app',
+  const names = ['firstToken', 'voiceRequests', 'chatFixture', 'queueFixture', 'composerFixture', 'mock', 'app',
     'closeTestGateway', 'spawnSync', 'pythonPath', 'path', 'feature', 'sandbox', 'mcp', 'console',
     'cleanupVisualTest', 'hasMainError', 'mainError', 'electronLaunchAttempted', 'fs', 'assert',
     'sandboxRealPath', 'captureDirectoryIdentity', 'sandboxIdentity']
@@ -38,7 +38,7 @@ function makeRun(settings = {}) {
   const fakeSpawn = () => { calls.push('gateway'); return settings.gatewayResult || { status: 0, stdout: 'Stopped finished isolated gateway' } }
   const app = settings.appAbsent ? undefined : fakeApp
   const launchAttempted = settings.launchAttempted !== false
-  const args = [undefined, [], undefined, undefined, fakeMock, app, undefined, fakeSpawn, 'fake-python', path,
+  const args = [undefined, [], undefined, undefined, undefined, fakeMock, app, undefined, fakeSpawn, 'fake-python', path,
     'fake-feature', fakeSandbox, fakeMcp, { log() {}, error() {} }, cleanupVisualTest,
     Boolean(settings.originalError), settings.originalError, launchAttempted, fakeFs, assert, root,
     captureDirectoryIdentity, sandboxIdentity]

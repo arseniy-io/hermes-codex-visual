@@ -529,6 +529,13 @@ def apply_ready(state, store, intent, receipt, maintenance, plan):
                 or any(evidence.get(key) is not True for key in (
                     "desktop_loaded", "gateway_ready", "installed_components_verified"))):
             raise QueueError("The working Desktop and server did not confirm the exact release")
+        if "core_files" in evidence:
+            pins = evidence["core_files"]
+            if (not isinstance(pins, dict) or pins.keys() != new_base.get("core_files", {}).keys()
+                    or any(not isinstance(value, str) or not re.fullmatch(r"[a-f0-9]{64}", value)
+                           for value in pins.values())):
+                raise QueueError("The activation proof has invalid runtime pins")
+            new_base["core_files"] = dict(pins)
         confirmation = {"intent_id": intent["id"], "verified": True, "version": receipt["version"],
                         "archive_sha256": receipt["archive_sha256"], "new_base_id": new_base["id"],
                         "activation": evidence}

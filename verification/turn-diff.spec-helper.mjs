@@ -83,12 +83,13 @@ export async function verifyTurnDiff({
     const matchedCard = root.locator('span.truncate[title]').filter({ hasText: 'single-file.md' }).first().locator('..')
     const otherCard = delivered.last().locator('..')
     await expect(delivered).toHaveCount(2)
-    await expect(otherCard).toBeVisible()
     if (before) {
+      await expect(otherCard).toBeVisible()
       await expect(matchedCard).toBeVisible()
       return
     }
     await expect(matchedCard).toBeHidden()
+    await expect(otherCard).toBeHidden()
     const fileLink = header.getByRole('button', { name: 'Открыть файл single-file.md' })
     await expect(fileLink).toBeVisible()
     const singleColors = await fileLink.evaluate(node => ({ color: getComputedStyle(node).color,
@@ -120,13 +121,14 @@ export async function verifyTurnDiff({
     await reveal.click()
     await expect.poll(() => app.evaluate(() => globalThis.hcvMergedFileRevealed)).toBe(path.join(projectFolder, singleFile))
     await page.emulateMedia({ forcedColors: 'active' })
-    await expect(matchedCard).toBeVisible()
+    await expect(matchedCard).toBeHidden()
+    await expect(otherCard).toBeHidden()
     await expect(header.locator('[data-hcv-files-preview]')).toHaveCount(0)
     await page.emulateMedia({ forcedColors: 'none' })
     await expect(fileLink).toBeVisible()
     await expect(matchedCard).toBeHidden()
-    await expect(otherCard).toBeVisible()
-    console.log('Delivered file merged, unrelated same-name file retained, preview and forced colors verified')
+    await expect(otherCard).toBeHidden()
+    console.log('Standalone file previews hidden, native actions from the change card and forced colors verified')
   }
   if (!before) {
     await expect(title).toHaveText('Изменён single-file.md')
@@ -157,7 +159,7 @@ export async function verifyTurnDiff({
     await expect(attached.filter({ hasText: 'fixture-note.md' }).locator('..')).toBeHidden()
     await expect(attached.filter({ hasText: 'turn-change.py' }).locator('..')).toBeHidden()
     await expect(attached.filter({ hasText: 'diagnostics.txt' }).locator('..')).toBeHidden()
-    await expect(attached.filter({ hasText: 'fixture-rules.txt' }).locator('..')).toBeVisible()
+    await expect(attached.filter({ hasText: 'fixture-rules.txt' }).locator('..')).toBeHidden()
     await page.mouse.move(0, 0)
     await expect(noteActions).toBeHidden()
   }

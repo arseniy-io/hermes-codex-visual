@@ -313,10 +313,63 @@ class ActivityTest(unittest.TestCase):
         self.assertEqual(detail["explanation"]["text"], "Изменить правило проверки и сохранить результат.")
         self.assertEqual(detail["changes"][0]["fragments"], [{"before": "old", "after": "new"}])
         self.assertNotIn("description: Test skill", json.dumps(detail["changes"][0]["fragments"]))
-        self.detail(rec)
+        self.activity._save_intent("skills", rec["id"], {"context": "Назначение пришло позже."}, origins={"background_review"})
+        self.activity._SUMMARY_OUTCOMES.clear()
+        self.assertEqual(self.detail(rec)["explanation"], detail["explanation"])
+        response = self.client.post(f"/activity/skills/{rec['id']}/explanation",
+                                    json={key: detail[key] for key in ("scope", "version", "signature")})
+        self.assertEqual(response.json()["explanation"], detail["explanation"])
         self.assertEqual(self.model_mock.call_count, 1)
         path.write_text(path.read_text(encoding="utf-8") + "new context\n", encoding="utf-8")
-        self.assertNotEqual(self.detail(rec)["signature"], detail["signature"])
+        changed = self.detail(rec)
+        self.assertNotEqual(changed["signature"], detail["signature"])
+        self.assertEqual(changed["explanation"]["status"], "pending")
+        deadline = time.monotonic() + 5
+        while self.activity._SUMMARY_RUNNING and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertEqual(self.model_mock.call_count, 2)
+
+    def test_legacy_explanation_survives_late_author_note_and_moves_into_history(self):
+        self.skill()
+        rec = self.proposal()
+        detail = self.activity._detail("skills", rec["id"])[0]
+        current, legacy = self.activity._summary_paths("skills", rec["id"], detail["version"], detail["signature"], {})
+        legacy[0].parent.mkdir(parents=True)
+        ready = {"status": "ready", "text": "Ранее объяснённая правка."}
+        legacy[0].write_text(json.dumps(ready, ensure_ascii=False), encoding="utf-8")
+        self.activity._save_intent("skills", rec["id"], {"context": "Назначение пришло позже."}, origins={"background_review"})
+        self.assertEqual(self.detail(rec)["explanation"], ready)
+        self.assertTrue(current.is_file())
+        self.model_mock.assert_not_called()
+        self.assertEqual(self.decide(rec, detail, "reject").status_code, 200)
+        self.assertFalse(current.exists())
+        self.assertFalse(legacy[0].exists())
+        self.assertEqual(self.client.get("/activity").json()["recent"][0]["description"], ready["text"])
+
+    def test_rejection_during_generation_cannot_leave_an_explanation_file(self):
+        self.skill()
+        rec = self.proposal()
+        started, finish = threading.Event(), threading.Event()
+
+        def explain(**_):
+            started.set()
+            finish.wait(5)
+            return "Краткое описание проверочной правки."
+
+        self.model_mock.side_effect = explain
+        try:
+            detail = self.detail(rec)
+            self.assertEqual(detail["explanation"]["status"], "pending")
+            self.assertTrue(started.wait(5))
+            self.assertEqual(self.decide(rec, detail, "reject").status_code, 200)
+        finally:
+            finish.set()
+        deadline = time.monotonic() + 5
+        while self.activity._SUMMARY_RUNNING and time.monotonic() < deadline:
+            time.sleep(0.01)
+        path, _ = self.activity._summary_paths("skills", rec["id"], detail["version"], detail["signature"], {})
+        self.assertFalse(self.activity._SUMMARY_RUNNING)
+        self.assertFalse(path.exists())
 
     def test_failed_explanation_does_not_repeat_without_explicit_retry(self):
         self.skill()
@@ -351,7 +404,10 @@ class ActivityTest(unittest.TestCase):
         while detail["explanation"]["status"] == "pending" and time.monotonic() < deadline:
             time.sleep(0.01)
             detail = self.detail(rec)
+        cached, _ = self.activity._summary_paths("skills", rec["id"], detail["version"], detail["signature"], {})
+        self.assertTrue(cached.is_file())
         self.assertEqual(self.decide(rec, detail).status_code, 200)
+        self.assertFalse(cached.exists())
         history = self.client.get("/activity").json()
         self.assertTrue(history["history_available"])
         self.assertEqual([item["status"] for item in history["recent"]], ["approved"])

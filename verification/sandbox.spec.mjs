@@ -67,6 +67,8 @@ const systemRuFocus = process.env.HERMES_VISUAL_FOCUS === 'system-ru'
 const interfaceCopyFocus = process.env.HERMES_VISUAL_FOCUS === 'interface-copy'
 const renameTabsFocus = process.env.HERMES_VISUAL_FOCUS === 'rename-tabs'
 const turnDiffFocus = process.env.HERMES_VISUAL_FOCUS === 'turn-diff'
+const savedTurnDiffFocus = turnDiffFocus && process.env.HERMES_VISUAL_TIMELINE_PARITY === '1'
+const singleTurnDiffDelivery = savedTurnDiffFocus || process.env.HERMES_VISUAL_TURN_DIFF_MEDIA === '1'
 const summaryLayoutFocus = process.env.HERMES_VISUAL_FOCUS === 'summary-layout'
 const summaryParityFocus = process.env.HERMES_VISUAL_FOCUS === 'summary-parity'
 const workspaceSummaryFocus = process.env.HERMES_VISUAL_FOCUS === 'workspace-summary-live'
@@ -108,7 +110,9 @@ const { waitForChatReady, readChatIdentity, readMockPrompts } = await import(
 function replyToEditFixture(res, request, tools, final = 'Изменил пять файлов и закончил проверку.') {
   const lastPrompt = request.messages.findLastIndex((message) => message.role === 'user')
   const settled = request.messages.slice(lastPrompt + 1).some((message) => message.role === 'tool')
-  const content = settled ? final : 'Начинаю правки в тестовом проекте.'
+  // The control note is the last of ten text messages in this saved chat.
+  const controlNote = process.env.HERMES_VISUAL_FOCUS === 'turn-diff' && final.startsWith('Контрольная заметка сохранена.')
+  const content = settled ? final : controlNote ? '' : 'Начинаю правки в тестовом проекте.'
   return replyToFixture(res, request, content, settled ? [] : tools)
 }
 
@@ -135,6 +139,16 @@ function replyToFixture(res, request, content, tools) {
 }
 
 
+function prepareTestChatLimits(sandbox, env) {
+  const result = spawnSync(pythonPath, ['-B', '-X', 'utf8',
+    path.join(feature, 'verification/isolated-chat-limit.py'), fs.realpathSync(sandbox.root)], {
+    cwd: repository, encoding: 'utf8', timeout: 30000, windowsHide: true,
+    env: { ...env, HERMES_VISUAL_TEST_TEMP: fs.realpathSync(os.tmpdir()) },
+  })
+  assert.equal(result.status, 0, result.error?.message || result.stderr || 'Could not enforce the test chat limit')
+  console.log(result.stdout.trim())
+}
+
 async function createTestGateway(sandbox, env, providerUrl) {
   const home = path.join(sandbox.root, 'remote-profile')
   fs.mkdirSync(home)
@@ -151,6 +165,7 @@ async function createTestGateway(sandbox, env, providerUrl) {
     home, folder,
   ], { cwd: repository, env: remoteEnv, encoding: 'utf8' })
   assert.equal(seeded.status, 0, seeded.stderr)
+  prepareTestChatLimits(sandbox, env)
   const probe = createServer()
   await new Promise(resolve => probe.listen(0, '127.0.0.1', resolve))
   const port = probe.address().port
@@ -425,22 +440,22 @@ test(`${mode} native desktop smoke`, async () => {
           return replyToFixture(res, request, 'Новый ответ — готов.', [])
         }
         if (message?.includes?.(editsPrompt)) {
-          const extra = turnDiffFocus && process.env.HERMES_VISUAL_TURN_DIFF_MULTI_MEDIA === '1'
+          const extra = savedTurnDiffFocus || (turnDiffFocus && process.env.HERMES_VISUAL_TURN_DIFF_MULTI_MEDIA === '1')
             ? ['fixture-note.md', newFiles[1], newFiles[3], 'fixture-rules.txt']
               .map(file => `\n\nMEDIA:"${path.join(projectFolder, file)}"`).join('') : ''
           const answer = turnDiffFocus && process.env.HERMES_VISUAL_TURN_DIFF_TWELVE === '1'
             ? 'Изменил 12 файлов и закончил проверку.' : 'Изменил пять файлов и закончил проверку.'
           return replyToEditFixture(res, request, fixtureTools, answer + extra)
         }
-        if (turnDiffFocus && process.env.HERMES_VISUAL_TIMELINE_PARITY === '1' && message?.includes?.('Создай контрольную заметку для проверки истории.')) {
+        if (savedTurnDiffFocus && message?.includes?.('Создай контрольную заметку для проверки истории.')) {
           return replyToEditFixture(res, request, [{ name: 'write_file', args: {
             path: path.join(projectFolder, 'timeline-native-write.txt'), content: 'Saved native write.\n',
-          } }], 'Контрольная заметка сохранена.')
+          } }], 'Контрольная заметка сохранена.' + `\n\nMEDIA:"${path.join(projectFolder, 'timeline-native-write.txt')}"`)
         }
         if (turnDiffFocus && message?.includes?.(singleEditPrompt)) {
           return replyToEditFixture(res, request, [
             appendLines(singleFile, ['Первая строка.', 'Вторая строка.']),
-          ], 'Изменил один тестовый файл.' + (process.env.HERMES_VISUAL_TURN_DIFF_MEDIA === '1'
+          ], 'Изменил один тестовый файл.' + (singleTurnDiffDelivery
             ? `\n\nMEDIA:"${path.join(projectFolder, singleFile)}"\n\nMEDIA:"${path.join(projectFolder, 'docs', 'single-file.md')}"` : ''))
         }
         if (firstToken && message?.includes?.(prompt)) {
@@ -495,7 +510,7 @@ test(`${mode} native desktop smoke`, async () => {
         fs.mkdirSync(path.dirname(file), { recursive: true })
         fs.writeFileSync(file, seedLine + '\n')
       }
-      if (process.env.HERMES_VISUAL_TURN_DIFF_MEDIA === '1') {
+      if (singleTurnDiffDelivery) {
         fs.writeFileSync(path.join(projectFolder, 'docs', 'single-file.md'), 'Другой файл с тем же именем.\n')
       }
     }
@@ -661,6 +676,8 @@ for i, title in enumerate(titles, 1):
     session_cwd = (str(Path(sys.argv[2]).parent / 'site') if i == 2 else str(Path(sys.argv[2]) / 'fixture-nested')) if i in (2, 3) and sys.argv[3] == 'workspace-summary-live' else sys.argv[2]
     db.create_session(sid, 'desktop', model='gpt-6.2-sol' if sys.argv[3] in ('model-speed-responses', 'model-speed-appserver') else 'mock-model', cwd=session_cwd, profile_name='default', git_repo_root=session_cwd)
     db.set_session_title(sid, title)
+    if i == 2 and sys.argv[3] == 'activity-parity':
+        continue
     request = 'Review the workspace and suggest the next steps.' if sys.argv[3] == 'readme' else 'Проверь тестовый проект.'
     if i == 2 and sys.argv[3] != 'readme':
         request += chr(10) + '@image:' + chr(96) + (Path(sys.argv[2]) / 'fixture-screen.png').as_posix() + chr(96)
@@ -752,22 +769,40 @@ if sys.argv[3] in ('deep-performance', 'session-navigation', 'chat-hover'):
     sid = '20261110_110000_face01'
     db.create_session(sid, 'desktop', model='mock-model', cwd=sys.argv[2], profile_name='default', git_repo_root=sys.argv[2])
     db.set_session_title(sid, 'Длинное название чата для проверки плавного затухания в проекте и верхней вкладке' if sys.argv[3] == 'session-navigation' else 'Длинный тестовый чат')
-    for index in range(1, 61):
-        db.append_message(sid, 'user', f'Тестовое сообщение {index:02d}')
-        db.append_message(sid, 'assistant', (chr(10) * 2).join([
+    def long_reply(index, paragraphs):
+        return (chr(10) * 2).join([
             f'Ответ {index:02d}. Контрольный текст для проверки длинного разговора.',
+            *[f'Абзац {line}. Текст для замера прокрутки.' for line in range(1, paragraphs + 1)],
             '- Пункт проверки' + chr(10) + '- Ещё один пункт.',
             '| A | B |' + chr(10) + '| --- | --- |' + chr(10) + f'| {index} | {index * 2} |',
             '[Источник](https://example.invalid/reference-' + str(index) + ')',
-        ]), timestamp=time() - 2 * 86400 if sys.argv[3] == 'chat-hover' else None)
+        ])
+    indices = {
+        'deep-performance': (60,),
+        'session-navigation': (59, 60),
+        'chat-hover': range(56, 61),
+    }[sys.argv[3]]
+    for index in indices:
+        paragraphs = 60 if sys.argv[3] == 'deep-performance' else 18 if index < 59 else 0
+        db.append_message(sid, 'user', f'Тестовое сообщение {index:02d}')
+        db.append_message(sid, 'assistant', long_reply(index, paragraphs),
+                          timestamp=time() - 2 * 86400 if sys.argv[3] == 'chat-hover' else None)
+    if sys.argv[3] == 'deep-performance' and ${process.env.HERMES_VISUAL_PERF_HOTSPOTS === '1' ? 'True' : 'False'}:
+        sid = '20261110_110004_face05'
+        db.create_session(sid, 'desktop', model='mock-model', cwd=sys.argv[2], profile_name='default', git_repo_root=sys.argv[2])
+        db.set_session_title(sid, 'Повторный потоковый замер')
+        db.append_message(sid, 'user', 'Тестовое сообщение 60')
+        db.append_message(sid, 'assistant', long_reply(60, 60))
 if sys.argv[3] == 'session-navigation':
     for tab, title in enumerate(('Фокус', 'Заметки о проекте', 'Вкладка с длинным названием для проверки постоянной ширины и обрезки текста'), 1):
         sid = f'20261110_11000{tab}_face0{tab + 1}'
         db.create_session(sid, 'desktop', model='mock-model', cwd=sys.argv[2], profile_name='default', git_repo_root=sys.argv[2])
         db.set_session_title(sid, title)
-        for index in range(1, 25):
+        for index in range(20, 25):
             db.append_message(sid, 'user', f'Вкладка {tab}, запрос {index}.')
             parts = [f'Вкладка {tab}, ответ {index}.', '- Пункт проверки' + chr(10) + '- Ещё один пункт.']
+            if tab == 1:
+                parts.extend(f'Абзац {line}. Контрольный текст для восстановления места чтения.' for line in range(1, 15))
             if index % 6 == 0:
                 parts.append('| A | B |' + chr(10) + '| --- | --- |' + chr(10) + f'| {index} | {index * 2} |')
             db.append_message(sid, 'assistant', (chr(10) * 2).join(parts))
@@ -820,7 +855,8 @@ if sys.argv[3] == 'agent-lifecycle':
             {'role': 'tool', 'tool_name': 'mcp__github__fetch_file', 'tool_call_id': 'github-read-3', 'content': 'Saved LEARNING content.'},
             {'role': 'tool', 'tool_name': 'terminal', 'tool_call_id': 'shell-check', 'content': json.dumps({'stdout': 'Agent fixture command passed.', 'exit_code': 0})},
             {'role': 'tool', 'tool_name': 'terminal', 'tool_call_id': 'shell-fail', 'content': json.dumps({'output': 'Agent fixture command failed.', 'exit_code': 7})},
-            *[{'role': 'assistant', 'content': 'Сохранённый шаг проверки ' + str(index + 1)} for index in range(102)],
+            {'role': 'assistant', 'content': (chr(10) * 2).join(
+                'Сохранённый шаг проверки ' + str(index + 1) for index in range(18))},
             {'role': 'assistant', 'content': 'Проверка завершена. Замечания переданы основному агенту.\\n\\nФайл: \\x60result.txt\\x60.\\n\\n| Пункт | Статус |\\n| --- | --- |\\n| Проверка | Готово |'},
         ]
         for index, message in enumerate(messages):
@@ -954,6 +990,9 @@ if sys.argv[3] == 'activity-parity':
             {'error': 'fixture browser failed', 'success': False}),
     ])
     db.append_message(sid, 'assistant', 'Проверка оформления закончена.')
+    sid = '20261108_124506_beef01'
+    db.create_session(sid, 'desktop', model='mock-model', cwd=sys.argv[2], profile_name='default', git_repo_root=sys.argv[2])
+    db.set_session_title(sid, 'Ход проверки файлов')
     db.append_message(sid, 'user', 'Покажи старый ход.')
     db.append_message(sid, 'assistant', None, reasoning='Original text from a saved turn.')
     db.append_message(sid, 'assistant', 'Старый ход сохранён.')
@@ -990,6 +1029,9 @@ if sys.argv[3] == 'activity-parity':
         display_kind='async_delegation_complete', display_metadata={'display_text': 'Subagent Task Completed: Проверка файлов'})
     db.append_message(sid, 'user', 'На этом всё?')
     db.append_message(sid, 'assistant', 'Да, проверка завершена.')
+    sid = '20261108_124507_beef02'
+    db.create_session(sid, 'desktop', model='mock-model', cwd=sys.argv[2], profile_name='default', git_repo_root=sys.argv[2])
+    db.set_session_title(sid, 'Интервалы уведомлений')
     db.append_message(sid, 'user', 'Проверь интервалы уведомления агента.')
     db.append_message(sid, 'assistant', 'Текст перед запуском агента.')
     append_activity([
@@ -1220,12 +1262,13 @@ ${activityCenter?.seedActivityProposals ?? ''}
       git('-C', related, 'add', '--', 'page.md')
       fs.appendFileSync(path.join(related, 'page.md'), 'Ещё одна правка сайта\n')
     }
-    if (draftSetupFocus || shellFocus) closeTestGateway = await createTestGateway(sandbox, env, fixtureUrl)
     if (displayFocus) {
       const otherProfile = path.join(sandbox.hermesHome, 'profiles', 'visual-other')
       writeMockProviderConfig(otherProfile, fixtureUrl)
       writeEnvFile(otherProfile, 'e2e-mock-key', fixtureUrl)
     }
+    if (draftSetupFocus || shellFocus) closeTestGateway = await createTestGateway(sandbox, env, fixtureUrl)
+    else prepareTestChatLimits(sandbox, env)
     const entry = path.join(sandbox.root, 'isolated-desktop.cjs')
     // The stock Electron fixture registers hermes:// in the Windows user registry.
     // Keep the real built renderer and prevent that host-side change in this fixture.
@@ -1273,7 +1316,7 @@ import(pathToFileURL(path.join(desktop, 'dist', 'electron-main.mjs')).href).catc
       assert.equal(ambient.api_origin, registry.api_origin, 'Native routes must reach the same test gateway origin')
       console.log('HCV_ISOLATED_ROUTE', JSON.stringify({ ambient, registry }))
     }
-    if (approvalFocus) {
+    if (approvalFocus || newChatWelcomeFocus) {
       await app.evaluate(({ BrowserWindow }) => {
         for (const win of BrowserWindow.getAllWindows()) win.webContents.setBackgroundThrottling(false)
       })
@@ -1380,7 +1423,7 @@ import(pathToFileURL(path.join(desktop, 'dist', 'electron-main.mjs')).href).catc
     const interfaceCopyCheck = interfaceCopyFocus ? await import('./interface-copy.spec-helper.mjs') : null
     const confirmations = await interfaceCopyCheck?.installInterfaceCopyFixture(page)
     const activityParity = activityParityFocus || chatRhythmFocus || activityBundlesFocus || agentLifecycleFocus ? await import('./activity-parity.spec-helper.mjs') : null
-    const readiness = activityParity || (modelSpeedFocus ? await import('./activity-parity.spec-helper.mjs') : null)
+    const readiness = activityParity || (modelSpeedFocus || sessionNavigationFocus ? await import('./activity-parity.spec-helper.mjs') : null)
     const agentLifecycle = agentLifecycleFocus ? await import('./agent-lifecycle.spec-helper.mjs') : null
     const chatRhythm = chatRhythmFocus ? await import('./chat-rhythm.spec-helper.mjs') : null
     const activityBundles = activityBundlesFocus ? await import('./activity-bundles.spec-helper.mjs') : null
@@ -1802,9 +1845,14 @@ import(pathToFileURL(path.join(desktop, 'dist', 'electron-main.mjs')).href).catc
         return
       }
       if (turnDiffFocus) {
-        if (process.env.HERMES_VISUAL_TIMELINE_PARITY === '1') {
+        if (savedTurnDiffFocus) {
           const { verifySavedMainTurns } = await import('./saved-turns.spec-helper.mjs')
-          const saved = await verifySavedMainTurns({ page, expect, projectChat, projectFolder, singleEditPrompt, editsPrompt, singleFile, newFiles, seedLine, screenshot, hermesHome: sandbox.hermesHome, pythonPath })
+          const saved = await verifySavedMainTurns({ page, expect, projectChat, projectFolder, singleEditPrompt,
+            editsPrompt, singleFile, newFiles, seedLine, screenshot, openThemeSettings, closeSettings,
+            hermesHome: sandbox.hermesHome, pythonPath })
+          saved.moduleSha256 = createHash('sha256').update(fs.readFileSync(process.env.HERMES_VISUAL_FIXTURE_PLUGIN)).digest('hex')
+          saved.backendSha256 = createHash('sha256').update(fs.readFileSync(path.join(sandbox.hermesHome,
+            'plugins', 'hermes-codex-visual', 'turn_changes.py'))).digest('hex')
           fs.writeFileSync(path.join(evidence, evidenceVersion + '-saved-main.json'), JSON.stringify(saved, null, 2))
           return
         }
@@ -1994,7 +2042,9 @@ import(pathToFileURL(path.join(desktop, 'dist', 'electron-main.mjs')).href).catc
           await openThemeSettings()
           await themeCard('Codex').click()
           await closeSettings()
+          await projectChat('Ход проверки файлов').click()
           const timeline = page.locator('[data-slot="aui_turn-pair"]').filter({ hasText: 'Лента проверки файлов готова.' })
+          await expect(timeline).toBeVisible()
           const steps = timeline.locator('button[data-hcv-turn-line]')
           if (await steps.getAttribute('aria-expanded') !== 'true') await steps.click()
           const group = timeline.locator('[data-hcv-activity-group="activityEdit"] > button')

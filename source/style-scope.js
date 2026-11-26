@@ -8,6 +8,7 @@ const visibleChatTab = `${chatTab}:not(:is(${hiddenPane}) *)`
 export const chatStyles = {
   surface: '[data-chat-surface], [data-slot="composer-surface"]',
   retainAcrossChatTabs: true,
+  retainParsed: true,
 }
 
 export function registerStyleScope(ctx, theme) {
@@ -27,7 +28,9 @@ export function registerStyleScope(ctx, theme) {
     const surfaces = new Map()
     const pending = new Set()
     let hasChatTabs
-    for (const { sheet, anchor, screens, tabs, surface, visibleSurface, retainAcrossChatTabs } of entries) {
+    for (const { sheet, anchor, screens, tabs, surface, visibleSurface, retainAcrossChatTabs, retainParsed } of entries) {
+      const mounted = sheet.isConnected
+      const parsed = enabled && mounted && retainParsed ? sheet.sheet : null
       let visible = enabled && !screens && !surface
       if (enabled && screens?.includes(screen) && (!tabs || tabs.includes(tab))) visible = true
       if (enabled && surface && !visible) {
@@ -36,15 +39,22 @@ export function registerStyleScope(ctx, theme) {
         // attached through it so revealing a saved pane does not reparse CSS.
         if (retainAcrossChatTabs) {
           pending.add(chatTab)
-          if (sheet.isConnected) visible = hasChatTabs ??= Boolean(document.querySelector(visibleChatTab))
+          if (mounted && !parsed?.disabled) visible = hasChatTabs ??= Boolean(document.querySelector(visibleChatTab))
         }
         if (!visible) {
           if (!surfaces.has(surface)) surfaces.set(surface, Boolean(document.querySelector(visibleSurface)))
           visible = surfaces.get(surface)
         }
       }
-      if (visible && !sheet.isConnected) anchor.after(sheet)
-      if (!visible && sheet.isConnected) sheet.remove()
+      if (parsed) {
+        // Park the shared chat styles in cascade order, without applying
+        // their rules until a chat surface needs them again.
+        if (parsed.disabled !== !visible) parsed.disabled = !visible
+      } else if (visible && !mounted) {
+        anchor.after(sheet)
+      } else if (!visible && mounted) {
+        sheet.remove()
+      }
     }
     const next = [...pending].join(', ')
     if (watched !== next) {

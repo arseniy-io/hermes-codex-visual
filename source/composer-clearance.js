@@ -6,10 +6,12 @@ export function createComposerClearanceMetrics() {
   const owners = new Map()
   const dockProperty = '--hcv-composer-dock-height'
   const editorProperty = '--hcv-composer-surface-height'
+  const aboveEditorProperty = '--hcv-composer-above-surface'
 
   function clear(state) {
     state.root.style.removeProperty(dockProperty)
     state.root.style.removeProperty(editorProperty)
+    state.root.style.removeProperty(aboveEditorProperty)
   }
   function detach(state, observer) {
     observer.unobserve(state.dock)
@@ -32,11 +34,14 @@ export function createComposerClearanceMetrics() {
     // getBoundingClientRect includes CSS zoom. Properties are lengths in the
     // owning surface's coordinate space, as is the 32px transcript gap.
     const zoom = Number(root.currentCSSZoom) || 1
-    const dockHeight = dock.getBoundingClientRect().height / zoom
-    const editorHeight = editor.getBoundingClientRect().height / zoom
+    const dockBox = dock.getBoundingClientRect()
+    const editorBox = editor.getBoundingClientRect()
+    const dockHeight = dockBox.height / zoom
+    const editorHeight = editorBox.height / zoom
     if (!(dockHeight > 0) || !(editorHeight > 0)) return clear(state)
     write(root, dockProperty, dockHeight)
     write(root, editorProperty, editorHeight)
+    write(root, aboveEditorProperty, Math.max(0, (editorBox.top - dockBox.top) / zoom))
   }
 
   return {

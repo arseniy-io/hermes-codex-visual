@@ -8,8 +8,10 @@ import { createRequire } from 'node:module'
 const require = createRequire(path.join(process.env.LOCALAPPDATA, 'hermes/source-archive/hermes-agent-main/package.json'))
 const { JSDOM } = require('jsdom')
 const dom = new JSDOM(`<html lang="ru" data-hermes-theme="codex-workspace"><body>
-  <div data-test-audio><span>sound.mp3</span><audio controls></audio></div>
-  <div data-test-video><span>movie.mp4</span><video controls></video></div>
+  <div data-chat-surface><div data-slot="aui_thread-content"><div data-slot="aui_assistant-message-content"><div class="aui-md">
+    <span class="bg-muted/35"><span>sound.mp3</span><audio controls></audio></span>
+    <span class="bg-muted/35"><span>movie.mp4</span><video controls></video></span>
+  </div></div></div></div>
 </body></html>`, { url: 'http://localhost/', runScripts: 'outside-only' })
 const { window } = dom
 const { document } = window
@@ -21,15 +23,22 @@ window.HTMLElement.prototype.showPopover = function () {}
 window.HTMLElement.prototype.hidePopover = function () {}
 window.CSS = { supports: () => true }
 Object.assign(window, { codexMask: () => '', svgMask: () => '', localAssets: null,
-  codexReference: { tooltip: { padding: '0', radius: '0' } }, mountCSS: () => {}, movedElementMatches: () => false })
+  codexReference: { tooltip: { padding: '0', radius: '0' } }, mountCSS: () => {}, mountStyle: () => {},
+  codexIconRules: () => '', movedElementMatches: () => false })
 const disposers = []
-const ctx = { onDispose: fn => disposers.push(fn) }
-for (const kind of ['Audio', 'Video']) {
-  const src = fs.readFileSync(`source/chat-${kind.toLowerCase()}.js`, 'utf8')
-    .replace(/^import[^\n]*\n/gm, '').replace(/^export function /gm, 'function ')
-  const register = window.eval(`(()=>{${src}; return registerChat${kind}})()`)
-  register(ctx, 'html[data-hermes-theme="codex-workspace"]', `[data-test-${kind.toLowerCase()}] ${kind.toLowerCase()}`)
+const ctx = {
+  onDispose: fn => disposers.push(fn),
+  addEventListener(target, name, fn) {
+    target.addEventListener(name, fn)
+    disposers.push(() => target.removeEventListener(name, fn))
+  },
 }
+for (const kind of ['Audio', 'Video', 'Resources']) {
+  const src = fs.readFileSync(`source/chat-${kind.toLowerCase()}.js`, 'utf8')
+    .replace(/^import[^\n]*\n/gm, '').replace(/^export (const|function) /gm, '$1 ')
+  window[`registerChat${kind}`] = window.eval(`(()=>{${src}; return registerChat${kind}})()`)
+}
+window.registerChatResources(ctx, 'html[data-hermes-theme="codex-workspace"]')
 const audio = document.querySelector('audio')
 const video = document.querySelector('video')
 const audioPlay = document.querySelector('.hcv-audio-play')

@@ -9,9 +9,39 @@ export async function verifyWindowMenu({ page, expect, screenshot, openThemeSett
   const shot = async (name) => {
     if (capture) await screenshot(name, { clip: { x: 0, y: 0, width: 560, height: 220 } })
   }
+  const frame = page.locator('[data-tree-group="grp-main"][data-window-top]:not([data-pane-host])')
+  const sidebar = page.locator('[data-hcv-sidebar-shell]')
+  const shell = page.locator('[data-contrib-shell]')
+  const checkWorkspace = async (theme, sidebarColor) => {
+    await expect(shell).toHaveCSS('background-color', sidebarColor)
+    await expect(sidebar).toHaveCSS('background-color', sidebarColor)
+    await expect(frame).toHaveCSS('border-top-left-radius', '12px')
+    await expect(frame).toHaveCSS('border-bottom-left-radius', '12px')
+    await expect(frame).toHaveCSS('border-top-right-radius', '0px')
+    await expect(frame).toHaveCSS('border-bottom-right-radius', '0px')
+    const box = await frame.boundingBox()
+    const view = await trigger('Вид').boundingBox()
+    const help = await trigger('Справка').boundingBox()
+    assert(box && view && help)
+    assert.equal(box.y, 36)
+    assert.equal(view.y + view.height / 2, box.y / 2)
+    assert.equal(help.y + help.height / 2, box.y / 2)
+    const outline = await frame.evaluate(el => getComputedStyle(el, '::after').boxShadow)
+    assert.match(outline, /0\.5px inset$/)
+    console.log('Workspace frame', JSON.stringify({ theme, box, view, help, sidebarColor, outline }))
+    if (capture) {
+      await screenshot(`window-menu-workspace-${theme}-top.png`, {
+        clip: { x: 0, y: 0, width: 560, height: 115 },
+      })
+      await screenshot(`window-menu-workspace-${theme}-bottom.png`, {
+        clip: { x: Math.floor(box.x) - 24, y: Math.floor(box.y + box.height) - 25, width: 110, height: 34 },
+      })
+    }
+  }
   const file = trigger('Файл')
   const dragZone = page.locator('[data-window-drag-handle]:visible').first()
   await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await checkWorkspace('dark', 'rgb(22, 22, 22)')
   await file.hover()
   await expect(file).toHaveAttribute('aria-expanded', 'false')
   await expect(popup).toHaveCount(0)
@@ -110,6 +140,7 @@ export async function verifyWindowMenu({ page, expect, screenshot, openThemeSett
   await page.getByText(/^(Светлая|Light)$/).first().click()
   await expect(page.locator('html')).toHaveAttribute('data-hermes-mode', 'light')
   await closeSettings()
+  await checkWorkspace('light', 'rgb(246, 246, 246)')
   await file.click()
   await expect(popup).toHaveCSS('background-color', 'rgb(248, 248, 249)')
   await shot('window-menu-light.png')

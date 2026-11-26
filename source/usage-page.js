@@ -485,17 +485,68 @@ function UsagePage({ ctx }) {
   const currentScope = () => JSON.stringify([host.state.connectionId.get() || null, host.state.profile.get() || 'default'])
   const [tab, setTab] = useState('overview'), [revision, setRevision] = useState(0)
   const [overviewRevision, setOverviewRevision] = useState(0), actionBusy = useRef(false)
-  const onBusyChange = useRef(value => { actionBusy.current = value }).current
+  const windowVisible = useRef(false), refreshOnIdle = useRef(false)
+  const onBusyChange = useRef(value => {
+    actionBusy.current = value
+    if (!value && refreshOnIdle.current) queueMicrotask(() => {
+      // Effects can briefly clear busy while replacing one action state with another.
+      if (!actionBusy.current && windowVisible.current && refreshOnIdle.current) {
+        refreshOnIdle.current = false
+        setOverviewRevision(n => n + 1)
+      }
+    })
+  }).current
   const tabBase = useId()
   const overview = useResource(ctx, '/overview', localScope, null, true, revision + ':' + overviewRevision, true)
   const overviewReady = ['ready', 'refreshing'].includes(overview.status)
   const expected = overviewReady ? overview.data.scope : null
   const reload = () => setRevision(n => n + 1)
   useEffect(() => {
-    const timer = setInterval(() => {
-      if (!document.hidden && !actionBusy.current) setOverviewRevision(n => n + 1)
-    }, 30000)
-    return () => clearInterval(timer)
+    const root = document.documentElement
+    const pausedAttribute = 'data-renderer-animations-paused'
+    // Before the first native event, Hermes' own attribute supplies the current
+    // window state even when this page is mounted after the window was hidden.
+    let nativeHidden = null
+    const hidden = () => document.hidden || (nativeHidden === null ? root.hasAttribute(pausedAttribute) : nativeHidden)
+    let paused = hidden(), timer = null
+    windowVisible.current = !paused
+    const stop = () => {
+      if (timer !== null) clearInterval(timer)
+      timer = null
+    }
+    const start = () => {
+      if (timer !== null) return
+      timer = setInterval(() => {
+        if (!hidden() && !actionBusy.current) setOverviewRevision(n => n + 1)
+      }, 30000)
+    }
+    const sync = () => {
+      const next = hidden()
+      if (next === paused) return
+      paused = next
+      windowVisible.current = !paused
+      if (paused) { stop(); return }
+      start()
+      if (actionBusy.current) refreshOnIdle.current = true
+      else { refreshOnIdle.current = false; setOverviewRevision(n => n + 1) }
+    }
+    const unsubscribe = window.hermesDesktop?.onWindowStateChanged?.(state => {
+      if (typeof state?.isMinimized !== 'boolean' && typeof state?.isVisible !== 'boolean') return
+      nativeHidden = state.isMinimized === true || state.isVisible === false
+      sync()
+    })
+    const observer = new MutationObserver(sync)
+    observer.observe(root, { attributes: true, attributeFilter: [pausedAttribute] })
+    document.addEventListener('visibilitychange', sync)
+    if (!paused) start()
+    return () => {
+      windowVisible.current = false
+      refreshOnIdle.current = false
+      stop()
+      observer.disconnect()
+      document.removeEventListener('visibilitychange', sync)
+      unsubscribe?.()
+    }
   }, [localScope])
   function keyTabs(e) {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return

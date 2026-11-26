@@ -162,7 +162,7 @@ export function registerShellSurfaces(ctx, active) {
     letter-spacing: normal;
     text-transform: none;
   }
-  ${gatewayTools} { inline-size: 24px; block-size: 24px; border-radius: 7px; }
+  ${gatewayTools} { inline-size: 24px; block-size: 24px; border-radius: 999px; }
   ${codexIconRules(`${gatewayTools} > svg.tabler-icon-refresh:not(.animate-spin)`, 'refresh')}
   ${codexIconRules(`${gatewayTools} > svg.tabler-icon-layout-dashboard`, 'system')}
 

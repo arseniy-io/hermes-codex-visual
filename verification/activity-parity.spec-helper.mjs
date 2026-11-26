@@ -422,7 +422,12 @@ export async function verifyActivityParity({ page, app, expect, projectChat, scr
 
   if (before) {
     await screenshot('activities.png')
+    const skillFileCard = await legacySkill.evaluate(span => getComputedStyle(span.parentElement).display)
+    const skillLabels = await turn.locator('[data-hcv-skill-link]').allTextContents()
+    const nativeBrowserRows = await turn.locator('[data-tool-summary] button').allTextContents()
+    await projectChat('Ход проверки файлов').click()
     const history = chat.locator('[data-slot="aui_turn-pair"]').filter({ hasText: 'Лента проверки файлов готова.' })
+    await expect(history).toBeVisible()
     const historySteps = history.locator('button[data-hcv-turn-line]')
     if (await historySteps.getAttribute('aria-expanded') !== 'true') await historySteps.click()
     const thinking = history.locator('[data-slot="aui_thinking-disclosure"] button[aria-expanded]')
@@ -448,12 +453,7 @@ export async function verifyActivityParity({ page, app, expect, projectChat, scr
       [...node.children].filter(child => child.matches('[data-slot="tool-block"]')).map(child => ({
         group: child.hasAttribute('data-tool-group'), label: child.querySelector('button')?.innerText,
       }))))
-    return {
-      skillFileCard: await legacySkill.evaluate(span => getComputedStyle(span.parentElement).display),
-      skillLabels: await turn.locator('[data-hcv-skill-link]').allTextContents(),
-      nativeBrowserRows: await turn.locator('[data-tool-summary] button').allTextContents(),
-      thinkingStyle, expanded, tape, proseStyle,
-    }
+    return { skillFileCard, skillLabels, nativeBrowserRows, thinkingStyle, expanded, tape, proseStyle }
   }
   assert.equal(proseStyle.size, '14px')
   assert.equal(proseStyle.weight, '430')
@@ -495,34 +495,6 @@ export async function verifyActivityParity({ page, app, expect, projectChat, scr
   await expect(agent.locator('[data-hcv-agent-name]')).toHaveText('Субагент')
   await expect(agent.locator('img')).toHaveCount(0)
   await expect(turn.locator('[data-hcv-agent-activity="started"]')).toHaveCount(0)
-  const spacingTurn = chat.locator('[data-slot="aui_turn-pair"]').filter({ hasText: 'Проверь интервалы уведомления агента.' })
-  const spacingSteps = spacingTurn.locator('button[data-hcv-turn-line]')
-  if (await spacingSteps.count() && await spacingSteps.getAttribute('aria-expanded') !== 'true') await spacingSteps.click()
-  const spacingReceipt = spacingTurn.locator('[data-slot="aui_background-result"]')
-  const spacingAgent = spacingTurn.locator('[data-hcv-agent-activity="dispatched"]')
-  await expect(spacingAgent).toHaveCount(0)
-  await expect(spacingTurn.locator('[data-hcv-agent-activity="started"]')).toHaveCount(0)
-  const spacingCompletion = spacingReceipt.locator('[data-hcv-agent-activity="completed"]')
-  await expect(spacingCompletion).toHaveCount(1)
-  await expect(spacingReceipt).toHaveAttribute('data-hcv-agent-receipt', '')
-  // This old record has no stored child id. No blank img or fabricated badge.
-  await expect(spacingCompletion.locator('img')).toHaveCount(0)
-  const spacingLabel = spacingCompletion.locator('[data-hcv-agent-name]')
-  await expect(spacingLabel).toHaveText('Субагент')
-  const spacing = await spacingTurn.evaluate(node => {
-    const rect = element => element.getBoundingClientRect()
-    const prose = text => [...node.querySelectorAll('.aui-md')].find(element => element.textContent.includes(text))
-    const receipt = node.querySelector('[data-slot="aui_background-result"] [data-hcv-agent-activity="completed"]')
-    const middle = prose('Текст перед уведомлением агента.')
-    const after = prose('Текст после уведомления агента.')
-    return {
-      beforeReceipt: rect(receipt).top - rect(middle).bottom,
-      afterReceipt: rect(after).top - rect(receipt).bottom,
-    }
-  })
-  console.log('Agent timeline spacing', JSON.stringify(spacing))
-  assert.deepEqual(spacing, { beforeReceipt: 16, afterReceipt: 16 })
-  await expect(spacingReceipt.locator('button[data-hcv-agent-name]')).toBeEnabled()
   // This unsupported browser error remains native; known MCP errors are checked in activity-bundles.
   const failed = turn.locator('[data-tool-row]:not([data-hcv-activity-failed])')
     .filter({ has: page.locator('svg.text-destructive[aria-label]') })
@@ -642,7 +614,42 @@ export async function verifyActivityParity({ page, app, expect, projectChat, scr
   await commandToggle.click()
   await expect(outputRow.getByText('fixture-output-one', { exact: true })).toBeHidden()
 
+  await projectChat('Интервалы уведомлений').click()
+  const spacingTurn = chat.locator('[data-slot="aui_turn-pair"]').filter({ hasText: 'Проверь интервалы уведомления агента.' })
+  await expect(spacingTurn).toBeVisible()
+  const spacingSteps = spacingTurn.locator('button[data-hcv-turn-line]')
+  if (await spacingSteps.count() && await spacingSteps.getAttribute('aria-expanded') !== 'true') await spacingSteps.click()
+  const spacingReceipt = spacingTurn.locator('[data-slot="aui_background-result"]')
+  const spacingAgent = spacingTurn.locator('[data-hcv-agent-activity="dispatched"]')
+  await expect(spacingAgent).toHaveCount(0)
+  await expect(spacingTurn.locator('[data-hcv-agent-activity="started"]')).toHaveCount(0)
+  const spacingCompletion = spacingReceipt.locator('[data-hcv-agent-activity="completed"]')
+  await expect(spacingCompletion).toHaveCount(1)
+  await expect(spacingReceipt).toHaveAttribute('data-hcv-agent-receipt', '')
+  // This old record has no stored child id. No blank img or fabricated badge.
+  await expect(spacingCompletion.locator('img')).toHaveCount(0)
+  const spacingLabel = spacingCompletion.locator('[data-hcv-agent-name]')
+  await expect(spacingLabel).toHaveText('Субагент')
+  const spacing = await spacingTurn.evaluate(node => {
+    const rect = element => element.getBoundingClientRect()
+    const prose = text => [...node.querySelectorAll('.aui-md')].find(element => element.textContent.includes(text))
+    const receipt = node.querySelector('[data-slot="aui_background-result"] [data-hcv-agent-activity="completed"]')
+    const middle = prose('Текст перед уведомлением агента.')
+    const after = prose('Текст после уведомления агента.')
+    return {
+      beforeReceipt: rect(receipt).top - rect(middle).bottom,
+      afterReceipt: rect(after).top - rect(receipt).bottom,
+    }
+  })
+  console.log('Agent timeline spacing', JSON.stringify(spacing))
+  assert.deepEqual(spacing, { beforeReceipt: 16, afterReceipt: 16 })
+  await expect(spacingReceipt.locator('button[data-hcv-agent-name]')).toBeEnabled()
+  await projectChat('Ход проверки файлов').click()
+  await expect(chat.getByText('Лента проверки файлов готова.', { exact: true })).toBeVisible()
   const timeline = await verifyTimeline({ app, page, expect, chat, screenshot, translationRequests })
+  await projectChat('Проверка каталога').click()
+  await expect(turn).toBeVisible()
+  if (await steps.getAttribute('aria-expanded') !== 'true') await steps.click()
   await page.setViewportSize({ width: 760, height: 760 })
   await expect(skill).toBeVisible()
   await skill.scrollIntoViewIfNeeded()

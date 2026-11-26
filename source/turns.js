@@ -2,6 +2,7 @@ import { host } from '@hermes/plugin-sdk'
 import { committedFiber } from './sidebar-recents.js'
 import { nativeRenderedMessageRecord } from './native-rendered-message.js'
 import { savedTimelineMetadata } from './chat-timestamp-data.js'
+import { observeChatText } from './chat-text-observation.js'
 import { elapsedTurnSeconds } from './turn-stop-history.js'
 import { completedWorkSteps, setWorkOpen, syncWorkSteps } from './completed-turn-disclosure.js'
 import { mountCSS, chatStyles } from './style-scope.js'
@@ -27,6 +28,21 @@ const streaming = '[data-message-streaming="true"]'
 const actionable = ':is([role="alert"], [data-approval-activity-only], [data-approval-stack], [data-clarify-choices], [data-clarify-late-choices], [data-clarify-batch-preview], [data-clarify-batch-question]:not([data-locked]))'
 
 const isRussian = () => document.documentElement.lang.toLowerCase().startsWith('ru')
+const numberFormats = new Map()
+let formatterLanguage
+let russianPlurals
+
+function numberFormat(unit) {
+  const language = document.documentElement.lang || 'en'
+  if (formatterLanguage !== language) {
+    formatterLanguage = language
+    numberFormats.clear()
+  }
+  if (!numberFormats.has(unit)) {
+    numberFormats.set(unit, new Intl.NumberFormat(language, unit && { style: 'unit', unitDisplay: 'narrow', unit }))
+  }
+  return numberFormats.get(unit)
+}
 
 function make(tag, marker, text) {
   const node = document.createElement(tag)
@@ -52,9 +68,8 @@ function formatDuration(seconds) {
   const hours = Math.floor(seconds / 3600)
   const minutes = Math.floor(seconds / 60) % 60
   const units = hours ? [['hour', hours], ['minute', minutes]] : [['minute', minutes], ['second', seconds % 60]]
-  const language = document.documentElement.lang || 'en'
   return units.filter(([unit, value]) => value > 0 || (seconds === 0 && unit === 'second'))
-    .map(([unit, value]) => new Intl.NumberFormat(language, { style: 'unit', unitDisplay: 'narrow', unit }).format(value))
+    .map(([unit, value]) => numberFormat(unit).format(value))
     .join(' ')
 }
 
@@ -232,7 +247,8 @@ function syncThinkingLabels(labels, enabled) {
 
 function fileNoun(count) {
   if (!isRussian()) return count === 1 ? 'file' : 'files'
-  return { one: 'файл', few: 'файла', many: 'файлов' }[new Intl.PluralRules('ru').select(count)] || 'файлов'
+  russianPlurals ??= new Intl.PluralRules('ru')
+  return { one: 'файл', few: 'файла', many: 'файлов' }[russianPlurals.select(count)] || 'файлов'
 }
 
 function numbers(parent) {
@@ -265,7 +281,7 @@ function nativeCardCwd(card) {
   return card.closest(primary) ? host.state.cwd.get() : ''
 }
 
-function fileDisplayPath(row, basename, cwd) {
+function fileDisplayPath(row, cwd) {
   // Hermes passes the real path as the row's tooltip key. The DOM only
   // exposes the basename until that tooltip opens.
   for (let fiber = committedFiber(row)?.return; fiber; fiber = fiber.return) {
@@ -281,7 +297,6 @@ function fileDisplayPath(row, basename, cwd) {
     }
     if (fiber.stateNode instanceof Element) break
   }
-  return basename
 }
 
 function paintFileRow(row, path, added, removed, format) {
@@ -389,7 +404,7 @@ function showFiles(state, card) {
   if (!rows.size) return clearFiles(state)
   const count = rows.size
   const ru = isRussian()
-  const format = new Intl.NumberFormat(document.documentElement.lang || 'en')
+  const format = numberFormat()
   const cwd = nativeCardCwd(card)
   let plus = 0
   let minus = 0
@@ -406,10 +421,10 @@ function showFiles(state, card) {
     minus += removed
     if (count === 1) continue
     const basename = row.querySelector(':scope > span.truncate')?.textContent || ''
-    const path = fileDisplayPath(row, basename, cwd)
-    previewRows.push({ row, basename, path: fileDisplayPath(row, '', cwd) })
+    const path = fileDisplayPath(row, cwd)
+    previewRows.push({ row, basename, path: path ?? '' })
     if (!files.rows.has(row)) files.rows.set(row, makeFileRow(row))
-    paintFileRow(files.rows.get(row), path, added, removed, format)
+    paintFileRow(files.rows.get(row), path ?? basename, added, removed, format)
   }
   files.single = count === 1 ? rows.values().next().value : null
   card.toggleAttribute('data-hcv-file-single', Boolean(files.single))
@@ -431,7 +446,7 @@ function showFiles(state, card) {
   if (files.single) {
     clearTurnFilePreviewRows(files)
     const basename = files.single.querySelector(':scope > span.truncate')?.textContent || ''
-    syncTurnFilePreview(files, fileDisplayPath(files.single, '', ''), cwd, basename, ru)
+    syncTurnFilePreview(files, fileDisplayPath(files.single, '') ?? '', cwd, basename, ru)
     if (!files.previewLink) updateText(name, ru ? `Изменён ${basename}` : `Edited ${basename}`)
   } else {
     clearTurnFilePreview(files)
@@ -467,13 +482,14 @@ function updateMoreLabel({ card, more, remaining }) {
     : isRussian() ? `Показать еще ${remaining} ${fileNoun(remaining)}` : `Show ${remaining} more ${fileNoun(remaining)}`)
 }
 
-function synchronize(group, state, now, tail, ownPrompt, completedSeconds, startedAt) {
+function synchronize(group, state, now, tail, ownPrompt, completedSeconds, startedAt, textChanges) {
   const roots = [...group.querySelectorAll(`:scope > ${assistant}`)]
   const last = roots.at(-1)
   if (!last) {
     clearSteps(group, state)
     clearLive(state)
     clearFiles(state)
+    textChanges.set(group)
     return
   }
   const working = Boolean(group.querySelector(`${streaming}, ${nativeActivity}`))
@@ -492,10 +508,11 @@ function synchronize(group, state, now, tail, ownPrompt, completedSeconds, start
     clearLive(state)
   }
 
+  let durationLabel = null
   if (!working && !blocked && final && !group.closest(`${turnPair}[data-hcv-turn-stopped]`)) {
-    const message = renderedMessage(final)
-    const elapsed = formatDuration(durationSeconds(final.querySelector(duration)?.textContent) ??
-      completedSeconds ?? savedDuration(ownPrompt, message))
+    durationLabel = final.querySelector(duration)
+    const elapsed = formatDuration(durationSeconds(durationLabel?.textContent) ??
+      completedSeconds ?? savedDuration(ownPrompt, renderedMessage(final)))
     const steps = completedWorkSteps(group, final, {
       isInterim: root => renderedMessage(root)?.metadata?.custom?.interim === true,
     })
@@ -506,7 +523,9 @@ function synchronize(group, state, now, tail, ownPrompt, completedSeconds, start
   } else {
     clearSteps(group, state)
   }
-  showFiles(state, group.querySelector(changes))
+  const card = group.querySelector(changes)
+  showFiles(state, card)
+  textChanges.set(group, durationLabel, card)
 }
 
 export function registerTurnExperience(ctx, active, stoppedTurns, history) {
@@ -545,7 +564,8 @@ export function registerTurnExperience(ctx, active, stoppedTurns, history) {
   const lastBySession = new Map()
   const contrast = window.matchMedia('(forced-colors: none)')
   const dirty = new Set()
-  const live = new Set()
+  const liveByRow = new Map()
+  const visibleLive = new Set()
   const tails = new Set()
   const allGroups = `[data-chat-surface] ${response}`
   const allPairs = `[data-chat-surface] ${turnPair}`
@@ -553,7 +573,6 @@ export function registerTurnExperience(ctx, active, stoppedTurns, history) {
   let full = true
   let refreshStopped = false
   let frame = 0
-  let clockFrame = 0
   let timer = 0
 
   const sessionKey = (id) => JSON.stringify([host.state.connectionId.get(), host.state.profile.get(), id])
@@ -597,11 +616,53 @@ export function registerTurnExperience(ctx, active, stoppedTurns, history) {
     queue()
   })
 
+  function tickClock() {
+    timer = 0
+    if (document.hidden || !contrast.matches || !document.documentElement.matches(active)) return
+    const now = Date.now()
+    for (const row of visibleLive) if (row.isConnected) updateLiveTime(liveByRow.get(row), now)
+    if (visibleLive.size) timer = window.setTimeout(tickClock, 1000)
+  }
+
+  function syncClock() {
+    if (visibleLive.size && !document.hidden) {
+      if (!timer) tickClock()
+    } else if (timer) {
+      window.clearTimeout(timer)
+      timer = 0
+    }
+  }
+
+  const clockRows = new IntersectionObserver(entries => {
+    for (const { target, isIntersecting } of entries) {
+      if (!liveByRow.has(target)) continue
+      if (isIntersecting) visibleLive.add(target)
+      else visibleLive.delete(target)
+    }
+    syncClock()
+  })
+
+  function syncClockRow(state, previous) {
+    const row = state.live?.row
+    if (previous === row) return
+    if (previous) {
+      clockRows.unobserve(previous)
+      liveByRow.delete(previous)
+      visibleLive.delete(previous)
+    }
+    if (row) {
+      liveByRow.set(row, state)
+      clockRows.observe(row)
+    }
+  }
+
   function remove(group, state) {
     clearSteps(group, state)
+    const previous = state.live?.row
     clearLive(state)
+    syncClockRow(state, previous)
     clearFiles(state)
-    live.delete(state)
+    textChanges.set(group)
     states.delete(group)
   }
 
@@ -664,26 +725,15 @@ export function registerTurnExperience(ctx, active, stoppedTurns, history) {
         const timeKey = main && ownPrompt && JSON.stringify([key, ownPrompt.dataset.messageId])
         const recorded = (timeKey && durations.get(timeKey)) ||
           (main && tail && last && last.text === promptText(ownPrompt) && last.seconds)
-        synchronize(group, state, now, tail, ownPrompt, recorded || null, main ? liveStart?.at : undefined)
-        if (state.live) live.add(state)
-        else live.delete(state)
+        const previous = state.live?.row
+        synchronize(group, state, now, tail, ownPrompt, recorded || null, main ? liveStart?.at : undefined, textChanges)
+        syncClockRow(state, previous)
       }
     }
     dirty.clear()
     syncThinkingLabels(thinkingLabels, styled)
-    if (live.size) {
-      if (!timer) timer = window.setInterval(() => {
-        if (!clockFrame) clockFrame = requestAnimationFrame(() => {
-          clockFrame = 0
-          const now = Date.now()
-          if (!contrast.matches || !document.documentElement.matches(active)) return
-          for (const state of live) if (state.live.row.isConnected) updateLiveTime(state, now)
-        })
-      }, 1000)
-    } else if (timer) {
-      window.clearInterval(timer)
-      timer = 0
-    }
+    textChanges.refresh()
+    syncClock()
   }
 
   function schedule() {
@@ -695,7 +745,7 @@ export function registerTurnExperience(ctx, active, stoppedTurns, history) {
     schedule()
   }
 
-  const observer = new MutationObserver((records) => {
+  function markChanges(records) {
     const root = document.documentElement
     if (records.some(({ target }) => target === root)) return queue()
     if (!root.matches(active)) return
@@ -732,14 +782,16 @@ export function registerTurnExperience(ctx, active, stoppedTurns, history) {
       }
     }
     if (dirty.size || dirtyPairs.size) schedule()
-  })
+  }
+  const observer = new MutationObserver(markChanges)
+  const textChanges = observeChatText(markChanges)
   observer.observe(document.documentElement, {
     childList: true,
-    characterData: true,
     subtree: true,
     attributes: true,
     attributeFilter: ['data-state', 'data-message-streaming', 'data-hermes-theme', 'data-hermes-codex-visual', 'lang', 'title', 'disabled'],
   })
+  document.addEventListener('visibilitychange', syncClock)
   contrast.addEventListener('change', queue)
   const stopUpdates = stoppedTurns?.subscribe(queue)
   // Timeline snapshots supply interruption timing. Only a changed stop
@@ -753,14 +805,16 @@ export function registerTurnExperience(ctx, active, stoppedTurns, history) {
   queue()
   ctx.onDispose(() => {
     observer.disconnect()
+    textChanges.clear()
+    document.removeEventListener('visibilitychange', syncClock)
+    clockRows.disconnect()
     stopUpdates?.()
     historyUpdates?.()
     for (const pair of stoppedPairs.keys()) clearStoppedPair(pair, stoppedPairs)
     contrast.removeEventListener('change', queue)
     for (const stop of unsubscribe) stop()
     if (frame) cancelAnimationFrame(frame)
-    if (clockFrame) cancelAnimationFrame(clockFrame)
-    if (timer) window.clearInterval(timer)
+    if (timer) window.clearTimeout(timer)
     for (const [group, state] of states) remove(group, state)
     syncThinkingLabels(thinkingLabels, false)
   })

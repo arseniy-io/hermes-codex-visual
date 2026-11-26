@@ -90,9 +90,18 @@ async def list_plugins(run):
     process, start = gateway_process(run)
     async with connect_gateway(endpoint=endpoint) as client:
         result = await client.rpc('plugins.list', _timeout=6)
+    core = Path(os.environ['HERMES_DESKTOP_HERMES_ROOT']).resolve(strict=True)
+    worker_source = core / 'agent/managed_worker.py'
+    worker_sha256 = None
+    if worker_source.is_file():
+        from agent import managed_worker
+
+        worker = Path(managed_worker.__file__).resolve(strict=True)
+        verify(worker == worker_source, 'The managed worker came from a different runtime')
+        worker_sha256 = sha256(worker.read_bytes()).hexdigest()
     return {'state': discovery.state, 'instance_id': endpoint.instance_id, 'api_origin': endpoint.api_origin,
             'profile_id': endpoint.profile_id, 'pid': process.pid, 'start_time': start,
-            'plugins_list': result}
+            'plugins_list': result, 'managed_worker_sha256': worker_sha256}
 
 
 def stop(run):

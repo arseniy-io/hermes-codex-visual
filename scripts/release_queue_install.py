@@ -177,6 +177,9 @@ def _metadata(path, info):
     return {"mode": stat.S_IMODE(info.st_mode), "uid": info.st_uid, "gid": info.st_gid}
 
 
+_WINDOWS_SECURITY_PARTS = 0x1 | 0x2 | 0x4  # Owner, group and DACL.
+
+
 def _windows_metadata(path, info):
     import ctypes
     from ctypes import wintypes
@@ -205,19 +208,43 @@ def _windows_metadata(path, info):
             raise ctypes.WinError(ctypes.get_last_error())
     finally:
         close(handle)
+    return {"owner_group_dacl": _digest(_windows_descriptor(path))}
+
+
+def _windows_descriptor(path):
+    import ctypes
+    from ctypes import wintypes
+
     security = ctypes.WinDLL("advapi32", use_last_error=True).GetFileSecurityW
     security.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD,
                          ctypes.POINTER(wintypes.DWORD)]
     security.restype = wintypes.BOOL
     needed = wintypes.DWORD()
-    owner_group_dacl = 0x1 | 0x2 | 0x4
-    security(str(path), owner_group_dacl, None, 0, ctypes.byref(needed))
+    security(str(path), _WINDOWS_SECURITY_PARTS, None, 0, ctypes.byref(needed))
     if not needed.value:
         raise ctypes.WinError(ctypes.get_last_error())
     descriptor = ctypes.create_string_buffer(needed.value)
-    if not security(str(path), owner_group_dacl, descriptor, needed.value, ctypes.byref(needed)):
+    if not security(str(path), _WINDOWS_SECURITY_PARTS, descriptor, needed.value, ctypes.byref(needed)):
         raise ctypes.WinError(ctypes.get_last_error())
-    return {"owner_group_dacl": _digest(descriptor.raw[:needed.value])}
+    return descriptor.raw[:needed.value]
+
+
+def _copy_windows_permissions(source, target):
+    import ctypes
+    from ctypes import wintypes
+
+    _plain(source)
+    descriptor = _windows_descriptor(source)
+    control = int.from_bytes(descriptor[2:4], "little")
+    # To keep SE_DACL_AUTO_INHERITED, Windows also needs
+    # SE_DACL_AUTO_INHERIT_REQ in the descriptor passed to SetFileSecurityW.
+    if control & 0x0400:
+        descriptor = descriptor[:2] + (control | 0x0100).to_bytes(2, "little") + descriptor[4:]
+    security = ctypes.WinDLL("advapi32", use_last_error=True).SetFileSecurityW
+    security.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, ctypes.c_void_p]
+    security.restype = wintypes.BOOL
+    if not security(str(target), _WINDOWS_SECURITY_PARTS, descriptor):
+        raise ctypes.WinError(ctypes.get_last_error())
 
 
 def _sync_directory(path):
@@ -402,7 +429,7 @@ def _check_set(state, backups=None, *, version=None):
 
 
 @contextmanager
-def _stage(path, data, metadata):
+def _stage(path, data, metadata, *, copy_windows_permissions=False):
     # A random sibling keeps the rename on the target filesystem. On a hard
     # process stop before rename an unused .tmp may be left for later inspection.
     pending = path.with_name(f".hcv-release-{uuid4().hex}.tmp")
@@ -422,6 +449,9 @@ def _stage(path, data, metadata):
             stream.flush()
             os.fsync(stream.fileno())
         staged, staged_metadata = _read_target(pending)
+        if os.name == "nt" and copy_windows_permissions and staged_metadata != metadata:
+            _copy_windows_permissions(path, pending)
+            staged, staged_metadata = _read_target(pending)
         if staged != data or metadata is not None and staged_metadata != metadata:
             raise InstallError(f"Cannot reproduce target bytes or permissions at {path}")
         yield pending, staged_metadata
@@ -446,7 +476,8 @@ def _replace(path, record, data, metadata, expected):
         pending.unlink()
         _sync_directory(path.parent)
         return
-    with _stage(path, data, metadata) as (pending, _):
+    replace_existing = record["before"] is not None and record["after"] is not None
+    with _stage(path, data, metadata, copy_windows_permissions=replace_existing) as (pending, _):
         current, _ = _live(path, record, metadata, version=expected)
         _move(pending, path, replace=current is not None)
 
@@ -526,7 +557,10 @@ def _attempt(db, state, payloads, maintenance, commit, is_committed):
         if record["before"] != record["after"]:
             # Prove restorability even for deletions before changing any target.
             # For a creation also remember the exact permissions of its new file.
-            with _stage(path, b"", metadata) as (_, verified_metadata):
+            # A deletion still has to be restorable without its original
+            # file to copy permissions from.
+            replace_existing = old is not None and new is not None
+            with _stage(path, b"", metadata, copy_windows_permissions=replace_existing) as (_, verified_metadata):
                 metadata = verified_metadata
         snapshots.append((old, new, json.dumps(metadata)))
     with db:

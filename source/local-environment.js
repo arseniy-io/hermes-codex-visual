@@ -394,7 +394,7 @@ function styles(active) {
   ${form} [data-slot="dialog-title"], ${terminal} [data-slot="dialog-title"] { font-size: 20px; font-weight: 600; line-height: 26px; }
   ${form} [data-slot="dialog-title"]:focus { outline: none; }
   ${form} [data-slot="dialog-description"], ${terminal} [data-slot="dialog-description"] { font-size: 14px; line-height: 20px; color: var(--hcv-muted); overflow-wrap: anywhere; }
-  ${form} [data-slot="dialog-close-button"] { inset-block-start: 16px; inset-inline-end: 16px; inline-size: 24px; block-size: 24px; border-radius: 8px; }
+  ${form} [data-slot="dialog-close-button"] { inset-block-start: 16px; inset-inline-end: 16px; inline-size: 24px; block-size: 24px; border-radius: 999px; }
   ${codexIconRules(`${form} [data-slot="dialog-close-button"] > svg`, 'close')}
   ${form} .hcv-env-form { min-block-size: 0; overflow: auto; overscroll-behavior: contain; padding: 44px 13px 0; }
   ${form}[data-hcv-env-advanced="true"] .hcv-env-form { padding-block-start: 28px; }
