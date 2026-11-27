@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { activityPresentation, activityToolPart, describeActivity, repeatedActivityPresentation } from '../source/chat-activity-labels.js'
+import { activityPresentation, activityToolPart, describeActivity, pendingActivityPart, repeatedActivityPresentation } from '../source/chat-activity-labels.js'
 const call = (toolName, args = {}, result = {}) => ({ toolName, args, result, completedAt: 1 })
 
 test('Chrome Devtools is a named integration with its actual tool action, independent of the current page', () => {
@@ -187,4 +187,18 @@ test('nested failed commands use Codex English caption and terminal glyph while 
   assert.equal(activityPresentation([{ ...failed, status: { type: 'requires-action' } }], false, true, true), null)
   assert.equal(activityPresentation([{ ...failed, automaticApprovalReviews: [{ status: 'denied' }] }], false, true, true), null)
   assert.equal(activityPresentation([call('terminal', { command: 'echo ok' }, { exit_code: 0 })], false, true, true).label, 'echo ok')
+})
+
+test('the latest pending command supplies its actual input to the live activity line', () => {
+  const completed = { toolName: 'terminal', args: { command: 'echo finished' }, result: { exit_code: 0 } }
+  const first = { toolName: 'terminal', args: { command: 'echo first' } }
+  const latest = { toolName: 'terminal', args: { command: 'echo latest' } }
+  const blocked = { ...first, status: { type: 'requires-action' } }
+  const interrupted = { ...first, interrupted: true }
+  const current = pendingActivityPart([completed, first, latest, blocked, interrupted])
+  assert.equal(current, latest)
+  assert.equal(activityPresentation([current], true, true, false, true).label, 'Выполняется echo latest')
+  assert.equal(activityPresentation([current], true, false, false, true).label, 'Running echo latest')
+  assert.equal(activityPresentation([{ toolName: 'terminal', args: {} }], true, true).label, 'Выполняется команда')
+  assert.equal(pendingActivityPart([completed, blocked, interrupted]), undefined)
 })

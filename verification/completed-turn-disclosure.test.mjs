@@ -36,6 +36,19 @@ test('keeps all prose after the last tool when its type is unknown', () => {
   assert.deepEqual(ids(turn.completedWorkSteps(group, group.firstElementChild, { textPartCount: 2 })), ['read'])
 })
 
+test('folds a restored work bubble that ends in commands before the final reply', () => {
+  const group = fixture(assistant(text('checking') + tool('read') + text('verifying') + tool('verify')) +
+    receipt + assistant(text('final'), footer))
+  const work = group.firstElementChild
+  assert.deepEqual(turn.completedWorkSteps(group, group.lastElementChild), [work, group.querySelector('#receipt')])
+})
+
+test('folds confirmed work and leaves trailing prose in an earlier restored bubble', () => {
+  const group = fixture(assistant(text('checking') + tool('read') + text('previous-reply')) +
+    receipt + assistant(text('final'), footer))
+  assert.deepEqual(ids(turn.completedWorkSteps(group, group.lastElementChild)), ['checking', 'read', 'receipt'])
+})
+
 test('keeps a native tool error visible without requiring role=alert', () => {
   const group = fixture(assistant('<div data-slot="tool-block" id="failure"><svg aria-label="Error" class="text-destructive"></svg></div>' +
     tool('ok') + text('final'), footer))

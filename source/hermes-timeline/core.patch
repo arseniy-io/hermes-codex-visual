@@ -68,15 +68,17 @@
      # Make the answer durable before leaving the loop (_DB_PERSISTED_MARKER keeps
 --- a/agent/tool_executor.py
 +++ b/agent/tool_executor.py
-@@ -1102,6 +1102,7 @@
+@@ -1102,6 +1102,9 @@
      Returns ``(persisted_result, display_result, risk_metadata)`` (``display_result`` =
      pre-persist content for UI previews) or ``None`` when the flush failed (stop the batch).
      """
 +    _hcv_file_result = function_result
++    if hasattr(function_result, "_hcv_native_edits"):
++        function_result = str(function_result)
      function_name, function_args, tool_call_id, effective_task_id = ref.name, ref.args, ref.call_id, ref.task_id
      from hermes_cli.observability.shared_metrics_harness import observe_tool_outcome
  
-@@ -1177,6 +1178,16 @@
+@@ -1177,6 +1180,16 @@
          except Exception as callback_error:
              logging.debug("Tool result metadata callback error: %s", callback_error)
      stamp_data_use(tool_message, sorted(data_use))
@@ -93,6 +95,19 @@
      messages.append(tool_message)
      if not _flush_session_db_after_tool_progress(agent, messages, stage=f"tool result {function_name}"):
          return None
+@@ -1188,6 +1201,12 @@
+             agent.tool_progress_callback, "Tool progress",
+             "tool.completed", function_name, None, None, duration=tool_duration, is_error=is_error, result=function_result,
+         )
++        if function_name in ("write_file", "patch"):
++            try:
++                from tools.hcv_file_changes import report_turn_diff as _hcv_report_turn_diff
++                _hcv_report_turn_diff(agent, function_name, _hcv_file_result)
++            except Exception:
++                logging.debug("Native turn diff unavailable", exc_info=True)
+     if isinstance(function_result, str) and len(function_result) >= _LARGE_TOOL_RESULT_TRIM_CHARS:
+         agent._trim_after_tool_batch = True
+     return persisted_result, function_result, tool_message.get("_tool_output_risk")
 --- a/agent/turn_finalizer.py
 +++ b/agent/turn_finalizer.py
 @@ -730,6 +730,14 @@
@@ -125,10 +140,10 @@
 +            except Exception:
 +                pass
 +            result = _hcv_file_ops.write_file(_resolved or path, content)
-+            _hcv_snapshot = None
++            _hcv_snapshot, _hcv_edits = None, None
 +            if _hcv_before is not None:
 +                try:
-+                    _hcv_snapshot = _hcv_changes.capture_after(_hcv_before, result)
++                    _hcv_snapshot, _hcv_edits = _hcv_changes.capture_write(_hcv_before, result)
 +                except Exception:
 +                    pass
              result_dict = result.to_dict()
@@ -140,15 +155,57 @@
                  _note_edited(task_id, [path], path_to_resolved, session_id)
 -        return json.dumps(result_dict, ensure_ascii=False)
 +        _hcv_json = json.dumps(result_dict, ensure_ascii=False)
-+        if _hcv_snapshot is not None:
++        if _hcv_snapshot is not None or _hcv_edits is not None:
 +            try:
-+                return _hcv_changes.decorate_result(_hcv_json, _hcv_snapshot)
++                return _hcv_changes.decorate_result(_hcv_json, _hcv_snapshot, _hcv_edits)
 +            except Exception:
 +                pass
 +        return _hcv_json
      except Exception as e:
          if _is_expected_write_exception(e):
              logger.debug("write_file expected denial: %s: %s", type(e).__name__, e)
+@@ -1039,6 +1058,13 @@
+             # Whole-file knowledge held BEFORE the patch reads, under the same locks. Like
+             # every baseline check it stats the host path, so a sandbox path carries nothing.
+             _known = _known_full_content_sha256(_path_to_resolved.values(), task_id)
++            _hcv_before = None
++            try:
++                from tools import hcv_file_changes as _hcv_changes
++                _hcv_before = _hcv_changes.capture_patch_before(
++                    (_path_to_entry.get(p) or _path_to_resolved.get(p) for p in _paths_to_check), file_ops)
++            except Exception:
++                pass
+ 
+             # Hand the shell layer the RESOLVED targets so both layers agree on
+             # which file is edited even when the shell's cwd differs.
+@@ -1057,6 +1083,12 @@
+             else:
+                 return tool_error(f"Unknown mode: {mode}")
+ 
++            _hcv_edits = None
++            if _hcv_before is not None:
++                try:
++                    _hcv_edits = _hcv_changes.capture_patch(_hcv_before, result)
++                except Exception:
++                    pass
+             result_dict = result.to_dict()
+             if stale_warnings:
+                 result_dict["_warning"] = " | ".join(stale_warnings)
+@@ -1092,7 +1124,13 @@
+                 result_dict["_hint"] = (
+                     "old_string not found. Use read_file to verify the current "
+                     "content, or search_files to locate the text.")
+-        return json.dumps(result_dict, ensure_ascii=False)
++        _hcv_json = json.dumps(result_dict, ensure_ascii=False)
++        if _hcv_edits is not None:
++            try:
++                return _hcv_changes.decorate_result(_hcv_json, edits=_hcv_edits)
++            except Exception:
++                pass
++        return _hcv_json
+     except Exception as e:
+         return tool_error(str(e))
+ 
 --- a/gateway/session_transcript_subagent.py
 +++ b/gateway/session_transcript_subagent.py
 @@ -58,7 +58,19 @@
@@ -227,3 +284,22 @@
            }
          },
          "required": [
+--- a/gateway/run_turn_progress.py
++++ b/gateway/run_turn_progress.py
+@@ -127,6 +127,16 @@
+     """A managed worker's tool frame, published exactly as an in-process turn publishes its own
+     (the shared viewer stream and this admission's API observers). False for any other frame."""
+     kind = frame.get("type")
++    if kind == "hcv.turn_diff":
++        try:
++            from tools.hcv_file_changes import valid_turn_diff
++            snapshot = frame.get("snapshot")
++            if (set(frame) == {"type", "snapshot"} and valid_turn_diff(snapshot)
++                    and snapshot["agentSessionId"] == session_id):
++                authority.publish_execution(session_id, generation, kind, snapshot)
++        except Exception:
++            logger.debug("Managed worker turn diff unavailable", exc_info=True)
++        return True  # Optional display telemetry cannot fail the turn.
+     fields = {"type", "tool_call_id", "name", "args"} | ({"result", "is_error"} if kind == "tool.complete" else set())
+     if (kind not in ("tool.start", "tool.complete") or set(frame) != fields
+             or not isinstance(frame["tool_call_id"], str) or not isinstance(frame["name"], str)

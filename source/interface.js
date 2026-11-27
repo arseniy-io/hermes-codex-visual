@@ -2,6 +2,8 @@ import { mountCSS, mountStyle } from './style-scope.js'
 import { host } from '@hermes/plugin-sdk'
 import { codexIconRules, codexMask, codexReference as codex } from './codex-reference.js'
 import { movedElementMatches } from './dom-changes.js'
+import { committedFiber } from './sidebar-recents.js'
+import { isAntigravityProvider } from './model-speed-data.js'
 import { commandPaletteStyles, commandRoot } from './command-palette.js'
 
 const menus = ':is([data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"], [data-slot="context-menu-content"], [data-slot="context-menu-sub-content"], [data-slot="select-content"]):not([data-hcv-window-menu-content])'
@@ -10,6 +12,7 @@ const modelRow = '[data-slot="dropdown-menu-sub-trigger"]'
 const modelMeta = `${modelRow} > span > span.uppercase.tracking-wide, ${modelRow} > [data-slot="badge"].uppercase.tracking-wide`
 const sidebarMenu = '[data-hcv-sidebar-menu]'
 const effortBadge = 'data-hcv-model-effort'
+const hiddenVariantBadge = 'data-hcv-hidden-model-variant'
 // Compact labels from Hermes' lib/reasoning-effort.ts, including route clamps.
 const effortLabels = new Set(['Off', 'Min', 'Low', 'Med', 'High', 'XHigh', 'Max', 'Ultra'])
 const items = ':is([data-slot^="dropdown-menu-"][role^="menuitem"], [data-slot^="context-menu-"][role^="menuitem"], [data-slot="select-item"])'
@@ -56,28 +59,65 @@ function screenFromRoute() {
   return name || ''
 }
 
-function watchModelEffortBadges(ctx) {
+function hideAntigravityVariant(badge, label) {
+  if ((label !== 'Flash' && label !== 'Thinking') || badge.hasAttribute('data-model-menu-row-badge')) return false
+  // The native row owns the same provider identity in groups, search and Favorites.
+  for (let fiber = committedFiber(badge); fiber; fiber = fiber.return) {
+    const props = fiber.memoizedProps
+    if (typeof props?.family?.id === 'string' && typeof props.provider?.slug === 'string') {
+      return isAntigravityProvider(props.provider.slug)
+    }
+  }
+  return false
+}
+
+function markModelBadge(badge) {
+  const label = badge.textContent.trim()
+  const levels = label.split('→')
+  badge.toggleAttribute(effortBadge, levels.every(level => effortLabels.has(level)))
+  badge.toggleAttribute(hiddenVariantBadge, hideAntigravityVariant(badge, label))
+}
+
+function watchModelBadges(ctx) {
+  let catalogs = []
   const refresh = () => {
     observer.disconnect()
-    // The composer menu opens in a Radix portal under body. Once open, only
-    // observe that menu so searches and effort changes update the badges.
+    // Radix mounts each open catalog in a portal directly under body.
     observer.observe(document.body, { childList: true })
-    for (const menu of document.querySelectorAll(modelCatalog)) {
-      for (const badge of menu.querySelectorAll(modelMeta)) {
-        const levels = badge.textContent.trim().split('→')
-        badge.toggleAttribute(effortBadge, levels.every(level => effortLabels.has(level)))
-      }
+    catalogs = [...document.querySelectorAll(modelCatalog)]
+    for (const menu of catalogs) {
+      for (const badge of menu.querySelectorAll(modelMeta)) markModelBadge(badge)
       observer.observe(menu, { childList: true, subtree: true, characterData: true })
     }
   }
   const observer = new MutationObserver(records => {
-    if (records.some(record => record.target !== document.body ||
-        movedElementMatches(record, '[data-slot="dropdown-menu-content"]'))) refresh()
+    if (catalogs.some(menu => !menu.isConnected) ||
+        records.some(record => record.target === document.body && movedElementMatches(record, modelCatalog))) {
+      refresh()
+      return
+    }
+    // Search and model changes affect only the replaced rows and badges.
+    const badges = new Set()
+    for (const { target, addedNodes } of records) {
+      if (target === document.body) continue
+      const element = target.nodeType === 1 ? target : target.parentElement
+      const changed = element?.closest(modelMeta)
+      if (changed) badges.add(changed)
+      for (const node of addedNodes) {
+        if (node.nodeType !== 1) continue
+        if (node.matches(modelMeta)) badges.add(node)
+        for (const badge of node.querySelectorAll(modelMeta)) badges.add(badge)
+      }
+    }
+    for (const badge of badges) if (badge.isConnected) markModelBadge(badge)
   })
   refresh()
   ctx.onDispose(() => {
     observer.disconnect()
-    for (const badge of document.querySelectorAll(`[${effortBadge}]`)) badge.removeAttribute(effortBadge)
+    for (const badge of document.querySelectorAll(`[${effortBadge}], [${hiddenVariantBadge}]`)) {
+      badge.removeAttribute(effortBadge)
+      badge.removeAttribute(hiddenVariantBadge)
+    }
   })
 }
 
@@ -125,7 +165,7 @@ function catalogGroupHover(ctx) {
 }
 
 export function registerInterface(ctx, active) {
-  watchModelEffortBadges(ctx)
+  watchModelBadges(ctx)
   const suppressCatalogHover = catalogGroupHover(ctx)
   const root = document.documentElement
   const contrast = matchMedia('(forced-colors: none)')
@@ -488,7 +528,7 @@ export function registerInterface(ctx, active) {
 `
   mountStyle(ctx, sheet)
   mountCSS(ctx, 'data-hcv-interface-popups', `
-${active} ${modelCatalog} [${effortBadge}] { display: none; }
+${active} ${modelCatalog} :is([${effortBadge}], [${hiddenVariantBadge}]) { display: none; }
 ${active} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/label"], [data-slot="dropdown-menu-label"]) {
   text-transform: lowercase;
   letter-spacing: normal;
@@ -716,7 +756,7 @@ ${active} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/lab
     }
   }
 }
-`, { screens: ['capabilities', 'messaging', 'artifacts'], surface: overlays })
+`, { screens: ['capabilities', 'messaging', 'artifacts'], surface: overlays, retainAfterFirstUse: true })
   mountCSS(ctx, 'data-hcv-interface-catalog', `
 @media (forced-colors: none) {
   /* Codex's catalog cards use a border and a quiet fill on hover.
@@ -884,7 +924,7 @@ ${active} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/lab
     }
   }
 }
-`, { screens: ['capabilities'] })
+`, { screens: ['capabilities'], retainAfterFirstUse: true })
   mountCSS(ctx, 'data-hcv-interface-overlays', `
 @media (forced-colors: none) {
   ${shown} {
@@ -954,5 +994,5 @@ ${active} ${modelCatalog} :is([data-slot="dropdown-menu-item"][class~="group/lab
     ${sessions} > header:has(input) > :last-child > div { max-inline-size: none; }
   }
 }
-`, { surface: overlays })
+`, { surface: overlays, retainAfterFirstUse: true })
 }

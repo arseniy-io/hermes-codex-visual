@@ -210,5 +210,5 @@ export function registerSummarySources(ctx, active) {
     }
     ${pane} .hcv-sources-connectors:hover { color: var(--hcv-text); background: var(--hcv-hover); }
   `
-  mountStyle(ctx, style, { surface: '[data-hcv-sources-compact], [data-hcv-sources-pane], [data-hcv-sources-add-menu], [data-hcv-summary-items]', retainAcrossChatTabs: true })
+  mountStyle(ctx, style, { surface: '[data-hcv-sources-compact], [data-hcv-sources-pane], [data-hcv-sources-add-menu], [data-hcv-summary-items]', retainAfterFirstUse: true })
 }

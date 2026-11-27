@@ -106,9 +106,8 @@ export async function sidebarMasks(page, navigation) {
 export async function verifyStyleScope({ page, expect, navigation, openThemeSettings, closeSettings, themeCard }) {
   const has = marker => page.locator('head style[' + marker + ']')
   const scoped = [
-    'data-hcv-settings', 'data-hcv-settings-providers', 'data-hcv-settings-special',
-    'data-hcv-interface-catalog', 'data-hcv-interface-pages', 'data-hcv-interface-overlays',
-    'data-hcv-interface-popups', 'data-hcv-turn-styles', 'data-hcv-desktop-pages',
+    'data-hcv-settings-providers', 'data-hcv-settings-special', 'data-hcv-interface-catalog',
+    'data-hcv-interface-popups', 'data-hcv-turn-styles',
   ]
   await navigation('new-session').click()
   for (const marker of scoped) await expect(has(marker)).toHaveCount(0)
@@ -128,7 +127,7 @@ export async function verifyStyleScope({ page, expect, navigation, openThemeSett
   await project.hover()
   await expect(page.locator('[data-hcv-project-preview]:visible')).toBeVisible()
   const projectRow = project.locator('xpath=ancestor::*[@data-hcv-project-row][1]')
-  await expect(projectRow).toHaveCSS('background-color', 'rgb(41, 41, 41)')
+  await expect(projectRow).toHaveCSS('background-color', 'rgba(255, 255, 255, 0.08)')
   const actions = projectRow.locator('[data-row-actions] button[aria-haspopup="menu"]').first()
   await actions.press('Enter')
   await expect(actions).toHaveAttribute('aria-expanded', 'true')
@@ -146,7 +145,7 @@ export async function verifyStyleScope({ page, expect, navigation, openThemeSett
   await expect(has('data-hcv-interface-catalog')).toHaveCount(0)
   await navigation('capabilities').click()
   await expect(has('data-hcv-interface-catalog')).toHaveCount(1)
-  await expect(has('data-hcv-desktop-pages')).toHaveCount(0)
+  await expect(has('data-hcv-desktop-pages')).toHaveCount(1)
   await navigation('new-session').click()
   await openThemeSettings()
   await expect(has('data-hcv-settings')).toHaveCount(1)
@@ -156,6 +155,8 @@ export async function verifyStyleScope({ page, expect, navigation, openThemeSett
   await expect(has('data-hcv-settings-providers')).toHaveCount(1)
   await closeSettings()
   await expect(has('data-hcv-settings-providers')).toHaveCount(0)
+  await expect(has('data-hcv-settings')).toHaveCount(1)
+  await expect(has('data-hcv-interface-overlays')).toHaveCount(1)
   await openThemeSettings()
   await themeCard('Nous').click()
   await expect(has('data-hermes-codex-visual')).toHaveCount(0)
@@ -163,5 +164,6 @@ export async function verifyStyleScope({ page, expect, navigation, openThemeSett
   await themeCard('Codex').click()
   await expect(has('data-hcv-settings')).toHaveCount(1)
   await closeSettings()
-  await expect(has('data-hcv-settings')).toHaveCount(0)
+  await expect(has('data-hcv-settings')).toHaveCount(1)
+  await expect(has('data-hcv-interface-overlays')).toHaveCount(1)
 }

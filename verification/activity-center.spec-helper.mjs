@@ -11,12 +11,20 @@ const supportBefore = 'Источник проверен не был.'
 const supportAfter = 'Источник проверен в отдельном тестовом профиле.'
 const acceptedNote = 'Для тестового отчёта сначала указывай дату проверки. ' + 'Перечисляй только подтверждённые результаты. '.repeat(12) + 'КОНЕЦ ТЕСТОВОЙ ЗАМЕТКИ.'
 const rejectedNote = 'Пропускать проверку тестового отчёта.'
+const newDescription = 'Сверяет тестовые отчёты.'
+export const newSkillPurpose = 'Когда проверяешь отчёт, навык сверит цифры с источниками. Ты получишь список расхождений.'
+const overlongDescription = 'Сверяет отчёты, отмечает найденные ошибки и собирает список источников для повторной проверки.'
 
 // Appended to the existing isolated projectSeedProgram: Path/sys/db and the
 // selected HERMES_HOME are already supplied by the sandbox fixture.
 export const seedActivityProposals = `
 from tools import write_approval as wa
+import importlib.util, json
 activity_home = Path(sys.argv[1]).parent
+activity_spec = importlib.util.spec_from_file_location('isolated_activity_backend',
+    activity_home / 'plugins' / 'hermes-codex-visual' / 'activity.py')
+activity_backend = importlib.util.module_from_spec(activity_spec)
+activity_spec.loader.exec_module(activity_backend)
 activity_skill = activity_home / 'skills' / '${skillName}'
 (activity_skill / 'references').mkdir(parents=True, exist_ok=True)
 (activity_skill / 'SKILL.md').write_text('\\n'.join(['---', 'name: ${skillName}', ${JSON.stringify(descriptionBefore)}, '---',
@@ -30,13 +38,18 @@ wa.stage_write(wa.SKILLS, {'action': 'batch', 'operations': [
     {'action': 'patch', 'name': '${skillName}', 'file_path': 'references/check.md',
      'old_string': ${JSON.stringify(supportBefore)}, 'new_string': ${JSON.stringify(supportAfter)}},
 ]}, summary='batch(3 ops: patch, patch, patch) on ${skillName}', origin='background_review')
-wa.stage_write(wa.SKILLS, {'action': 'batch', 'operations': [
-    {'action': 'create', 'name': 'activity-missing-fixture', 'content': '---\\nname: activity-missing-fixture\\ndescription: Test fixture\\n---\\nNew skill content.\\n'},
-]}, summary='create activity fixture', origin='background_review')
+activity_created = wa.stage_write(wa.SKILLS, {'action': 'batch', 'operations': [
+    {'action': 'create', 'name': 'activity-missing-fixture', 'content': '---\\nname: activity-missing-fixture\\ndescription: ${newDescription}\\n---\\nNew skill content.\\n'},
+]}, summary='create activity fixture', origin='foreground')
+activity_backend.proposal_notification(tool_name='skill_manage', session_id='20261108_124501_aab001',
+    result=json.dumps({'success': True, 'staged': True, 'pending_id': activity_created['id']}))
 wa.stage_write(wa.SKILLS, {'action': 'batch', 'operations': [
     {'action': 'write_file', 'name': 'activity-missing-fixture', 'file_path': 'references/first.md', 'file_content': '# First guide\\nFirst proposed reference.'},
     {'action': 'write_file', 'name': 'activity-missing-fixture', 'file_path': 'references/second.md', 'file_content': '# Second guide\\nSecond proposed reference.'},
 ]}, summary='missing skill references', origin='background_review')
+wa.stage_write(wa.SKILLS, {'action': 'create', 'name': 'activity-invalid-fixture',
+    'content': '\\n'.join(['---', 'name: activity-invalid-fixture', 'description: ${overlongDescription}', '---', 'Synthetic instructions.'])},
+    summary='create invalid activity fixture', origin='background_review')
 for activity_note in (${JSON.stringify(acceptedNote)}, ${JSON.stringify(rejectedNote)}):
     wa.stage_write(wa.MEMORY, {'action': 'add', 'target': 'user', 'content': activity_note},
         summary='add to user profile: ' + activity_note[:120], origin='background_review')
@@ -68,56 +81,69 @@ export async function verifyActivityCenter({ page, expect, screenshot, sandbox, 
     buttonRadii[state] = buttons
   }
 
-  assert.equal(pendingCount(), 5, 'Only the isolated seed should be queued')
+  assert.equal(pendingCount(), 6, 'Only the isolated seed should be queued')
   await expect(button).toBeVisible()
-  await expect(count).toHaveText('5')
+  await expect(count).toHaveText('6')
   assert(await button.evaluate(node => node.nextElementSibling?.hasAttribute('data-hcv-notifications')),
     'Activity belongs immediately before the notification-settings button')
   await button.focus()
   await page.keyboard.press('Enter')
   await expect(panel).toBeVisible()
   await expect(panel.getByText('Профиль Hermes: default', { exact: true })).toBeVisible()
-  await expect(panel.locator('[data-hcv-activity-item]')).toHaveCount(5)
+  await expect(panel.locator('[data-hcv-activity-item]')).toHaveCount(6)
   await panel.getByRole('button', { name: 'Навыки', exact: true }).click()
-  await expect(panel.locator('[data-hcv-activity-item]')).toHaveCount(3)
+  await expect(panel.locator('[data-hcv-activity-item]')).toHaveCount(4)
   await panel.getByRole('button', { name: 'Память', exact: true }).click()
   await expect(panel.locator('[data-hcv-activity-item]')).toHaveCount(2)
   await panel.getByRole('button', { name: 'Все', exact: true }).click()
-  const createdRow = panel.locator('[data-hcv-activity-item]').filter({ hasText: 'Создание навыка' })
+  const createdRow = panel.locator('[data-hcv-activity-item]').filter({ hasText: newDescription })
+  const creationTitle = panel.getByRole('heading', { name: 'Предложение создать новый навык', exact: true })
+  const accept = panel.getByRole('button', { name: 'Принять', exact: true })
+  const back = panel.getByRole('button', { name: 'К предложениям', exact: true })
+  const fullText = panel.getByRole('button', { name: 'Полный текст', exact: true })
   await expect(createdRow).toContainText('activity-missing-fixture')
+  await expect(createdRow.getByText('Проект «Тестовый проект»', { exact: true })).toBeVisible()
   await createdRow.getByRole('button', { name: 'Посмотреть предложение', exact: true }).click()
-  await expect(panel.locator('[data-hcv-activity-detail] [data-hcv-activity-kind]')).toHaveText('Создание навыка')
-  await expect(panel.locator('[data-hcv-activity-changes]')).toBeAttached()
-  await panel.locator('[data-hcv-activity-changes] > summary').click()
-  await expect(panel.locator('[data-hcv-activity-changes]')).toContainText('New skill content.')
-  await expect(panel.getByRole('button', { name: 'Принять', exact: true })).toBeEnabled({ timeout: 30000 })
-  await panel.getByRole('button', { name: 'К предложениям', exact: true }).click()
+  await expect(creationTitle).toBeVisible()
+  await expect(panel.getByText('Проект «Тестовый проект»', { exact: true })).toBeVisible()
+  await expect(panel.getByText(newSkillPurpose, { exact: true })).toBeVisible({ timeout: 30000 })
+  await expect(accept).toBeEnabled()
+  await expect(panel.locator('details')).toHaveCount(0)
+  await expect(panel.getByText(/Профиль Hermes/)).toHaveCount(0)
+  await fullText.click()
+  await expect(panel.locator('[data-hcv-activity-preview]')).toContainText('New skill content.')
+  await panel.getByRole('button', { name: 'К предложению', exact: true }).click()
+  await expect(creationTitle).toBeVisible()
+  await expect(panel.locator('[data-hcv-activity-preview]')).toHaveCount(0)
+  await back.click()
+
   const missingRow = panel.locator('[data-hcv-activity-item]').filter({ hasText: 'Файлы навыка' })
   await expect(missingRow).toContainText('activity-missing-fixture')
   await missingRow.getByRole('button', { name: 'Посмотреть правку', exact: true }).click()
-  await expect(panel.locator('[data-hcv-activity-detail] [data-hcv-activity-kind]')).toHaveText('Файлы навыка')
-  await expect(panel.getByText('Указанный навык сейчас не найден', { exact: true })).toBeVisible()
-  await expect(panel.getByText('В очереди есть предложение создать навык с таким названием. Рассмотрите его в первую очередь.')).toBeVisible()
-  await expect(panel.getByText('Предлагается записать в навык эти файлы:', { exact: true })).toBeVisible()
-  await expect(panel.getByText(/Краткое описание недоступно/)).toHaveCount(0)
-  await expect(panel.getByRole('button', { name: 'Принять', exact: true })).toBeDisabled()
-  await expect(panel.locator('[data-hcv-activity-proposed-files]')).toContainText('First guide · references/first.md')
-  await expect(panel.locator('[data-hcv-activity-proposed-files]')).toContainText('Second guide · references/second.md')
-  await panel.locator('[data-hcv-activity-proposed-files] summary').first().click()
-  await expect(panel.locator('[data-hcv-activity-proposed-files]')).toContainText('First proposed reference.')
-  await page.setViewportSize({ width: 740, height: 820 })
-  assert(await panel.evaluate(node => node.scrollWidth <= node.clientWidth + 1), 'Linked proposals must fit the narrow dialog')
-  assert(await panel.locator('[data-hcv-activity-proposed-files]').evaluate(node => node.scrollWidth <= node.clientWidth + 1),
-    'Proposed file names and text must wrap in the narrow dialog')
+  await expect(creationTitle).toBeVisible()
+  await expect(panel.getByText(newSkillPurpose, { exact: true })).toBeVisible()
+  await expect(panel.getByText('Проект «Тестовый проект»', { exact: true })).toBeVisible()
+  await expect(accept).toBeEnabled()
+  await expect(panel.locator('details')).toHaveCount(0)
+  const compactSize = await panel.evaluate(node => ({ width: node.getBoundingClientRect().width, height: node.getBoundingClientRect().height }))
+  await measureButtons('compactProposal')
+  await screenshot('activity-skill-creation.png')
+  await page.setViewportSize({ width: 450, height: 820 })
+  await expect.poll(() => panel.evaluate(node => node.scrollWidth <= node.clientWidth + 1 &&
+    node.getBoundingClientRect().width < innerWidth), { message: 'The compact proposal must fit a narrow window' }).toBe(true)
   await screenshot('activity-linked-skill-narrow.png')
   await page.setViewportSize({ width: 1440, height: 920 })
-  await panel.locator('[data-hcv-activity-fallback] > summary').click()
+  await panel.getByRole('button', { name: 'Отдельное предложение по файлам', exact: true }).click()
+  await expect(panel.getByRole('heading', { name: 'Предложение изменить файлы навыка', exact: true })).toBeVisible()
+  await expect(accept).toBeDisabled()
+  await expect(panel.locator('details')).toHaveCount(0)
+  const fileList = panel.locator('[data-hcv-activity-compact-footer] ul')
+  await expect(fileList.locator('li')).toHaveText(['references/first.md', 'references/second.md'])
+  await fullText.click()
   await expect(panel.locator('[data-hcv-activity-preview]')).toContainText('First proposed reference.')
   await expect(panel.locator('[data-hcv-activity-preview]')).toContainText('Second proposed reference.')
-  await panel.getByRole('button', { name: 'Рассмотреть создание навыка', exact: true }).click()
-  await expect(panel.locator('[data-hcv-activity-detail] [data-hcv-activity-kind]')).toHaveText('Создание навыка')
-  await expect(panel.getByRole('button', { name: 'Принять', exact: true })).toBeEnabled({ timeout: 30000 })
-  await panel.getByRole('button', { name: 'К предложениям', exact: true }).click()
+  await panel.getByRole('button', { name: 'К предложению', exact: true }).click()
+  await back.click()
   await panel.getByRole('button', { name: 'Сейчас', exact: true }).click()
   await expect(panel.getByText('Сейчас нет подтверждённых фоновых проверок.')).toBeVisible()
   await panel.getByRole('button', { name: 'Недавнее', exact: true }).click()
@@ -152,7 +178,7 @@ export async function verifyActivityCenter({ page, expect, screenshot, sandbox, 
   await expect(preview).toContainText('references/check.md')
   await preview.locator('[data-hcv-activity-full] > summary').first().click()
   await expect(preview.locator('[data-hcv-activity-full]').first()).toContainText(descriptionBefore)
-  assert.equal(pendingCount(), 5)
+  assert.equal(pendingCount(), 6)
   assert(fs.readFileSync(skillFile, 'utf8').includes(ruleBefore))
   await preview.locator('summary').first().focus()
   await expect(preview.locator('summary').first()).toBeFocused()
@@ -184,11 +210,11 @@ export async function verifyActivityCenter({ page, expect, screenshot, sandbox, 
   await panel.getByRole('button', { name: 'Принять', exact: true }).click()
   await expect(panel.getByText('Предложение принято.', { exact: true })).toBeVisible()
   assert(!fs.existsSync(savedSkill), 'Approval removes the pending explanation cache')
-  await expect(count).toHaveText('4')
+  await expect(count).toHaveText('5')
   assert(fs.readFileSync(skillFile, 'utf8').includes(descriptionAfter))
   assert(fs.readFileSync(skillFile, 'utf8').includes(ruleAfter))
   assert.equal(fs.readFileSync(supportFile, 'utf8').replaceAll('\r\n', '\n'), supportAfter + '\n')
-  assert.equal(pendingFiles('skills').length, 2)
+  assert.equal(pendingFiles('skills').length, 3)
 
   const acceptedRow = panel.locator('[data-hcv-activity-item]').filter({ hasText: 'Для тестового отчёта сначала указывай дату проверки.' })
   await acceptedRow.getByRole('button', { name: 'Посмотреть правку', exact: true }).click()
@@ -198,7 +224,7 @@ export async function verifyActivityCenter({ page, expect, screenshot, sandbox, 
   await expect(preview).toContainText(acceptedNote)
   assert(!readMemory().includes(acceptedNote))
   await panel.getByRole('button', { name: 'Принять', exact: true }).click()
-  await expect(count).toHaveText('3')
+  await expect(count).toHaveText('4')
   assert(readMemory().includes(acceptedNote), 'Native memory approval must apply the complete note')
   const rejectedRow = panel.locator('[data-hcv-activity-item]').filter({ hasText: rejectedNote })
   const beforeReject = new Set(cacheFiles())
@@ -212,10 +238,10 @@ export async function verifyActivityCenter({ page, expect, screenshot, sandbox, 
   await expect(panel.getByText('Предложение отклонено.', { exact: true })).toBeVisible()
   assert(!cacheFiles().includes(rejectedCache))
   assert(!readMemory().includes(rejectedNote))
-  assert.equal(pendingCount(), 2)
-  await expect(count).toHaveText('2')
+  assert.equal(pendingCount(), 3)
+  await expect(count).toHaveText('3')
   await panel.getByRole('button', { name: 'Обновить', exact: true }).click()
-  await expect(panel.locator('[data-hcv-activity-item]')).toHaveCount(2)
+  await expect(panel.locator('[data-hcv-activity-item]')).toHaveCount(3)
   await panel.getByRole('button', { name: 'Недавнее', exact: true }).click()
   await expect(panel.locator('[data-hcv-activity-item]')).toHaveCount(3)
   await expect(panel.locator('[data-hcv-activity-item]').filter({ hasText: 'Сверять дату и результаты тестового отчёта с источниками.' })).toHaveCount(3)
@@ -231,14 +257,25 @@ export async function verifyActivityCenter({ page, expect, screenshot, sandbox, 
   await createdRow.getByRole('button', { name: 'Посмотреть предложение', exact: true }).click()
   await expect(panel.getByRole('button', { name: 'Принять', exact: true })).toBeEnabled({ timeout: 30000 })
   await panel.getByRole('button', { name: 'Принять', exact: true }).click()
-  await expect(panel.getByText('Предложение принято.', { exact: true })).toBeVisible()
+  await expect(panel.getByText('Навык «activity-missing-fixture» создан.', { exact: true })).toBeVisible()
   assert(fs.existsSync(path.join(sandbox.hermesHome, 'skills/activity-missing-fixture/SKILL.md')))
+  assert(!fs.existsSync(path.join(sandbox.hermesHome, 'skills/activity-missing-fixture/references/first.md')),
+    'Creating a skill must not approve a separate files proposal')
   await missingRow.getByRole('button', { name: 'Посмотреть правку', exact: true }).click()
   await expect(panel.getByRole('button', { name: 'Принять', exact: true })).toBeEnabled({ timeout: 30000 })
   await panel.getByRole('button', { name: 'Принять', exact: true }).click()
-  await expect(panel.getByText('Предложение принято.', { exact: true })).toBeVisible()
+  await expect(panel.getByText('Файлы навыка сохранены.', { exact: true })).toBeVisible()
   assert.equal(fs.readFileSync(path.join(sandbox.hermesHome, 'skills/activity-missing-fixture/references/first.md'), 'utf8').replaceAll('\r\n', '\n'), '# First guide\nFirst proposed reference.')
   assert.equal(fs.readFileSync(path.join(sandbox.hermesHome, 'skills/activity-missing-fixture/references/second.md'), 'utf8').replaceAll('\r\n', '\n'), '# Second guide\nSecond proposed reference.')
+  const invalidRow = panel.locator('[data-hcv-activity-item]').filter({ hasText: 'activity-invalid-fixture' })
+  await invalidRow.getByRole('button', { name: 'Посмотреть предложение', exact: true }).click()
+  await expect(panel.getByText('Проект не определён', { exact: true })).toBeVisible()
+  await expect(panel.getByText(/Создание заблокировано. Длина описания \d+, допустимо до \d+ символов\./)).toBeVisible()
+  await expect(accept).toBeDisabled()
+  assert(!fs.existsSync(path.join(sandbox.hermesHome, 'skills/activity-invalid-fixture')))
+  await screenshot('activity-skill-creation-refused.png')
+  await panel.getByRole('button', { name: 'Отклонить', exact: true }).click()
+  await expect(panel.getByText('Предложение отклонено.', { exact: true })).toBeVisible()
   assert.equal(pendingCount(), 0)
   await expect(count).toBeHidden()
   await panel.getByRole('button', { name: 'Обновить', exact: true }).click()
@@ -248,7 +285,9 @@ export async function verifyActivityCenter({ page, expect, screenshot, sandbox, 
   return { nativeQueue: true, explanation: true, sectionsAndFilters: true, decisionHistory: true,
     savedExplanation: true, decisionCacheCleared: true,
     fullBatch: true, fullMemory: true, createPreview: true, missingSkillPreview: true, linkedCreationAndFiles: true, approvedSkill: true,
-    approvedMemory: true, rejectedMemory: true, pending: pendingCount(), keyboard: true, narrow: true, light: true, buttonRadii }
+    compactSize, creationRefusal: true, plainPurpose: true, actualProject: true,
+    approvedMemory: true, rejectedMemory: true,
+    pending: pendingCount(), keyboard: true, narrow: true, light: true, buttonRadii }
 }
 
 // Optional failure-only phase. These requests are intercepted in Electron main;
@@ -272,7 +311,10 @@ export async function installActivityUiFixture(app) {
       if (state.behavior === 'error') throw new Error('HTTP 503 isolated activity fixture')
       const scope = 'fixture-activity-only'
       if (request.method === 'POST') {
-        if (state.behavior === 'unknown') throw new Error('Isolated unconfirmed transport')
+        if (state.behavior === 'unknown') {
+          await new Promise(resolve => { state.releaseDecision = resolve })
+          throw new Error('Isolated unconfirmed transport')
+        }
         if (state.behavior === 'stale') throw new Error('HTTP 409 stale isolated proposal')
         state.items = []
         return { scope, status: url.pathname.endsWith('/approve') ? 'approved' : 'rejected' }
@@ -296,6 +338,7 @@ export async function restoreActivityUiFixture(app) {
   await app.evaluate(({ ipcMain }) => {
     const state = globalThis.__hcvActivityFixture
     if (!state) return
+    state.releaseDecision?.()
     ipcMain.removeHandler('hermes:api')
     ipcMain.handle('hermes:api', state.previous)
     delete globalThis.__hcvActivityFixture
@@ -317,6 +360,10 @@ export async function verifyActivityFailureUi({ app, page, expect }) {
     await expect(panel.locator('[data-hcv-activity-changes]')).toContainText('Последняя строка')
     await app.evaluate(() => { globalThis.__hcvActivityFixture.behavior = 'unknown' })
     await panel.getByRole('button', { name: 'Принять', exact: true }).click()
+    await expect(panel.getByRole('status').filter({ hasText: 'Ждём ответ Hermes…' })).toBeVisible()
+    await expect(panel.getByRole('button', { name: 'Принимаем…', exact: true })).toBeDisabled()
+    await expect.poll(() => app.evaluate(() => typeof globalThis.__hcvActivityFixture.releaseDecision)).toBe('function')
+    await app.evaluate(() => { globalThis.__hcvActivityFixture.releaseDecision() })
     await expect(panel.getByText(/Результат не подтверждён/)).toBeVisible()
     await expect(panel.getByRole('button', { name: 'Принять', exact: true })).toBeDisabled()
     const calls = await app.evaluate(() => globalThis.__hcvActivityFixture.calls)

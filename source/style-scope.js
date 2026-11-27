@@ -4,6 +4,7 @@ const scopes = new WeakMap()
 const hiddenPane = '[data-pane-hidden], [hidden]'
 const chatTab = '[data-zone-tabstrip="grp-main"] [role="tab"][data-tree-tab^="session-tile:"]'
 const visibleChatTab = `${chatTab}:not(:is(${hiddenPane}) *)`
+const retainedWorkspaceChat = '[data-workspace-chat-layer] [data-chat-surface]'
 
 export const chatStyles = {
   surface: '[data-chat-surface], [data-slot="composer-surface"]',
@@ -27,19 +28,26 @@ export function registerStyleScope(ctx, theme) {
     const tab = screen === 'settings' ? new URLSearchParams(query).get('tab') : null
     const surfaces = new Map()
     const pending = new Set()
-    let hasChatTabs
-    for (const { sheet, anchor, screens, tabs, surface, visibleSurface, retainAcrossChatTabs, retainParsed } of entries) {
+    let hasKeptChat
+    for (const { sheet, anchor, screens, tabs, surface, visibleSurface, retainAcrossChatTabs, retainParsed, retainAfterFirstUse } of entries) {
       const mounted = sheet.isConnected
       const parsed = enabled && mounted && retainParsed ? sheet.sheet : null
-      let visible = enabled && !screens && !surface
+      // Selectors bounded to their own surface can stay active after use.
+      // Attaching or removing those sheets forces a document-wide style pass.
+      const retained = retainAfterFirstUse && mounted
+      let visible = enabled && (retained || !screens && !surface)
       if (enabled && screens?.includes(screen) && (!tabs || tabs.includes(tab))) visible = true
       if (enabled && surface && !visible) {
         pending.add(surface)
-        // The main strip survives a pane swap. Keep already-needed chat CSS
-        // attached through it so revealing a saved pane does not reparse CSS.
+        // Keep already-needed chat CSS active while the native workspace owns
+        // the parked transcript, including pages that hide the main tab strip.
         if (retainAcrossChatTabs) {
           pending.add(chatTab)
-          if (mounted && !parsed?.disabled) visible = hasChatTabs ??= Boolean(document.querySelector(visibleChatTab))
+          pending.add(retainedWorkspaceChat)
+          if (mounted && !parsed?.disabled) {
+            hasKeptChat ??= Boolean(document.querySelector(`${visibleChatTab}, ${retainedWorkspaceChat}`))
+            visible = hasKeptChat
+          }
         }
         if (!visible) {
           if (!surfaces.has(surface)) surfaces.set(surface, Boolean(document.querySelector(visibleSurface)))

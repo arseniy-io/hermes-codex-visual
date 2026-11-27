@@ -211,7 +211,7 @@ ${fileCard} { display: none !important; }
 
 }
 `
-  mountStyle(ctx, style, { surface: '[data-slot="aui_assistant-message-content"], [data-slot="aui_user-message-root"]', retainAcrossChatTabs: true })
+  mountStyle(ctx, style, { surface: '[data-slot="aui_assistant-message-content"], [data-slot="aui_user-message-root"]', retainAfterFirstUse: true })
   const players = [
     registerChatAudio(ctx, active, `${media} > audio`, forcedColors),
     registerChatVideo(ctx, active, `${media} > video`, forcedColors),

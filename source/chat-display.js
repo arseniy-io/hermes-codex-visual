@@ -1,9 +1,11 @@
+import { host } from '@hermes/plugin-sdk'
 import { chatStyles, mountStyle } from './style-scope.js'
 import { codexIconRules, codexMask } from './codex-reference.js'
 import { registerMessageActions } from './message-actions.js'
 import { committedFiber } from './sidebar-recents.js'
 import { registerProjectChatWelcome } from './chat-welcome.js'
 import { createComposerClearanceMetrics } from './composer-clearance.js'
+import { registerComposerSendClearance } from './composer-send-clearance.js'
 
 const viewportSelector = '[data-slot="aui_thread-viewport"]'
 const mainGroup = '[data-tree-group="grp-main"]'
@@ -39,6 +41,8 @@ function displayStyles(active, chat) {
   const ellipsis = `${bubble} > [data-hcv-message-ellipsis]`
   const frame = `${viewport} ${editSelector} [data-hcv-edit-controls]`
   const docked = `${active} ${chat}:has([data-slot="composer-dock"]:not([data-popped-out]))`
+  const returningPrimary = `${active} ${chat}[data-composer-target="main"]:has([data-slot="aui_composer-clearance"]):not(:has([data-slot="composer-dock"][data-popped-out]))`
+  const measuredThread = `:is(${docked}, ${returningPrimary})`
   // The same native control also points to pending approvals. Keep that
   // distinct state and its label available.
   const scrollJump = `${active} ${chat} [data-slot="composer-bounds"] > button.thread-jump-button:not([class~="border-primary/40"])`
@@ -55,6 +59,9 @@ function displayStyles(active, chat) {
   const errorButton = `${errorActions} > .aui-error-action`
   const errorControls = `:is(${errorClose}, ${errorSummary}, ${errorButton})`
   const modernError = `${active} ${chat} [data-slot="aui_error-card"][role="alert"]`
+  const modernErrorTextButton = `${modernError} :is(.aui-error-btn, .aui-error-action, .aui-error-card-toggle, .aui-error-details-link)`
+  const modernErrorClose = `${modernError} .aui-error-card-close`
+  const modernErrorButton = `:is(${modernErrorTextButton}, ${modernErrorClose})`
   const content = `${active} [data-tree-group] ${chat} ${viewportSelector} [data-slot="aui_thread-content"]`
   const tileWelcome = `${active} [data-tree-group] ${chat}[data-composer-target^="tile:"] [data-hcv-project-welcome]`
   const nativeIntro = '[data-slot="aui_intro"]:not([data-hcv-project-welcome]):only-child'
@@ -62,6 +69,7 @@ function displayStyles(active, chat) {
   const emptyBody = `${viewportSelector} > [data-slot="aui_thread-content"] > div > div`
   const mainPlaceholder = `${docked}[data-composer-target="main"] ${emptyBody}:has(> ${nativeIntro})`
   const tilePlaceholder = `${docked}[data-composer-target^="tile:"] ${emptyBody}:has(> ${projectIntro})`
+  const dockedBounds = `${docked}:not([data-hud-shell] *) [data-slot="composer-bounds"]`
   return `
   /* Codex 26.1111.2228.0: the default thread inset is 8 × 4px. Hermes
      otherwise resolves its titlebar-based inset to zero in a project tab. */
@@ -81,6 +89,17 @@ function displayStyles(active, chat) {
   ${tileWelcome}:only-child { display: flex !important; }
 
 @media (forced-colors: none) {
+  /* Shield the transcript at the 22px lower corners and through the gutter. */
+  ${dockedBounds}::after {
+    content: '';
+    position: absolute;
+    z-index: 1;
+    inset-inline: 1rem;
+    inset-block-end: 0;
+    block-size: calc(22px + var(--composer-shell-pad-block-end));
+    background-color: var(--ui-chat-surface-background);
+    pointer-events: none;
+  }
   /* The native viewport shrinks when rows are added above the editor. Put
      their height back into the welcome's centering only. The native matching
      top and bottom padding cancel at full height and overflow in short panes. */
@@ -90,9 +109,10 @@ function displayStyles(active, chat) {
   ${mainPlaceholder} > ${nativeIntro}, ${tilePlaceholder} > ${projectIntro} {
     padding-block-end: 0;
   }
-  /* Current Hermes error surface. Adapt the same Codex panel and quiet
-     controls used below without replacing native actions or diagnostics. */
+  /* Use the full response width and the same 1px inset as turn changes. */
   ${modernError} {
+    --hcv-error-button-radius: 10px;
+    max-inline-size: none; margin-inline: 1px;
     gap: 10px; margin-block-start: 8px; padding: 12px;
     border: 1px solid var(--hcv-hairline); border-radius: 16px;
     background: var(--hcv-panel); color: var(--hcv-text);
@@ -103,16 +123,37 @@ function displayStyles(active, chat) {
   ${codexIconRules(`${modernError} .aui-error-card-icon`, 'warning')}
   ${modernError} .aui-error-card-title { font-weight: 600; }
   ${modernError} .aui-error-card-body { color: var(--hcv-muted); }
-  ${modernError} :is(.aui-error-action, .aui-error-card-toggle, .aui-error-card-close, .aui-error-details-link) {
-    border-radius: 8px; font-size: 12px; line-height: 16px;
-    color: var(--hcv-muted);
+  ${modernErrorTextButton} {
+    min-block-size: 28px; max-inline-size: 100%; padding: 3px 8px;
+    border: 1px solid transparent; border-radius: var(--hcv-error-button-radius);
+    background: transparent; color: var(--hcv-muted);
+    font: 430 13px/18px var(--hcv-ui-font);
+    text-align: start; text-decoration: none; white-space: normal; overflow-wrap: anywhere;
   }
-  ${modernError} .aui-error-action { background: var(--hcv-selected); color: var(--hcv-text); }
+  ${modernError} .aui-error-card-toggle { flex-shrink: 1; }
+  ${modernError} :is(.aui-error-btn-secondary, .aui-error-action) {
+    border-color: light-dark(rgb(26 28 31 / 8%), rgb(255 255 255 / 8%));
+    background: light-dark(#fff, #292929); color: var(--hcv-text);
+  }
+  ${modernErrorClose} {
+    display: grid; place-items: center;
+    inline-size: 24px; block-size: 24px; inset: auto;
+    inset-block-start: 8px; inset-inline-end: 8px;
+    border-radius: 6px; color: var(--hcv-muted);
+  }
+  ${modernErrorButton} { box-shadow: none; transition: none; }
+  ${modernErrorButton}:active { transform: none; }
   ${modernError} .aui-error-details-slab { background: var(--hcv-chat); color: var(--hcv-muted); border-radius: 8px; }
   ${modernError} button:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }
-  ${codexIconRules(`${modernError} .aui-error-card-close > svg`, 'close')}
-  @media (hover: hover) {
-    ${modernError} button:hover:not(:disabled) { background: var(--hcv-hover-menu); color: var(--hcv-text); }
+  ${codexIconRules(`${modernErrorClose} > svg`, 'close')}
+  @supports (corner-shape: superellipse(1.5)) {
+    ${modernError} { --hcv-error-button-radius: 12.5px; }
+    ${modernErrorTextButton} { corner-shape: superellipse(1.5); }
+  }
+  @media (hover: hover) and (pointer: fine) {
+    ${modernErrorButton}:hover:not(:disabled, [aria-disabled="true"]) {
+      background-color: var(--hcv-hover-menu); color: var(--hcv-text);
+    }
   }
   ${replyError} {
     gap: 10px;
@@ -208,10 +249,21 @@ function displayStyles(active, chat) {
     mask-image: linear-gradient(to bottom, transparent 0, black ${fadeDistance}, black 100%);
     scrollbar-width: thin;
     scrollbar-gutter: stable both-edges;
-      scrollbar-color: light-dark(rgb(26 28 31 / 7.8%), rgb(255 255 255 / 8.4%)) transparent;
+    scrollbar-color: light-dark(rgb(26 28 31 / 7.8%), rgb(255 255 255 / 8.4%)) transparent;
   }
   ${viewport}:is(:hover, :active) {
-      scrollbar-color: light-dark(rgb(26 28 31 / 11.7%), rgb(255 255 255 / 15.6%)) transparent;
+    scrollbar-color: light-dark(rgb(26 28 31 / 11.7%), rgb(255 255 255 / 15.6%)) transparent;
+  }
+  /* The viewport owns this scrollbar. Inheriting its colors through message
+     content makes Blink revisit the transcript for the viewport's styles. */
+  ${viewport} > [data-slot="aui_thread-content"] {
+    scrollbar-color: auto;
+  }
+  /* Hermes holds this marker while its own scroll restore is in progress.
+     Keep geometry and the composer intact while the rows find their place. */
+  ${active} ${chat}[data-session-switching] ${viewportSelector} {
+    opacity: 0;
+    overflow-anchor: none;
   }
   /* wqAy.R and vFsk.w in Codex 344734.3322725bda.js. Keep Hermes's
      measured dock height so the gap also clears its status stack. */
@@ -270,13 +322,17 @@ function displayStyles(active, chat) {
   ${docked} [data-slot="aui_thread-content"] {
     --thread-last-message-clearance: calc(var(--composer-surface-measured-height) + 4px);
   }
-  ${docked}:not([data-hud-shell] *) {
-    --thread-viewport-height: max(0px, calc(100% - var(--hcv-composer-dock-height, var(--composer-measured-height)) + var(--hcv-composer-surface-height, var(--composer-surface-measured-height))));
+  ${returningPrimary} {
+    --hcv-restored-dock-height: var(--hcv-last-composer-dock-height);
+    --hcv-restored-surface-height: var(--hcv-last-composer-surface-height);
   }
-  ${docked}:not([data-hud-shell] *) [data-slot="aui_thread-content"] {
-    --thread-last-message-clearance: calc(var(--hcv-composer-surface-height, var(--composer-surface-measured-height)) + 32px);
+  ${measuredThread} {
+    --thread-viewport-height: max(0px, calc(100% - var(--hcv-composer-dock-height, var(--hcv-restored-dock-height, var(--composer-measured-height))) + var(--hcv-composer-surface-height, var(--hcv-restored-surface-height, var(--composer-surface-measured-height)))));
   }
-  ${docked} [data-slot="aui_thread-content"] > [data-slot="aui_message-group"]:not(:has(~ [data-slot="aui_message-group"])) {
+  ${measuredThread} [data-slot="aui_thread-content"] {
+    --thread-last-message-clearance: calc(var(--hcv-composer-surface-height, var(--hcv-restored-surface-height, var(--composer-surface-measured-height))) + 32px);
+  }
+  ${measuredThread} [data-slot="aui_thread-content"] > [data-slot="aui_message-group"]:not(:has(~ [data-slot="aui_message-group"])) {
     padding-block-end: 0;
   }
   ${bubble} {
@@ -479,6 +535,10 @@ export function registerChatDisplay(ctx, active) {
   const editorSelector = `${chat} ${viewportSelector} ${editSelector} ${editFrame}`
   const root = document.documentElement
   const forcedColors = matchMedia('(forced-colors: active)')
+  const syncSendClearance = registerComposerSendClearance(ctx, {
+    enabled: () => root.matches(active) && !forcedColors.matches,
+    viewportSelector, promptSelector,
+  })
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)')
   const states = new Map()
   const editors = new Map()
@@ -489,14 +549,33 @@ export function registerChatDisplay(ctx, active) {
   let selectedViewport = null
   let previousViewport = null
   let suspendedViewport = null
-  const composerMetrics = createComposerClearanceMetrics()
+  const layoutKey = (hash = location.hash) => JSON.stringify([hash, host.state.connectionId.get(), host.state.profile.get(),
+    window.innerWidth, window.innerHeight, window.devicePixelRatio])
+  const composerMetrics = createComposerClearanceMetrics(() => {
+    if (!window.navigation) return null
+    const session = host.state.focusedStoredSessionId.get()
+    if (session && location.hash.split('?')[0] === '#/' + encodeURIComponent(session)) return layoutKey()
+    return null
+  })
+  if (window.navigation) {
+    // The navigation event is delivered before React commits the new chat.
+    ctx.addEventListener(window.navigation, 'navigate', event => {
+      composerMetrics.restoreFallback(layoutKey(new URL(event.destination.url).hash))
+    })
+  }
+  const recheckLayout = () => composerMetrics.restoreFallback(layoutKey())
+  ctx.addEventListener(window, 'resize', recheckLayout)
+  ctx.onDispose(host.state.connectionId.subscribe(recheckLayout))
+  ctx.onDispose(host.state.profile.subscribe(recheckLayout))
   let nextId = 0
   let frame = 0
   let transcriptChanged = false
   const stylesheet = document.createElement('style')
   stylesheet.setAttribute('data-hcv-chat-display', '')
   stylesheet.textContent = displayStyles(active, chat)
-  mountStyle(ctx, stylesheet, chatStyles)
+  // Hermes restores scroll inside the commit that mounts this surface.
+  // Geometry rules must already apply before any DOM observer can see it.
+  mountStyle(ctx, stylesheet, { ...chatStyles, surface: null })
   ctx.i18n.register(labels)
 
   function label(state) {
@@ -732,11 +811,12 @@ export function registerChatDisplay(ctx, active) {
 
   function reconcile() {
     frame = 0
+    syncSendClearance()
     const enabled = root.matches(active) && !forcedColors.matches
     const surfaces = enabled ? document.querySelectorAll(chat) : []
     if (transcriptChanged) messageActions(enabled)
     suspendOlderTranscript(surfaces)
-    composerMetrics.sync(surfaces, sizes)
+    composerMetrics.sync(surfaces, sizes, enabled)
     if (transcriptChanged) reconcileTranscript(enabled)
     transcriptChanged = false
     if (enabled) for (const state of deferredMeasurements) measure(state)

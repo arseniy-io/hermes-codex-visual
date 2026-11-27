@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
+import { verifyAntigravityModels } from './antigravity-menu.spec-helper.mjs'
 
 // This scenario uses the final ZIP's plugin.js and a disposable gateway. The
 // fixture only supplies model capabilities; every click is processed by the
@@ -55,7 +56,28 @@ export async function verifyModelSpeedWindow({ page, expect, projectChat, sandbo
   const hovered = await geometry()
   assert.equal(hovered.modelCenter, idle.modelCenter)
   assert.equal(hovered.effortCenter, idle.effortCenter)
-  if (fixtureMode === 'responses') await screenshot('model-effort-hover.png', { locator: chat.locator('[data-slot="composer-surface"]') })
+  if (fixtureMode === 'responses') {
+    const surface = chat.locator('[data-slot="composer-surface"]')
+    await screenshot('model-effort-hover.png', { locator: surface })
+    // When the model and effort cannot share a fill, the highlighted effort
+    // needs the same round corners as a standalone composer control.
+    await effort.evaluate(button => {
+      const boundary = document.createElement('span')
+      boundary.hidden = true
+      boundary.setAttribute('data-test-effort-boundary', '')
+      button.before(boundary)
+    })
+    try {
+      await effort.hover()
+      for (const corner of ['top-left', 'bottom-left', 'top-right', 'bottom-right']) {
+        await expect(effort).toHaveCSS(`border-${corner}-radius`, '14px')
+      }
+      await expect(effort).toHaveCSS('background-color', hovered.effortColor)
+      await screenshot('model-effort-standalone-hover.png', { locator: surface })
+    } finally {
+      await surface.locator('[data-test-effort-boundary]').evaluate(node => node.remove())
+    }
+  }
 
   if (fixtureMode === 'responses') {
     // Reproduce the fresh, empty speed result that the first native request
@@ -84,6 +106,7 @@ export async function verifyModelSpeedWindow({ page, expect, projectChat, sandbo
   }
 
   await effort.click()
+  await expect.poll(sharedHover).toBe(true)
   const effortMenu = page.locator('[data-slot="dropdown-menu-content"][data-hcv-model-options]:visible')
   await expect(effortMenu.locator('[data-hcv-speed-heading]')).toHaveText('Скорость')
   await expect(effortMenu.locator('[data-hcv-standard-speed]')).toHaveText('Стандартный')
@@ -294,4 +317,5 @@ export async function verifyModelSpeedWindow({ page, expect, projectChat, sandbo
   console.log('HCV_MODEL_SPEED_EVIDENCE', JSON.stringify({ mode: fixtureMode,
     syntheticCatalogConfirmed: true, savedSelections: successfulWrites(), finalTier: await readTier() }))
   console.log('HCV_MODEL_SPEED_WINDOW: real gateway accepted fast, ultrafast, normal and standard after outage')
+  if (fixtureMode === 'responses') await verifyAntigravityModels({ page, expect, pill, screenshot })
 }

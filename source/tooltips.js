@@ -1,6 +1,7 @@
 import { keybindLabel } from './chrome.js'
 import { hubSelector } from './dictation.js'
 import { mountCSS } from './style-scope.js'
+import { registerThreadTimeline } from './thread-timeline.js'
 import { tooltipCopy } from './tooltip-copy.js'
 
 const radix = '[data-slot="tooltip-content"]'
@@ -23,6 +24,7 @@ const hint = ':is(kbd, span.ms-2.opacity-55:last-child)'
 const mic = `[data-slot="composer-surface"] ${hubSelector}`
 
 export function registerTooltips(ctx, active) {
+  registerThreadTimeline(ctx, active)
   mountCSS(ctx, 'data-hcv-tooltip-style', `
 @media (forced-colors: none) {
   ${active} :is(${tooltipSurfaces}),

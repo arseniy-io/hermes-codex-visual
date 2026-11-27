@@ -1,105 +1,93 @@
-"""Synthetic regression checks for the exact file passed as argv[1]. No Hermes, network or project files."""
+"""The bridge forwards full, owner-bound turn snapshots from the installed protocol."""
 import importlib.util
 import pathlib
-import tempfile
 import sys
 import unittest
 from types import SimpleNamespace
 
-TARGET = pathlib.Path(sys.argv.pop(1) if len(sys.argv) > 1 else pathlib.Path(__file__).resolve().parents[1] / 'source/hermes-model-speed/hcv_codex_diff_bridge.py').resolve()
+HERE = pathlib.Path(__file__).resolve().parent
+TARGET = pathlib.Path(sys.argv.pop(1) if len(sys.argv) > 1 else
+                      HERE.parent / 'source/hermes-model-speed/hcv_codex_diff_bridge.py').resolve()
 spec = importlib.util.spec_from_file_location('candidate_bridge_under_review', TARGET)
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
 
-CWD = str(pathlib.Path(tempfile.gettempdir()) / 'hcv-synthetic-workspace')
-PATCH = '@@ -1 +1 @@\n-old\n+new\n'
+DIFF = "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-old\n+new\n"
 
-def make_diff(git_old='a/a.txt', git_new='b/a.txt', old='a/a.txt', new='b/a.txt'):
-    return f'diff --git {git_old} {git_new}\n--- {old}\n+++ {new}\n{PATCH}'
 
 def make_bridge():
     out = []
-    ses = SimpleNamespace(_thread_id='thread-one', _active_turn_id='turn-one', _cwd=CWD, _on_event=None)
-    agent = SimpleNamespace(_current_turn_id='hermes-one', session_id='chat-one', _codex_session=ses,
-        tool_progress_callback=lambda _type, *args, **kw: out.append(kw['hcv_diff']))
-    b = m.AppServerTurnBridge(agent, ses, 'hermes-one')
-    return b, ses, agent, out
+    session = SimpleNamespace(_thread_id='thread-one', _active_turn_id='turn-one', _on_event=None)
+    agent = SimpleNamespace(_current_turn_id='hermes-one', session_id='chat-one', _codex_session=session,
+        tool_progress_callback=lambda kind, *args, **kw: out.append((kind, kw['hcv_diff'])))
+    return m.AppServerTurnBridge(agent, session, 'hermes-one'), session, agent, out
 
-def note(method, item=None, diff=None):
-    params = {'threadId':'thread-one','turnId':'turn-one'}
-    if item is not None: params['item']=item
-    if diff is not None: params['diff']=diff
-    return {'method':method,'params':params}
 
-def started():
-    return {'type':'fileChange','id':'patch-1','status':'inProgress',
-            'changes':[{'path': str(pathlib.Path(CWD) / 'a.txt'), 'kind':{'type':'update'}, 'diff':PATCH}]}
+def note(diff, method='turn/diff/updated', **scope):
+    return {'method': method, 'params': {'threadId': 'thread-one', 'turnId': 'turn-one', 'diff': diff, **scope}}
 
-def send_started(b):
-    b.observe(note('item/started', started()))
 
-def send_completed(b):
-    b.observe(note('item/completed', {**started(), 'status':'completed'}))
+class Boundaries(unittest.TestCase):
+    def test_aggregate_replaces_previous_and_later_empty_clears(self):
+        bridge, _, _, out = make_bridge()
+        bridge.observe(note(DIFF))
+        multi = DIFF + DIFF.replace('a.txt', 'b.txt')
+        bridge.observe(note(multi))
+        bridge.observe(note(multi))
+        bridge.observe(note(None, method='item/started', item={'type': 'commandExecution'}))
+        bridge.observe(note(''))
+        self.assertEqual([payload['diff'] for _, payload in out], [DIFF, multi, ''])
+        self.assertEqual([payload['revision'] for _, payload in out], [1, 2, 3])
+        self.assertTrue(all(kind == 'hcv.turn_diff' and payload['version'] == 2 for kind, payload in out))
 
-def send_observed(b, diff=None):
-    b.observe(note('turn/diff/updated', diff=diff or make_diff()))
+    def test_foreign_thread_turn_and_admission_cannot_publish(self):
+        bridge, session, agent, out = make_bridge()
+        bridge.observe(note(DIFF, threadId='foreign'))
+        bridge.observe(note(DIFF, turnId='foreign'))
+        self.assertFalse(out)
+        bridge.observe(note(DIFF))
+        agent._current_turn_id = 'new-execution'
+        bridge.observe(note(''))
+        self.assertEqual(len(out), 1)
 
-def states(out):
-    return [entry['state'] for entry in out]
+    def test_active_native_turn_rotation_revokes_prior_data(self):
+        bridge, session, _, out = make_bridge()
+        bridge.observe(note(DIFF))
+        session._active_turn_id = 'new-turn'
+        bridge.observe(note(None, method='item/started', turnId='new-turn'))
+        bridge.observe(note(DIFF, turnId='new-turn'))
+        self.assertEqual([payload['diff'] for _, payload in out], [DIFF, ''])
 
-class DiffBoundaryTest(unittest.TestCase):
-    def test_baseline(self):
-        b, _, _, out = make_bridge()
-        send_started(b); send_completed(b); send_observed(b)
-        self.assertEqual(states(out), ['pending', 'observed'])
+    def test_session_rotation_revokes_prior_data(self):
+        bridge, _, agent, out = make_bridge()
+        bridge.observe(note(DIFF))
+        agent.session_id = 'chat-two'
+        bridge.observe(note(None, method='item/started', item={'type': 'commandExecution'}))
+        self.assertEqual([payload['agentSessionId'] for _, payload in out], ['chat-one', 'chat-one'])
+        self.assertEqual([payload['diff'] for _, payload in out], [DIFF, ''])
+        agent.session_id = 'chat-one'
+        bridge.observe(note(DIFF))
+        self.assertEqual(len(out), 2)
 
-    def test_conflicting_git_paths_refused(self):
-        for label, diff in {
-            'git old points to other file': make_diff(git_old='a/foreign.txt'),
-            'git new points to other file': make_diff(git_new='b/foreign.txt'),
-            'both git paths point to other file': make_diff(git_old='a/foreign.txt',git_new='b/foreign.txt'),
-            'old file header points elsewhere': make_diff(old='a/foreign.txt'),
-            'new file header points elsewhere': make_diff(new='b/foreign.txt'),
-            'two contradictory git headers': 'diff --git a/foreign.txt b/foreign.txt\n' + make_diff(),
-        }.items():
-            with self.subTest(label=label):
-                b, _, _, out = make_bridge()
-                send_started(b); send_completed(b); send_observed(b, diff)
-                self.assertNotIn('observed',states(out),f'{label}: {states(out)}')
+    def test_bad_or_oversized_diff_clears_without_forwarding(self):
+        for bad in (None, 'bad\0input', '\u0430' * (m.MAX_DIFF_BYTES // 2 + 1)):
+            with self.subTest(kind=type(bad)):
+                bridge, _, _, out = make_bridge()
+                bridge.observe(note(DIFF))
+                bridge.observe(note(bad))
+                self.assertEqual([payload['diff'] for _, payload in out], [DIFF, ''])
 
-    def test_case_distinct_paths_refused(self):
-        # NTFS directories and network shares can be case-sensitive; no files are opened.
-        for label, diff in {
-            'both file headers differ only by case': make_diff(git_old='a/A.txt',git_new='b/A.txt',old='a/A.txt',new='b/A.txt'),
-            'old file header differs only by case': make_diff(old='a/A.txt'),
-            'new file header differs only by case': make_diff(new='b/A.txt'),
-            'git old differs only by case': make_diff(git_old='a/A.txt'),
-            'git new differs only by case': make_diff(git_new='b/A.txt'),
-        }.items():
-            with self.subTest(label=label):
-                b, _, _, out = make_bridge()
-                send_started(b); send_completed(b); send_observed(b, diff)
-                self.assertNotIn('observed',states(out),f'{label}: {states(out)}')
+    def test_restore_the_transport_hook_and_clear_on_exit(self):
+        _, session, agent, out = make_bridge()
+        original_calls = []
+        session._on_event = original_calls.append
+        original = session._on_event
+        with m.install_live_bridge(agent, 'hermes-one'):
+            session._on_event(note(DIFF))
+        self.assertIs(session._on_event, original)
+        self.assertEqual(original_calls, [note(DIFF)])
+        self.assertEqual([payload['diff'] for _, payload in out], [DIFF, ''])
 
-    def test_session_rotates_before_observed(self):
-        b, _, agent, out = make_bridge()
-        send_started(b); agent.session_id='chat-two'; send_completed(b); send_observed(b)
-        self.assertNotIn('observed',states(out),f'foreign session was accepted: {states(out)}')
-
-    def test_session_rotates_after_observed_then_command(self):
-        b, _, agent, out = make_bridge()
-        send_started(b); send_completed(b); send_observed(b)
-        agent.session_id='chat-two'
-        b.observe(note('item/started', {'type':'commandExecution','id':'cmd-1'}))
-        self.assertEqual(states(out)[-1],'unavailable',f'old confirmed display remains: {states(out)}')
-
-    def test_session_rotates_after_observed_then_duplicate(self):
-        b, _, agent, out = make_bridge()
-        send_started(b); send_completed(b); send_observed(b)
-        agent.session_id='chat-two'; send_observed(b)
-        self.assertEqual(states(out)[-1],'unavailable',f'old confirmed display remains: {states(out)}')
 
 if __name__ == '__main__':
-    print('candidate:', TARGET, flush=True)
     unittest.main(verbosity=2)
-

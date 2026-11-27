@@ -4,44 +4,73 @@ import { openSavedTurnDiff, turnHistoryScope } from './turn-history-client.js'
 
 const dockSelector = '[data-chat-surface][data-composer-target="main"]:not([data-hud-shell] *, [data-pane-hidden] *, [inert] *) [data-slot="composer-dock"]:not([data-popped-out])'
 const dockMounts = '[data-chat-surface], [data-slot="composer-dock"]'
-const hunkHeader = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/
+const blockingRequests = '[data-slot="tool-approval-card"], [data-slot="clarify-inline"]'
+const hunkHeader = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@(?: .*)?$/
+const metadata = /^(?:index [0-9a-f]+\.\.[0-9a-f]+(?: \d{6})?|(?:new|deleted) file mode \d{6})$/
 const sizeLimit = 2 * 1024 * 1024
 
-// Deliberately accepts one complete, ordinary text section only. In doubt the
-// UI withholds counts and the review action rather than guessing.
-function parseObservedDiff(diff) {
-  if (typeof diff !== 'string' || diff.length > sizeLimit || diff.includes('\0')) return null
-  if (!diff) return { files: [], added: 0, removed: 0, unifiedDiff: '' }
-  let oldPath, newPath, oldLeft = 0, newLeft = 0, hunks = 0, added = 0, removed = 0, headers = 0
-  for (const line of diff.split(/\r?\n/)) {
-    if (oldLeft || newLeft) {
-      if (line.startsWith('\\ No newline at end of file')) continue
-      const prefix = line[0]
-      if (prefix === '+' && newLeft) { newLeft--; added++ }
-      else if (prefix === '-' && oldLeft) { oldLeft--; removed++ }
-      else if (prefix === ' ' && oldLeft && newLeft) { oldLeft--; newLeft-- }
-      else return null
+function readDiffFile(section) {
+  const lines = section.replace(/\r?\n$/, '').split(/\r?\n/)
+  const header = lines[0]
+  let index = 1
+  while (metadata.test(lines[index] || '')) index++
+  if (index === lines.length) {
+    const path = /^diff --git a\/([^\t\r\n]+) b\/\1$/.exec(header)?.[1]
+    const mode = lines.find(line => /^(new|deleted) file mode /.test(line))
+    return path && mode ? { path, added: 0, removed: 0, unifiedDiff: section } : null
+  }
+
+  const old = /^--- (?:a\/([^\t\r\n]+)|(\/dev\/null))$/.exec(lines[index++])
+  const next = /^\+\+\+ (?:b\/([^\t\r\n]+)|(\/dev\/null))$/.exec(lines[index++])
+  if (!old || !next || !(old[1] || next[1])) return null
+  const path = next[1] || old[1]
+  if (header !== 'diff --git a/' + (old[1] || path) + ' b/' + path) return null
+
+  let oldLeft = 0, newLeft = 0, added = 0, removed = 0
+  let hunks = 0, contentLine = false
+  for (; index < lines.length; index++) {
+    const line = lines[index]
+    if (line === '\\ No newline at end of file' && contentLine) {
+      contentLine = false
       continue
     }
-    const header = line.match(hunkHeader)
-    if (header) {
-      if (oldPath === undefined || newPath === undefined) return null
-      oldLeft = Number(header[1] ?? 1); newLeft = Number(header[2] ?? 1); hunks++
-      if (!Number.isSafeInteger(oldLeft) || !Number.isSafeInteger(newLeft)) return null
-    } else if (line.startsWith('--- ')) {
-      if (oldPath !== undefined || headers++) return null
-      oldPath = line.slice(4).split('\t')[0]
-    } else if (line.startsWith('+++ ')) {
-      if (oldPath === undefined || newPath !== undefined) return null
-      newPath = line.slice(4).split('\t')[0]
-    } else if (line.startsWith('diff --git ') && (oldPath !== undefined || newPath !== undefined)) return null
-    else if (line.startsWith('rename ') || line.startsWith('Binary files ') || line.startsWith('GIT binary patch')) return null
+    contentLine = false
+    if (oldLeft || newLeft) {
+      if (line[0] === '+' && newLeft) { newLeft--; added++ }
+      else if (line[0] === '-' && oldLeft) { oldLeft--; removed++ }
+      else if (line[0] === ' ' && oldLeft && newLeft) { oldLeft--; newLeft-- }
+      else return null
+      contentLine = true
+      continue
+    }
+    const match = hunkHeader.exec(line)
+    if (!match) return null
+    oldLeft = Number(match[1] ?? 1)
+    newLeft = Number(match[2] ?? 1)
+    if (!Number.isSafeInteger(oldLeft) || !Number.isSafeInteger(newLeft) ||
+        (old[2] && oldLeft) || (next[2] && newLeft)) return null
+    hunks++
   }
-  if (oldLeft || newLeft || !hunks || !oldPath || !newPath || oldPath.startsWith('"') || newPath.startsWith('"')) return null
-  const clean = path => path === '/dev/null' ? null : path.replace(/^[ab]\//, '')
-  const before = clean(oldPath), after = clean(newPath)
-  if (!after || (before && before !== after) || /[\r\n\0]/.test(after)) return null
-  return { files: [{ path: after, added, removed, unifiedDiff: diff }], added, removed, unifiedDiff: diff }
+  return hunks && !oldLeft && !newLeft ? { path, added, removed, unifiedDiff: section } : null
+}
+
+function readTurnDiff(diff) {
+  if (typeof diff !== 'string' || diff.length > sizeLimit || diff.includes('\0')) return null
+  if (!diff) return { files: [], added: 0, removed: 0, unifiedDiff: diff }
+  if (!diff.startsWith('diff --git ')) return null
+  const files = [], seen = new Set()
+  let added = 0, removed = 0
+  // The producer gives the complete current turn. A malformed section makes
+  // the total unavailable, even if the other files could be counted.
+  for (const section of diff.split(/(?=^diff --git )/m)) {
+    const file = readDiffFile(section)
+    if (!file || seen.has(file.path)) return null
+    seen.add(file.path)
+    files.push(file)
+    added += file.added
+    removed += file.removed
+  }
+  return { files, added, removed, unifiedDiff: diff }
 }
 
 function element(tag, part) {
@@ -152,94 +181,160 @@ export function registerComposerChanges(ctx, active) {
     return true
   }
   const rail = element('div', 'composer-changes')
+  const anchor = element('div', 'composer-changes-anchor')
   const chip = element('button', 'composer-changes-chip')
   chip.type = 'button'
-  const warning = element('div', 'composer-changes-warning')
-  warning.setAttribute('role', 'status')
   const label = element('span', 'composer-changes-label')
-  const coverage = element('span', 'composer-changes-coverage')
   const totals = element('span', 'composer-changes-totals')
   const added = numberDisplay('composer-changes-added', '+')
   const removed = numberDisplay('composer-changes-removed', '−')
-  totals.append(added.node, removed.node); chip.append(label, totals, coverage); rail.append(chip, warning)
-  let currentKey, currentRevision, lastCounts, numberLocale, formatter, frame, sizeAnimation
-  function hide() {
-    sizeAnimation?.cancel(); rail.remove(); currentKey = currentRevision = lastCounts = undefined
+  const popover = element('div', 'composer-changes-popover')
+  const list = element('ul', 'composer-changes-list')
+  popover.id = 'hcv-composer-change-files'
+  popover.hidden = true
+  chip.setAttribute('aria-expanded', 'false')
+  chip.setAttribute('aria-controls', popover.id)
+  popover.append(list)
+  totals.append(added.node, removed.node)
+  chip.append(label, totals)
+  anchor.append(chip, popover)
+  rail.append(anchor)
+
+  let currentKey, currentSnapshot, numberLocale, formatter, frame, sizeAnimation
+  function closeFiles() {
+    popover.hidden = true
+    chip.setAttribute('aria-expanded', 'false')
   }
-  chip.addEventListener('click', () => {
+  function hide() {
+    if (rail.isConnected) {
+      closeFiles()
+      rail.remove()
+    }
+    sizeAnimation?.cancel()
+    currentKey = currentSnapshot = undefined
+  }
+  function review(path = null) {
     const session = host.state.activeSessionId.get()
     const address = key(...scope(), session)
-    const turn = turns.get(address)
-    if (address !== currentKey || !turn || turn.state !== 'observed' || turn.revision !== currentRevision || !turn.snapshot?.unifiedDiff) return
+    const snapshot = turns.get(address)?.snapshot
+    if (!snapshot || address !== currentKey || snapshot !== currentSnapshot ||
+        !host.state.busyBySession.get()[session] || !root.matches(active) ||
+        (path && !snapshot.files.some(file => file.path === path))) return
     const historyScope = turnHistoryScope()
-    if (!historyScope || !host.state.busyBySession.get()[session]) return
-    // Same immutable event snapshot, never the repo's uncommitted Git diff.
-    openSavedTurnDiff(historyScope, { ...turn.snapshot,
-      snapshotId: 'live:' + encodeURIComponent(turn.hermesTurnId) + ':' + turn.revision }, null)
+    if (!historyScope) return
+    closeFiles()
+    openSavedTurnDiff(historyScope, snapshot, path)
+  }
+  function renderFiles() {
+    const rows = currentSnapshot.files.map(file => {
+      const row = document.createElement('li')
+      const button = element('button', 'composer-changes-file')
+      button.type = 'button'
+      button.title = file.path
+      const name = element('span', 'composer-changes-file-name')
+      name.textContent = file.path.split(/[\\/]/).at(-1)
+      const plus = element('span', 'composer-changes-added')
+      plus.textContent = '+' + formatter.format(file.added)
+      const minus = element('span', 'composer-changes-removed')
+      minus.textContent = '−' + formatter.format(file.removed)
+      const counts = element('span', 'composer-changes-totals')
+      counts.append(plus, minus)
+      button.append(name, counts)
+      button.addEventListener('click', () => review(file.path))
+      row.append(button)
+      return row
+    })
+    list.replaceChildren(...rows)
+  }
+  function showFiles() {
+    if (!currentSnapshot || !popover.hidden) return
+    renderFiles()
+    popover.hidden = false
+    chip.setAttribute('aria-expanded', 'true')
+  }
+  chip.addEventListener('click', () => review())
+  anchor.addEventListener('pointerenter', showFiles)
+  anchor.addEventListener('pointerleave', () => {
+    if (!list.contains(document.activeElement)) closeFiles()
   })
+  anchor.addEventListener('focusin', showFiles)
+  anchor.addEventListener('focusout', event => {
+    if (!anchor.contains(event.relatedTarget) && !anchor.matches(':hover')) closeFiles()
+  })
+  anchor.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || popover.hidden) return
+    event.stopPropagation()
+    if (list.contains(document.activeElement)) chip.focus()
+    closeFiles()
+  })
+
   function sync() {
     frame = 0
     if (!root.matches(active) || !contrast.matches) return hide()
     const session = host.state.activeSessionId.get()
     const address = key(...scope(), session)
-    const turn = turns.get(address)
-    const relevant = turn && (turn.state === 'unavailable' || (turn.state === 'observed' && turn.snapshot?.files.length))
-    const dock = relevant && document.querySelector(dockSelector)
-    if (!dock || !host.state.busyBySession.get()[session]) return hide()
+    const snapshot = turns.get(address)?.snapshot
+    if (!(snapshot?.added || snapshot?.removed) || !host.state.busyBySession.get()[session]) return hide()
+    const dock = document.querySelector(dockSelector)
+    if (!dock) return hide()
+    const requests = dock.closest('[data-chat-surface]').querySelectorAll(blockingRequests)
+    if ([...requests].some(node => !node.closest('[inert], [hidden], [aria-hidden="true"]'))) return hide()
     if (currentKey !== address || rail.parentElement !== dock) hide()
     const locale = root.lang.toLowerCase() || 'en'
-    if (numberLocale !== locale) { formatter = new Intl.NumberFormat(locale); numberLocale = locale }
-    const warningMode = turn.state === 'unavailable'
-    if (!warningMode && lastCounts?.revision === turn.revision && lastCounts.locale === locale && currentKey === address) return
+    if (currentSnapshot === snapshot && numberLocale === locale) return
+    if (numberLocale !== locale) {
+      formatter = new Intl.NumberFormat(locale)
+      numberLocale = locale
+    }
     const oldWidth = rail.isConnected ? chip.getBoundingClientRect().width : 0
     sizeAnimation?.cancel()
-    warning.hidden = !warningMode; chip.hidden = warningMode
-    if (warningMode) {
-      warning.textContent = locale.startsWith('ru') ? 'Не все изменения удалось отследить' : 'Some changes could not be tracked'
-    } else {
-      const plus = formatter.format(turn.snapshot.added), minus = formatter.format(turn.snapshot.removed)
-      const ru = locale.startsWith('ru')
-      const text = ru ? 'Отдельная подтверждённая правка' : 'Individual confirmed edit'
-      const caveat = ru ? 'Могут быть и другие изменения' : 'Other changes may exist'
-      label.textContent = text; coverage.textContent = caveat; added.update(plus); removed.update(minus)
-      chip.setAttribute('aria-label', text + ', +' + plus + ', −' + minus + '. ' + caveat)
-      chip.title = turn.snapshot.files[0].path
-    }
+    const plus = formatter.format(snapshot.added)
+    const minus = formatter.format(snapshot.removed)
+    const count = snapshot.files.length
+    const text = changesLabel(count, locale, formatter.format(count))
+    label.textContent = text
+    added.update(plus)
+    removed.update(minus)
+    chip.setAttribute('aria-label', text + ', +' + plus + ', −' + minus)
+    currentKey = address
+    currentSnapshot = snapshot
+    if (!popover.hidden) renderFiles()
     if (!rail.isConnected) dock.prepend(rail)
-    const width = chip.hidden ? 0 : chip.getBoundingClientRect().width
-    if (oldWidth && width && width !== oldWidth && motion.matches) sizeAnimation = chip.animate([{width:oldWidth+'px'},{width:width+'px'}], {duration:200,easing:'ease-out'})
-    currentKey = address; currentRevision = turn.revision; lastCounts = { revision: turn.revision, locale }
+    const width = chip.getBoundingClientRect().width
+    if (oldWidth && width && width !== oldWidth && motion.matches) {
+      sizeAnimation = chip.animate([{ width: oldWidth + 'px' }, { width: width + 'px' }],
+        { duration: 200, easing: 'ease-out' })
+    }
   }
   const schedule = () => { if (!frame) frame = requestAnimationFrame(sync) }
-  const invalidate = turn => { turn.state = 'unavailable'; turn.snapshot = null; schedule() }
   ctx.onEvent('message.start', event => {
     const address = eventKey(event)
     if (!acceptFrame(event, address, true)) return
-    turns.set(address, { since: event.seq, stamp: executionStamp(event), revision: 0, state: 'unknown' })
+    turns.set(address, { revision: 0 })
     schedule()
-  })
-  ctx.onEvent('tool.complete', event => {
-    const address = eventKey(event), turn = turns.get(address)
-    if (!turn || !acceptFrame(event, address) || turn.bridge || !['edit_file','write_file','patch','terminal'].includes(event.payload?.name)) return
-    // Other runtimes don't yet have a complete, owner-bound capture stream.
-    invalidate(turn)
   })
   ctx.onEvent('hcv.turn_diff', event => {
     const address = eventKey(event), turn = turns.get(address), value = event.payload
-    if (!turn || !acceptFrame(event, address) || !value || value.version !== 1 || value.source !== 'codex_app_server') return
-    if (!Number.isSafeInteger(value.revision) || value.revision !== turn.revision + 1 || !value.hermesTurnId || !value.threadId || !value.codexTurnId || !value.agentSessionId) return invalidate(turn)
-    const identity = JSON.stringify([value.agentSessionId, value.hermesTurnId, value.threadId, value.codexTurnId])
-    if (turn.bridge && turn.bridge !== identity) return invalidate(turn)
-    if (!turn.bridge && value.state !== 'pending' && value.state !== 'unavailable') return invalidate(turn)
-    if (turn.state === 'unavailable' && turn.bridge) return
-    turn.bridge = identity; turn.hermesTurnId = value.hermesTurnId; turn.revision = value.revision
-    if (value.state === 'pending') { turn.state = 'pending'; turn.snapshot = null }
-    else if (value.state === 'unavailable') { turn.state = 'unavailable'; turn.snapshot = null }
-    else if (value.state === 'observed') {
-      const parsed = parseObservedDiff(value.diff)
-      if (!parsed) return invalidate(turn)
-      turn.snapshot = parsed; turn.state = 'observed'
-    } else return invalidate(turn)
+    if (!turn || !acceptFrame(event, address) || value?.version !== 2 || !['codex_app_server', 'hermes_native'].includes(value.source)) return
+    const owner = [value.agentSessionId, value.hermesTurnId]
+    if (value.source === 'codex_app_server') owner.push(value.threadId, value.codexTurnId)
+    if (!Number.isSafeInteger(value.revision) || value.revision !== turn.revision + 1 ||
+        !owner.every(id => typeof id === 'string' && id.length > 0)) {
+      turn.snapshot = null
+      schedule()
+      return
+    }
+    const identity = JSON.stringify([value.source, ...owner])
+    if (turn.bridge && turn.bridge !== identity) {
+      turn.snapshot = null
+      schedule()
+      return
+    }
+    turn.bridge = identity
+    turn.revision = value.revision
+    const parsed = readTurnDiff(value.diff)
+    turn.snapshot = parsed ? { ...parsed,
+      snapshotId: 'live:' + JSON.stringify([address, value.hermesTurnId, value.revision]) } : null
     schedule()
   })
   for (const type of ['message.complete', 'message.error']) ctx.onEvent(type, event => {
@@ -260,17 +355,21 @@ export function registerComposerChanges(ctx, active) {
   })
   const observer = new MutationObserver(records => {
     const session = host.state.activeSessionId.get()
-    if (!rail.isConnected && !turns.get(key(...scope(), session))) return
+    if (!rail.isConnected && !turns.get(key(...scope(), session))?.snapshot) return
     if (records.some(record => {
       const target = record.target
       if (!(target instanceof Element)) return false
-      if (record.type === 'attributes') return target === root || target.contains(rail) || target.matches(dockMounts) || Boolean(target.firstElementChild && target.querySelector(dockMounts))
+      if (record.type === 'attributes') {
+        return target === root || target.contains(rail) || target.matches(dockMounts + ', ' + blockingRequests) ||
+          Boolean(target.firstElementChild && target.querySelector(dockMounts + ', ' + blockingRequests))
+      }
+      if (movedElementMatches(record, blockingRequests)) return true
       if (target.closest('[data-slot="aui_thread-content"]')) return false
       return [...record.removedNodes].some(node => node === rail || node.contains?.(rail)) || movedElementMatches(record, dockMounts)
     })) schedule()
   })
   observer.observe(root, { childList: true, subtree: true, attributes: true,
-    attributeFilter: ['data-hermes-theme','lang','data-pane-hidden','data-popped-out','inert','hidden'] })
+    attributeFilter: ['data-hermes-theme', 'lang', 'data-pane-hidden', 'data-popped-out', 'inert', 'hidden', 'aria-hidden'] })
   const stops = [host.state.busyBySession, host.state.activeSessionId, host.state.connectionId, host.state.profile].map(atom => atom.listen(schedule))
   contrast.addEventListener('change', schedule)
   ctx.onDispose(() => { cancelAnimationFrame(frame); observer.disconnect(); contrast.removeEventListener('change', schedule); stops.forEach(stop => stop()); turns.clear(); fences.clear(); hide() })

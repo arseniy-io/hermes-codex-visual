@@ -45,18 +45,6 @@ function sample() {
   const { window } = dom
   const { document } = window
   window.matchMedia = () => ({ matches: true, addEventListener() {}, removeEventListener() {} })
-  const clockRows = new Set()
-  const clockTimers = new Map()
-  let clockEntries
-  let timerId = 0
-  window.IntersectionObserver = class {
-    constructor(callback) { clockEntries = callback }
-    observe(row) { clockRows.add(row) }
-    unobserve(row) { clockRows.delete(row) }
-    disconnect() { clockRows.clear() }
-  }
-  window.setTimeout = callback => { clockTimers.set(++timerId, callback); return timerId }
-  window.clearTimeout = id => clockTimers.delete(id)
   const textRecords = []
   const NativeMutationObserver = window.MutationObserver
   window.MutationObserver = class extends NativeMutationObserver {
@@ -73,13 +61,27 @@ function sample() {
   const snapshots = new Map()
   const requestedStops = new Map()
   const deliveries = []
+  const transcriptQueries = []
   const frames = new Map()
   let frameId = 0
   const atom = { get: () => null, listen: () => () => {} }
   window.host = { state: new Proxy({}, { get: () => atom }) }
+  const busyBySession = new Map()
+  const busyFor = session => {
+    if (!busyBySession.has(session)) busyBySession.set(session, { value: false, listeners: new Set() })
+    return busyBySession.get(session)
+  }
   window.registerTurnFilePreviewStyle = () => {}
   window.mountCSS = () => {}
   window.chatStyles = {}
+  window.nativeSessionView = surface => {
+    const state = busyFor(surface.dataset.session)
+    state.atom ??= {
+      get: () => state.value,
+      listen: listener => { state.listeners.add(listener); return () => state.listeners.delete(listener) },
+    }
+    return { view: { $busy: state.atom } }
+  }
   window.committedFiber = () => null
   window.completedWorkSteps = () => []
   window.syncWorkSteps = (_group, state, steps) => { state.steps = new Set(steps) }
@@ -104,6 +106,13 @@ function sample() {
     if (selector === working && this.matches(response)) deliveries.push(this.parentElement.id)
     return found
   }
+  const queryAll = window.Document.prototype.querySelectorAll
+  window.Document.prototype.querySelectorAll = function(selector) {
+    if (selector === '[data-chat-surface] ' + response || selector === '[data-chat-surface] [data-slot="aui_turn-pair"]') {
+      transcriptQueries.push(selector)
+    }
+    return queryAll.apply(this, arguments)
+  }
   async function paint() {
     await Promise.resolve()
     for (let i = 0; frames.size && i < 8; i++) {
@@ -117,12 +126,17 @@ function sample() {
 
   window.registerFixture(ctx, '[data-theme="fixture"]', stopHistory, turnTimeline)
   return {
-    document, deliveries, paint, requestedStops, clockRows, clockTimers, textRecords,
-    showClock(target, isIntersecting) { clockEntries([{ target, isIntersecting }]) },
+    document, deliveries, paint, requestedStops, textRecords,
+    setBusy(session, value) {
+      const state = busyFor(session)
+      state.value = value
+      for (const listener of state.listeners) listener(value)
+    },
     update(session, rows) {
       snapshots.set(session, { requestedSessionId: session, rows })
       for (const listener of historyListeners) listener()
     },
+    transcriptQueries,
     close() { disposers.forEach(dispose => dispose()); window.close() },
   }
 }
@@ -137,7 +151,7 @@ test('a timeline refresh supplies the stop time without replaying the other answ
   try {
     await fixture.paint()
     assert.equal(fixture.deliveries.length, 5)
-    const live = fixture.document.querySelector('#main-live [data-hcv-live-turn]')
+    const live = fixture.document.querySelector('#main-live [data-message-streaming="true"]')
     assert(live)
     const mainTime = fixture.document.querySelector('#main-stopped [data-hcv-turn-stop-line] time')
     const tileTime = fixture.document.querySelector('#tile-stopped [data-hcv-turn-stop-line] time')
@@ -150,7 +164,7 @@ test('a timeline refresh supplies the stop time without replaying the other answ
     assert.equal(mainTime.dateTime, 'PT7S')
     assert.equal(tileTime.dateTime, 'PT15S')
     assert(!mainTime.hidden && !tileTime.hidden)
-    assert.equal(fixture.document.querySelector('#main-live [data-hcv-live-turn]'), live)
+    assert.equal(fixture.document.querySelector('#main-live [data-message-streaming="true"]'), live)
     assert.deepEqual(fixture.deliveries, [])
 
     const reply = fixture.document.querySelector('#main-live [data-slot="aui_assistant-message-content"]')
@@ -162,32 +176,67 @@ test('a timeline refresh supplies the stop time without replaying the other answ
     await fixture.paint()
     assert.equal(fixture.document.querySelector('#tile-last').getAttribute('data-hcv-turn-stopped'), 'user')
     assert.equal(fixture.document.querySelector('#tile-last [data-hcv-turn-stop-line] time').dateTime, 'PT9S')
-    assert.equal(fixture.document.querySelector('#main-live [data-hcv-live-turn]'), live)
+    assert.equal(fixture.document.querySelector('#main-live [data-message-streaming="true"]'), live)
     assert.deepEqual(fixture.deliveries.sort(), ['main-live', 'tile-last'])
   } finally {
     fixture.close()
   }
 })
 
-test('a visible live row owns one clock and leaving the viewport cancels it', async () => {
+test('a streaming reply has no synthetic activity row and still gets its completion line', async () => {
   const fixture = sample()
   try {
     await fixture.paint()
-    const row = fixture.document.querySelector('#main-live [data-hcv-live-turn]')
-    assert.deepEqual([...fixture.clockRows], [row])
-    assert.equal(fixture.clockTimers.size, 0)
-    fixture.showClock(row, true)
-    assert.equal(fixture.clockTimers.size, 1)
-    fixture.showClock(row, true)
-    assert.equal(fixture.clockTimers.size, 1)
-    fixture.showClock(row, false)
-    assert.equal(fixture.clockTimers.size, 0)
-    fixture.showClock(row, true)
-    const stream = fixture.document.querySelector('#main-live [data-message-streaming]')
+    const group = fixture.document.querySelector('#main-live ' + response)
+    const stream = group.querySelector('[data-message-streaming="true"]')
+    assert(stream)
+    assert.equal(group.querySelector('[data-hcv-live-turn], [data-hcv-thinking], [data-hcv-turn-line]'), null)
+    const footer = fixture.document.createElement('div')
+    footer.innerHTML = '<span data-slot="aui_turn-duration">12s</span><div data-slot="aui_msg-actions"></div>'
+    stream.before(footer)
     stream.removeAttribute('data-message-streaming')
     await fixture.paint()
-    assert.equal(fixture.clockRows.size, 0)
-    assert.equal(fixture.clockTimers.size, 0)
+    assert.equal(group.querySelector('[data-hcv-turn-line]').textContent, 'Worked for 12s')
+    assert(group.querySelector('[data-hcv-turn-finish]'))
+  } finally {
+    fixture.close()
+  }
+})
+
+test('starting another send keeps the settled response unchanged until its new prompt arrives', async () => {
+  const fixture = sample()
+  try {
+    await fixture.paint()
+    const responseGroup = fixture.document.querySelector('#tile-last ' + response)
+    assert(!responseGroup.hasAttribute('data-hcv-response-working'))
+    fixture.setBusy('two', true)
+    await fixture.paint()
+    assert(!responseGroup.hasAttribute('data-hcv-response-working'))
+  } finally {
+    fixture.close()
+  }
+})
+
+test('the current turn stays active after commentary seals while its own pane is busy', async () => {
+  const fixture = sample()
+  try {
+    await fixture.paint()
+    const group = fixture.document.querySelector('#main-live ' + response)
+    const stream = group.querySelector('[data-message-streaming="true"]')
+    const footer = fixture.document.createElement('div')
+    footer.innerHTML = '<span data-slot="aui_turn-duration">12s</span><div data-slot="aui_msg-actions"></div>'
+    fixture.setBusy('one', true)
+    stream.before(footer)
+    stream.removeAttribute('data-message-streaming')
+    await fixture.paint()
+    assert(group.hasAttribute('data-hcv-response-working'))
+    assert.equal(group.querySelector('[data-hcv-turn-line]'), null)
+    assert.equal(fixture.document.querySelectorAll('[data-hcv-response-working]').length, 1)
+
+    fixture.setBusy('one', false)
+    await fixture.paint()
+    assert(!group.hasAttribute('data-hcv-response-working'))
+    assert.equal(group.querySelector('[data-hcv-turn-line]').textContent, 'Worked for 12s')
   } finally {
     fixture.close()
   }
@@ -217,6 +266,47 @@ test('native duration text still refreshes its own row while streamed prose deli
     assert.deepEqual(fixture.textRecords.map(record => record.target), [elapsed])
     assert.deepEqual(fixture.deliveries, ['main-before'])
     assert.equal(heading.textContent, 'Worked for 12s')
+  } finally {
+    fixture.close()
+  }
+})
+
+test('sending in an open chat updates the end of that chat without scanning the other turns', async () => {
+  const fixture = sample()
+  try {
+    await fixture.paint()
+    const { document, deliveries, transcriptQueries } = fixture
+    const currentTranscript = document.querySelector('[data-session="one"] [data-slot="aui_thread-content"]')
+    deliveries.length = 0
+    transcriptQueries.length = 0
+
+    const row = document.createElement('div')
+    row.dataset.slot = 'aui_message-group'
+    row.innerHTML = `<div data-slot="aui_turn-pair" id="next">
+      <div data-slot="aui_user-message-root" data-message-id="next"></div>
+    </div>`
+    currentTranscript.append(row)
+    await fixture.paint()
+    assert.deepEqual(deliveries, ['main-live'])
+    assert.deepEqual(transcriptQueries, [])
+
+    deliveries.length = 0
+    const pair = row.firstElementChild
+    pair.insertAdjacentHTML('beforeend', `<div data-slot="aui_response-group">
+      <div data-slot="aui_assistant-message-root" data-row="14">
+        <div data-slot="aui_assistant-message-content"><p>Fresh answer</p></div>
+        <span data-message-streaming="true"></span>
+      </div>
+    </div>`)
+    await fixture.paint()
+    assert.deepEqual(deliveries, ['next'])
+    assert.deepEqual(transcriptQueries, [])
+
+    deliveries.length = 0
+    row.remove()
+    await fixture.paint()
+    assert(deliveries.includes('main-live'))
+    assert(!deliveries.includes('next'))
   } finally {
     fixture.close()
   }

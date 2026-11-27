@@ -1,5 +1,6 @@
 import { host } from '@hermes/plugin-sdk'
 import { committedFiber } from './sidebar-recents.js'
+import { nativeSessionView } from './sidebar-session-state.js'
 import { nativeRenderedMessageRecord } from './native-rendered-message.js'
 import { savedTimelineMetadata } from './chat-timestamp-data.js'
 import { observeChatText } from './chat-text-observation.js'
@@ -23,8 +24,8 @@ const stopDiagnostic = '[data-hcv-stop-diagnostic]'
 const stopRecovery = '[data-slot="aui_system-message-root"][data-hcv-stop-diagnostic]'
 const primary = '[data-chat-surface][data-composer-target="main"]'
 const nativeActivity = ':is([data-slot="aui_response-loading"], [data-slot="aui_turn-activity"][data-state="active"])'
-const activeIndicators = `[data-chat-surface] :is(${nativeActivity}, [data-hcv-live-turn])`
 const streaming = '[data-message-streaming="true"]'
+const viewWorking = 'data-hcv-response-working'
 const actionable = ':is([role="alert"], [data-approval-activity-only], [data-approval-stack], [data-clarify-choices], [data-clarify-late-choices], [data-clarify-batch-preview], [data-clarify-batch-question]:not([data-locked]))'
 
 const isRussian = () => document.documentElement.lang.toLowerCase().startsWith('ru')
@@ -190,59 +191,6 @@ function syncStoppedPair(pair, states, history, surface, readStop) {
   else state.time.removeAttribute('datetime')
   if (prompt.nextElementSibling !== state.line) prompt.after(state.line)
   pair.setAttribute('data-hcv-turn-stopped', stop ? 'user' : 'interrupted')
-}
-
-function clearLive(state) {
-  state.live?.row.remove()
-  state.live = null
-}
-
-function showLive(root, state, now) {
-  if (!state.live) {
-    const row = make('div', 'live-turn')
-    const time = make('time', 'live-time')
-    row.setAttribute('role', 'status')
-    time.setAttribute('aria-hidden', 'true')
-    row.append(time)
-    state.live = { row, time }
-  }
-  const { row } = state.live
-  const body = root.querySelector(answer)
-  if (body && body.nextElementSibling !== row) body.after(row)
-  updateLiveTime(state, now)
-}
-
-function updateLiveTime(state, now) {
-  const seconds = Math.max(0, Math.floor((now - state.startedAt) / 1000))
-  updateText(state.live.time, seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`)
-}
-
-function syncThinkingLabels(labels, enabled) {
-  const visible = new Set()
-  const text = isRussian() ? 'Думаю' : 'Thinking'
-  for (const row of enabled ? document.querySelectorAll(activeIndicators) : []) {
-    // Named waits and local-model progress keep their own Hermes wording.
-    if (row.querySelector(':scope > :not(.dither, [aria-hidden="true"], [data-hcv-thinking])')) continue
-    visible.add(row)
-    let label = labels.get(row)
-    if (!label) {
-      label = make('span', 'thinking')
-      const sweep = make('span', 'thinking-sweep')
-      sweep.setAttribute('aria-hidden', 'true')
-      label.append(document.createTextNode(''), sweep)
-      labels.set(row, label)
-    }
-    if (label.firstChild.data !== text) {
-      label.firstChild.data = text
-      label.lastElementChild.dataset.hcvThinkingSweep = text
-    }
-    if (label.parentElement !== row) row.prepend(label)
-  }
-  for (const [row, label] of labels) {
-    if (visible.has(row)) continue
-    label.remove()
-    labels.delete(row)
-  }
 }
 
 function fileNoun(count) {
@@ -482,31 +430,26 @@ function updateMoreLabel({ card, more, remaining }) {
     : isRussian() ? `Показать еще ${remaining} ${fileNoun(remaining)}` : `Show ${remaining} more ${fileNoun(remaining)}`)
 }
 
-function synchronize(group, state, now, tail, ownPrompt, completedSeconds, startedAt, textChanges) {
+function synchronize(group, state, tail, ownPrompt, completedSeconds, textChanges, viewBusy) {
   const roots = [...group.querySelectorAll(`:scope > ${assistant}`)]
-  const last = roots.at(-1)
-  if (!last) {
+  if (!roots.length) {
+    group.removeAttribute(viewWorking)
     clearSteps(group, state)
-    clearLive(state)
+    state.wasWorking = false
     clearFiles(state)
     textChanges.set(group)
     return
   }
-  const working = Boolean(group.querySelector(`${streaming}, ${nativeActivity}`))
-  const justFinished = !working && state.startedAt !== null
+  const nativeWorking = Boolean(group.querySelector(`${streaming}, ${nativeActivity}`))
+  // A new submission sets the session busy before its own prompt is mounted.
+  // Only a turn already observed working can use that flag after it seals.
+  const working = nativeWorking || (viewBusy && state.wasWorking)
+  group.toggleAttribute(viewWorking, viewBusy && working)
+  const justFinished = !working && state.wasWorking
+  state.wasWorking = working && (tail || state.wasWorking)
   const blocked = roots.some((root) => root.matches(actionable) || root.querySelector(actionable))
   const final = roots.findLast((root) => [...root.querySelectorAll('[data-slot="aui_msg-actions"]')]
     .some(actions => actions.closest(assistant) === root))
-  if (working && tail) {
-    state.startedAt ??= startedAt ?? now
-  } else if (!working) {
-    state.startedAt = null
-  }
-  if (working && tail && !blocked && last.querySelector(streaming) && !last.querySelector(nativeActivity)) {
-    showLive(last, state, now)
-  } else {
-    clearLive(state)
-  }
 
   let durationLabel = null
   if (!working && !blocked && final && !group.closest(`${turnPair}[data-hcv-turn-stopped]`)) {
@@ -558,22 +501,20 @@ export function registerTurnExperience(ctx, active, stoppedTurns, history) {
   const states = new Map()
   const stoppedPairs = new Map()
   const dirtyPairs = new Set()
-  const thinkingLabels = new Map()
   const started = new Map()
   const durations = new Map()
   const lastBySession = new Map()
   const contrast = window.matchMedia('(forced-colors: none)')
   const dirty = new Set()
-  const liveByRow = new Map()
-  const visibleLive = new Set()
   const tails = new Set()
+  const busyViews = new Map()
   const allGroups = `[data-chat-surface] ${response}`
   const allPairs = `[data-chat-surface] ${turnPair}`
+  const dirtyTranscripts = new Set()
   const turnStructure = `${turnPair}, ${response}, ${user}`
   let full = true
   let refreshStopped = false
   let frame = 0
-  let timer = 0
 
   const sessionKey = (id) => JSON.stringify([host.state.connectionId.get(), host.state.profile.get(), id])
   const keyFor = (event) => event.session_id && !event.replayed && document.documentElement.matches(active) &&
@@ -616,54 +557,34 @@ export function registerTurnExperience(ctx, active, stoppedTurns, history) {
     queue()
   })
 
-  function tickClock() {
-    timer = 0
-    if (document.hidden || !contrast.matches || !document.documentElement.matches(active)) return
-    const now = Date.now()
-    for (const row of visibleLive) if (row.isConnected) updateLiveTime(liveByRow.get(row), now)
-    if (visibleLive.size) timer = window.setTimeout(tickClock, 1000)
-  }
-
-  function syncClock() {
-    if (visibleLive.size && !document.hidden) {
-      if (!timer) tickClock()
-    } else if (timer) {
-      window.clearTimeout(timer)
-      timer = 0
-    }
-  }
-
-  const clockRows = new IntersectionObserver(entries => {
-    for (const { target, isIntersecting } of entries) {
-      if (!liveByRow.has(target)) continue
-      if (isIntersecting) visibleLive.add(target)
-      else visibleLive.delete(target)
-    }
-    syncClock()
-  })
-
-  function syncClockRow(state, previous) {
-    const row = state.live?.row
-    if (previous === row) return
-    if (previous) {
-      clockRows.unobserve(previous)
-      liveByRow.delete(previous)
-      visibleLive.delete(previous)
-    }
-    if (row) {
-      liveByRow.set(row, state)
-      clockRows.observe(row)
-    }
-  }
-
   function remove(group, state) {
     clearSteps(group, state)
-    const previous = state.live?.row
-    clearLive(state)
-    syncClockRow(state, previous)
     clearFiles(state)
+    group.removeAttribute(viewWorking)
     textChanges.set(group)
     states.delete(group)
+  }
+
+  function watchBusyViews() {
+    const activePairs = new Set([...tails].map(group => group.closest(turnPair)).filter(Boolean))
+    for (const [pair, entry] of busyViews) {
+      if (activePairs.has(pair)) continue
+      entry.stop()
+      busyViews.delete(pair)
+    }
+    for (const pair of activePairs) {
+      const view = nativeSessionView(pair.closest('[data-chat-surface]'))?.view
+      const atom = view?.$busy
+      const current = busyViews.get(pair)
+      if (current?.atom === atom) continue
+      current?.stop()
+      busyViews.delete(pair)
+      if (typeof atom?.get !== 'function' || typeof atom?.listen !== 'function') continue
+      busyViews.set(pair, { atom, stop: atom.listen(() => {
+        for (const group of pair.querySelectorAll(`:scope > ${response}`)) dirty.add(group)
+        schedule()
+      }) })
+    }
   }
 
   function render() {
@@ -677,19 +598,37 @@ export function registerTurnExperience(ctx, active, stoppedTurns, history) {
       if (full || !enabled) dirtyPairs.clear()
       for (const pair of pairs) dirtyPairs.add(pair)
     }
-    if (full || !styled) {
-      const groups = styled ? [...document.querySelectorAll(allGroups)] : []
-      const present = new Set(groups)
-      for (const [group, state] of states) if (!present.has(group)) remove(group, state)
-      dirty.clear()
-      tails.clear()
+    const refreshAll = full || !styled
+    if (refreshAll || dirtyTranscripts.size) {
+      let groups = []
+      if (refreshAll) {
+        groups = styled ? [...document.querySelectorAll(allGroups)] : []
+        const present = new Set(groups)
+        for (const [group, state] of states) if (!present.has(group)) remove(group, state)
+        dirty.clear()
+        tails.clear()
+      } else {
+        // A new prompt or response only changes the tail of its own transcript.
+        for (const group of tails) {
+          if (!dirtyTranscripts.has(group.closest(transcript))) continue
+          tails.delete(group)
+          dirty.add(group)
+        }
+        for (const container of dirtyTranscripts) {
+          const ownGroups = [...container.querySelectorAll(response)].filter(group => group.closest(transcript) === container)
+          const last = ownGroups.at(-1)
+          if (last) groups.push(last)
+        }
+      }
       const tailByTranscript = new Map(groups.map((group) => [group.closest(transcript), group]))
       for (const [container, group] of tailByTranscript) {
         const prompt = [...(container?.querySelectorAll(user) || [])].at(-1)
         if (!prompt || !(group.compareDocumentPosition(prompt) & Node.DOCUMENT_POSITION_FOLLOWING)) tails.add(group)
       }
+      watchBusyViews()
       for (const group of groups) dirty.add(group)
     }
+    dirtyTranscripts.clear()
     full = false
     if (enabled) {
       const readers = new Map()
@@ -707,16 +646,14 @@ export function registerTurnExperience(ctx, active, stoppedTurns, history) {
     }
     dirtyPairs.clear()
     if (styled) {
-      const now = Date.now()
       const runtime = host.state.activeSessionId.get()
       const key = runtime && sessionKey(runtime)
       const last = runtime && lastBySession.get(storedKey(runtime))
-      const liveStart = key && started.get(key)
       for (const group of dirty) {
         if (!group.isConnected || !group.matches(allGroups)) continue
         let state = states.get(group)
         if (!state) {
-          state = { steps: new Set(), bar: null, live: null, files: null, startedAt: null }
+          state = { steps: new Set(), bar: null, files: null, wasWorking: false }
           states.set(group, state)
         }
         const tail = tails.has(group)
@@ -725,15 +662,14 @@ export function registerTurnExperience(ctx, active, stoppedTurns, history) {
         const timeKey = main && ownPrompt && JSON.stringify([key, ownPrompt.dataset.messageId])
         const recorded = (timeKey && durations.get(timeKey)) ||
           (main && tail && last && last.text === promptText(ownPrompt) && last.seconds)
-        const previous = state.live?.row
-        synchronize(group, state, now, tail, ownPrompt, recorded || null, main ? liveStart?.at : undefined, textChanges)
-        syncClockRow(state, previous)
+        // The latest public comment may already be sealed while the session
+        // is still working. Keep its footer and completion fold out of that gap.
+        const viewBusy = busyViews.get(group.closest(turnPair))?.atom.get() === true
+        synchronize(group, state, tail, ownPrompt, recorded || null, textChanges, viewBusy)
       }
     }
     dirty.clear()
-    syncThinkingLabels(thinkingLabels, styled)
     textChanges.refresh()
-    syncClock()
   }
 
   function schedule() {
@@ -743,6 +679,20 @@ export function registerTurnExperience(ctx, active, stoppedTurns, history) {
   function queue() {
     full = true
     schedule()
+  }
+
+  function markAddedStructure(element, node) {
+    const container = element.closest(transcript)
+    if (!container?.closest('[data-chat-surface]') || !node.isConnected || container.parentElement.closest(transcript)) return false
+    const parts = [...node.querySelectorAll(turnStructure)]
+    if (node.matches(turnStructure)) parts.push(node)
+    if (parts.some(part => part.closest(transcript) !== container)) return false
+    dirtyTranscripts.add(container)
+    for (const part of parts) {
+      if (part.matches(turnPair)) dirtyPairs.add(part)
+      if (part.matches(response)) dirty.add(part)
+    }
+    return true
   }
 
   function markChanges(records) {
@@ -763,8 +713,8 @@ export function registerTurnExperience(ctx, active, stoppedTurns, history) {
         for (const nodes of [addedNodes, removedNodes]) {
           for (const node of nodes) {
             if (node instanceof Element && !node.hasAttribute('data-hcv-generated')) {
-              // Changes to the list of turns can change which answer owns the clock.
-              if (node.matches(turnStructure) || node.querySelector(turnStructure)) return queue()
+              if ((node.matches(turnStructure) || node.querySelector(turnStructure)) &&
+                  (nodes === removedNodes || !markAddedStructure(element, node))) return queue()
               if (group) dirty.add(group)
               if (pair) dirtyPairs.add(pair)
             } else if (group && node.nodeType === Node.TEXT_NODE && element.closest(`${changes}, ${duration}`)) {
@@ -781,7 +731,7 @@ export function registerTurnExperience(ctx, active, stoppedTurns, history) {
         }
       }
     }
-    if (dirty.size || dirtyPairs.size) schedule()
+    if (dirty.size || dirtyPairs.size || dirtyTranscripts.size) schedule()
   }
   const observer = new MutationObserver(markChanges)
   const textChanges = observeChatText(markChanges)
@@ -791,7 +741,6 @@ export function registerTurnExperience(ctx, active, stoppedTurns, history) {
     attributes: true,
     attributeFilter: ['data-state', 'data-message-streaming', 'data-hermes-theme', 'data-hermes-codex-visual', 'lang', 'title', 'disabled'],
   })
-  document.addEventListener('visibilitychange', syncClock)
   contrast.addEventListener('change', queue)
   const stopUpdates = stoppedTurns?.subscribe(queue)
   // Timeline snapshots supply interruption timing. Only a changed stop
@@ -806,17 +755,15 @@ export function registerTurnExperience(ctx, active, stoppedTurns, history) {
   ctx.onDispose(() => {
     observer.disconnect()
     textChanges.clear()
-    document.removeEventListener('visibilitychange', syncClock)
-    clockRows.disconnect()
     stopUpdates?.()
     historyUpdates?.()
     for (const pair of stoppedPairs.keys()) clearStoppedPair(pair, stoppedPairs)
     contrast.removeEventListener('change', queue)
     for (const stop of unsubscribe) stop()
+    for (const { stop } of busyViews.values()) stop()
+    busyViews.clear()
     if (frame) cancelAnimationFrame(frame)
-    if (timer) window.clearTimeout(timer)
     for (const [group, state] of states) remove(group, state)
-    syncThinkingLabels(thinkingLabels, false)
   })
 }
 import { anchorTurnCard } from './turn-card-scroll.js'

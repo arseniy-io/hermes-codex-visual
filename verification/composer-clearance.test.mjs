@@ -10,6 +10,8 @@ const source = fs.readFileSync(sourcePath, 'utf8').replace('export function ', '
 const { createComposerClearanceMetrics } = new Function(source + '; return { createComposerClearanceMetrics }')()
 const dockVar = '--hcv-composer-dock-height'
 const editorVar = '--hcv-composer-surface-height'
+const previousDock = '--hcv-last-composer-dock-height'
+const previousEditor = '--hcv-last-composer-surface-height'
 
 function fixture(dockHeight = 159, editorHeight = 98) {
   const values = new Map([['--composer-measured-height', '160px'], ['--composer-surface-measured-height', '96px']])
@@ -23,11 +25,11 @@ function fixture(dockHeight = 159, editorHeight = 98) {
   }
   root.dock = { isConnected: true, popped: false, height: dockHeight,
     hasAttribute() { return this.popped },
-    getBoundingClientRect() { return { height: this.height } },
+    getBoundingClientRect() { return { height: this.height, top: 0 } },
     querySelector() { return root.editor },
   }
   root.editor = { isConnected: true, height: editorHeight,
-    getBoundingClientRect() { return { height: this.height } },
+    getBoundingClientRect() { return { height: this.height, top: 51 } },
   }
   return { root, values, writes }
 }
@@ -48,7 +50,7 @@ test('publishes exact local heights without changing native coarse metrics or re
   assert.equal(a.values.get('--composer-measured-height'), '160px')
   assert.equal(a.values.get('--composer-surface-measured-height'), '96px')
   metrics.resize([{ target: a.root.dock }, { target: a.root.editor }, { target: ro.unrelated }])
-  assert.equal(a.writes.length, 2)
+  assert.equal(a.writes.length, 3)
   a.root.dock.height = 181.25
   a.root.editor.height = 119.5
   metrics.resize([{ target: a.root.dock }])
@@ -114,4 +116,63 @@ test('uses the owning CSS zoom and excludes HUD geometry', () => {
   assert.equal(a.values.get(editorVar), '98px')
   assert(!hud.values.has(dockVar))
   assert(!ro.targets.has(hud.root.dock))
+})
+
+test('retains primary geometry only for a return to the same owner and width', () => {
+  const pane = fixture().root
+  pane.clientWidth = 1000
+  const a = fixture(230, 150)
+  a.root.dataset = { composerTarget: 'main' }
+  const closest = a.root.closest
+  a.root.closest = selector => selector === '[data-tree-group="grp-main"]' ? pane : closest(selector)
+  const ro = observer()
+  const metrics = createComposerClearanceMetrics(() => 'workspace-chat')
+  metrics.sync([a.root], ro)
+  assert.equal(pane.style.getPropertyValue(previousDock), '230px')
+  assert.equal(pane.style.getPropertyValue(previousEditor), '150px')
+
+  metrics.restoreFallback('command-center')
+  metrics.sync([], ro)
+  assert.equal(pane.style.getPropertyValue(previousDock), '')
+  metrics.restoreFallback('another-owner')
+  assert.equal(pane.style.getPropertyValue(previousDock), '')
+  metrics.restoreFallback('workspace-chat')
+  assert.equal(pane.style.getPropertyValue(previousEditor), '150px')
+
+  pane.clientWidth = 800
+  metrics.restoreFallback('workspace-chat')
+  assert.equal(pane.style.getPropertyValue(previousDock), '')
+  metrics.sync([a.root], ro)
+  assert.equal(pane.style.getPropertyValue(previousDock), '230px')
+  a.root.dock.popped = true
+  metrics.sync([a.root], ro)
+  metrics.restoreFallback('workspace-chat')
+  assert.equal(pane.style.getPropertyValue(previousDock), '')
+
+  a.root.dock.popped = false
+  metrics.sync([a.root], ro)
+  metrics.sync([], ro, false)
+  metrics.restoreFallback('workspace-chat')
+  assert.equal(pane.style.getPropertyValue(previousEditor), '')
+})
+
+test('retained workspace chat keeps local clearance without mutating the main pane on navigation', () => {
+  const a = fixture(230, 150), ro = observer()
+  a.root.dataset = { composerTarget: 'main' }
+  const closest = a.root.closest
+  a.root.closest = selector => {
+    if (selector === '[data-tree-group="grp-main"]') assert.fail('Retained chat does not measure the pane')
+    return selector === '[data-workspace-chat-layer]' ? a.root : closest(selector)
+  }
+  const metrics = createComposerClearanceMetrics(() => 'workspace-chat')
+
+  metrics.sync([a.root], ro)
+  metrics.restoreFallback('messaging')
+  a.root.hidden = true
+  metrics.sync([a.root], ro)
+  metrics.restoreFallback('workspace-chat')
+
+  assert.equal(a.values.get(dockVar), '230px')
+  assert.equal(a.values.get(editorVar), '150px')
+  assert.equal(a.writes.length, 3)
 })

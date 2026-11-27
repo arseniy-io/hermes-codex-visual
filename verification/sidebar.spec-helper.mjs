@@ -165,42 +165,55 @@ export async function verifySidebarActivity({
   await expect(markAll).toBeHidden()
   await expect(status(heading, 'unread')).toHaveCount(0)
 
+  const bubble = page.locator('button.composer-human-message').filter({ hasText: prompt })
+  const overlay = bubble.locator('xpath=following-sibling::div[1]')
+  const actions = page.locator('[data-slot="aui_user-bubble-actions"]')
+    .filter({ has: bubble }).locator('[data-hcv-message-actions]')
+  await bubble.hover()
+  await expect(overlay.locator('time')).toHaveCount(1)
+  await expect(overlay.locator('button[aria-label="Стоп"]')).toHaveCount(1)
+  await expect(overlay).toHaveCSS('display', 'none')
+  await expect(actions).toHaveCSS('opacity', '1')
+  await expect(actions.locator('time')).toBeVisible()
+  await expect(actions.locator('[data-hcv-copy-message]')).toBeVisible()
+  await expect(actions.locator('[data-hcv-edit-message]')).toBeEnabled()
+  await expect(page.locator('[data-hcv-turn-composer-action="pause"]')).toBeEnabled()
+  await screenshot('user-message-actions-hover.png')
+
   const loading = page.locator('[data-slot="aui_response-loading"]')
-  const thinking = loading.locator('[data-hcv-thinking]')
-  const sweep = thinking.locator('[data-hcv-thinking-sweep]')
-  const counter = loading.locator(':scope > [aria-hidden="true"]:not(.dither)')
-  await expect(thinking).toHaveText('Думаю')
-  await expect(thinking).toBeVisible()
-  await expect(loading.locator(':scope > .dither')).toBeHidden()
-  await expect(counter).toBeHidden()
-  await expect.poll(() => loading.innerText()).toBe('Думаю')
-  await expect(sweep).toHaveCSS('animation-name', 'hcv-thinking-sweep')
-  await expect(sweep).toHaveCSS('animation-duration', '4s')
-  await expect(sweep).toHaveCSS('animation-delay', '0.6s')
-  await expect.poll(() => sweep.evaluate(node => node.getAnimations()[0]?.effect.getKeyframes()[0]?.easing)).toBe('steps(48)')
-  const startSeconds = Number.parseInt(await counter.textContent(), 10)
-  await expect.poll(async () => Number.parseInt(await counter.textContent(), 10)).toBeGreaterThanOrEqual(Math.max(2, startSeconds + 1))
-  await expect(counter).toHaveText(/^\d+s$/)
-  await expect(counter).toBeHidden()
-  await expect.poll(() => loading.innerText()).toBe('Думаю')
+  await expect(loading).toHaveCSS('clip-path', 'inset(50%)')
+  await expect(loading).toHaveCSS('height', '1px')
+  const extraRows = page.locator('[data-hcv-thinking], [data-hcv-live-turn]')
+  await expect(extraRows).toHaveCount(0)
   await screenshot('thinking-without-timer.png')
   await page.emulateMedia({ reducedMotion: 'reduce' })
-  await expect(sweep).toHaveCSS('animation-name', 'none')
-  await expect(thinking).toBeVisible()
-  const shownSeconds = Number.parseInt(await counter.textContent(), 10)
+  await expect(loading).toHaveCSS('clip-path', 'inset(50%)')
   releaseFirstToken()
   await mock.waitForHeldStream()
-  const live = page.locator('[data-hcv-live-turn]')
-  await expect(live.locator('[data-hcv-thinking]')).toHaveText('Думаю')
-  await expect(live.locator('[data-hcv-thinking]')).toBeVisible()
-  await expect(live.locator('[data-hcv-live-time]')).toBeHidden()
-  await expect.poll(() => live.innerText()).toBe('Думаю')
-  await expect.poll(async () => Number.parseInt(await live.locator('[data-hcv-live-time]').textContent(), 10))
-    .toBeGreaterThanOrEqual(shownSeconds)
+  await expect(page.locator('[data-slot="aui_response-group"] [data-message-streaming="true"]').last()).toBeAttached()
+  await expect(extraRows).toHaveCount(0)
   await clickFarEdge(projects, filter)
   await expect(chatRow).toHaveAttribute('data-working', 'true')
   await expect(chatRow.locator('time[datetime]')).toHaveText('сейчас')
   await expect(chatRow.locator('time[datetime]')).toBeHidden()
+  const idleMs = 2300
+  const clock = page.locator('[data-chat-surface][data-composer-target="main"]:visible').first()
+  const clockCounts = await clock.evaluate((surface, duration) => new Promise(resolve => {
+    const selector = '[data-hcv-live-time]'
+    const before = surface.querySelectorAll(selector).length
+    let writes = 0
+    const count = records => records.filter(({ target }) =>
+      (target instanceof Element ? target : target.parentElement)?.closest(selector)).length
+    const observer = new MutationObserver(records => { writes += count(records) })
+    observer.observe(surface, { subtree: true, childList: true, characterData: true })
+    window.setTimeout(() => {
+      writes += count(observer.takeRecords())
+      observer.disconnect()
+      resolve({ before, after: surface.querySelectorAll(selector).length, writes })
+    }, duration)
+  }), idleMs)
+  assert.deepEqual(clockCounts, { before: 0, after: 0, writes: 0 })
+  console.log('HCV_LIVE_THINKING_IDLE', JSON.stringify({ idleMs, ...clockCounts }))
   await expect(markAll).toBeHidden()
   await expect(status(projectRow, 'unread')).toHaveCount(0)
   await page.emulateMedia({ reducedMotion: 'no-preference' })
@@ -482,12 +495,29 @@ export async function verifySidebar({ page, expect, sidebar, screenshot }) {
   if (await name.getAttribute('aria-expanded') === 'true') await name.click()
   await expect(chats).toHaveCount(0)
   await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await page.evaluate(() => {
+    const animate = Element.prototype.animate
+    let opening
+    Element.prototype.animate = function (frames, options) {
+      const animation = animate.call(this, frames, options)
+      if (this.hasAttribute('data-hcv-disclosure-motion') && frames[0]?.height === '0px' && frames[0].opacity === 0) {
+        const { delay, duration, easing } = animation.effect.getTiming()
+        opening = { delay, duration, easing }
+      }
+      return animation
+    }
+    window.finishOpeningProbe = () => {
+      Element.prototype.animate = animate
+      delete window.finishOpeningProbe
+      return opening
+    }
+  })
   await name.press('Enter')
   await expect(name).toHaveAttribute('aria-expanded', 'true')
   await expect(group).toBeVisible()
-  const observed = await chats.evaluate(node => node.getAnimations().map(a => a.effect.getTiming().duration))
-  assert(observed.includes(450), 'Opening follows the Codex height transition')
   await expect(session).toBeVisible()
+  const motion = await page.evaluate(() => window.finishOpeningProbe())
+  assert.deepEqual(motion, { delay: 0, duration: 300, easing: 'cubic-bezier(0.19, 1, 0.22, 1)' })
   const chatTitle = session.locator('.hover-marquee-inner')
   await expect(chatTitle).toHaveCSS('font-size', '14px')
   await expect(chatTitle).toHaveCSS('line-height', '20px')
@@ -674,7 +704,7 @@ export async function verifySidebar({ page, expect, sidebar, screenshot }) {
   const flat = sidebar.locator('[data-sessions-mode="flat"]')
   await neutralHeading(flat.getByRole('button', { name: 'Проекты', exact: true }))
   await neutralHeading(flat.getByRole('button', { name: 'Недавние', exact: true }))
-  console.log(JSON.stringify({ sidebar: { projectRow: 30, projectAction: 20, projectMenu: true, previewWidth: 336, neutralHeadings: true, liveLocale: true, inlineDisclosure: 450 } }))
+  console.log(JSON.stringify({ sidebar: { projectRow: 30, projectAction: 20, projectMenu: true, previewWidth: 336, neutralHeadings: true, liveLocale: true, inlineDisclosure: 300 } }))
 }
 
 export async function verifyChatMenus({ page, expect, sidebar, screenshot }) {

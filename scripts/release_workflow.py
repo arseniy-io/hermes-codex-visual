@@ -172,7 +172,9 @@ BRANCH_JSON = {
     'activity-center': 'activity-center.json',
     'usage': 'usage.json',
     'turn-diff': 'saved-main.json',
+    'reply-error': 'reply-error.json',
     'file-links': 'file-links.json',
+    'image-parity': 'image-parity.json',
     'draft-setup': 'draft-setup.json',
     'agent-lifecycle': 'agent-lifecycle.json',
     'activity-bundles': 'activity-bundles.json',
@@ -196,7 +198,7 @@ BRANCH_IMAGES = {
 
 def branch_backend_hash(focus, members):
     name = {'activity-center': 'activity.py', 'turn-diff': 'turn_changes.py',
-            'workspace-summary-live': 'turn_changes.py'}.get(focus)
+            'reply-error': 'turn_changes.py', 'workspace-summary-live': 'turn_changes.py'}.get(focus)
     return digest(members[name]) if name in members else None
 
 
@@ -221,6 +223,15 @@ def branch_evidence(root, focus, evidence_version, module_hash, backend_hash):
         if focus == 'file-links' and not all(value.get(key) is True for key in (
                 'filePreviewByMouseAndKeyboard', 'standalonePreviewsHidden', 'summarySource', 'themeAndForcedColors')):
             raise WorkflowError('File links did not verify inline actions, hidden cards and Results')
+        if focus == 'reply-error' and (backend_hash is None or value.get('backendSha256') != backend_hash
+                or not all(value.get(key) is True for key in ('retryAndDismiss', 'detailsOpened'))):
+            raise WorkflowError('Reply error did not verify the same changes backend and native actions')
+        if focus == 'image-parity':
+            send = value.get('send')
+            if (not isinstance(send, dict) or send.get('baseline') is not False
+                    or not all(send.get(key) is True for key in (
+                        'miniaturesVerified', 'viewportVerified', 'previewVerified'))):
+                raise WorkflowError('Images scenario did not verify sent previews and scroll position')
         if focus == 'draft-setup':
             draft = value.get('draftConsent')
             def matching_edges(state):
@@ -1213,9 +1224,10 @@ def build_and_check(root, owner, out, focuses, reviewed, *, runner=command, tool
                 raise WorkflowError('Candidate changed before test')
             evidence = 'release-' + uuid4().hex + '-' + str(index)
             package_env = {'HERMES_VISUAL_ACTIVITY_PACKAGE': str(extract)}
-            if focus == 'turn-diff':
+            if focus in ('turn-diff', 'reply-error'):
                 package_env['HERMES_VISUAL_TIMELINE_PARITY'] = '1'
-            if focus == 'turn-diff' or env.get('HERMES_VISUAL_TIMELINE_PARITY') == '1':
+            if (package_env.get('HERMES_VISUAL_TIMELINE_PARITY') == '1'
+                    or env.get('HERMES_VISUAL_TIMELINE_PARITY') == '1'):
                 package_env['HERMES_VISUAL_TIMELINE_PACKAGE'] = str(extract)
             output = step('focus-' + focus, [cmds['pwsh'], '-NoProfile', '-File', 'verification/run-local.ps1',
                           '-Focus', focus, '-Plugin', str(extract / 'plugin.js'), '-EvidenceVersion', evidence], package_env)

@@ -99,6 +99,11 @@ def candidates(core=CORE):
         actual = digest(raw)
         if actual == hashes["candidate"]:
             candidate = raw
+        elif isinstance(upgrade := hashes.get("upgrade"), dict) and actual == upgrade.get("from"):
+            transition = patches(upgrade["patch"])
+            if set(transition) != {name}:
+                raise RuntimeError("Invalid pinned upgrade: " + name)
+            candidate = apply(raw, transition[name], name)
         elif actual == hashes["baseline"]:
             candidate = apply(raw, transformations[name], name)
         else:
@@ -121,7 +126,8 @@ def candidates(core=CORE):
         target = checked_path(core, helper["target"], exists=False)
         if target.exists():
             original = target.read_bytes()
-            if digest(original) not in {helper["candidate"], helper.get("baseline")}:
+            supported = {helper["candidate"], helper.get("baseline"), *helper.get("previous_candidates", ())}
+            if digest(original) not in supported:
                 raise RuntimeError("A different timeline helper is already installed")
             originals[helper["target"]] = original
         output[helper["target"]] = raw

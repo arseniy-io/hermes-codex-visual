@@ -244,7 +244,7 @@ export function registerRemainingSurfaces(ctx, active) {
   ${profiles} :is(button, input):focus-visible,
   ${segmentedButton}:focus-visible { outline: 2px solid Highlight; outline-offset: -2px; }
 }
-`, { surface: '[data-overlay-surface], [data-slot="dialog-content"]' })
+`, { surface: '[data-overlay-surface], [data-slot="dialog-content"]', retainAfterFirstUse: true })
   mountCSS(ctx, 'data-hcv-bot-rows', `
 @media (forced-colors: none) {
   ${botRows} { border-radius: 8px; font-family: var(--hcv-ui-font); }

@@ -2,13 +2,13 @@
 
 **A Codex-style theme for Hermes Desktop.** Get the compact project sidebar, rounded chat composer, and workspace summary of the Codex desktop interface inside your Hermes Agent workspace.
 
-[Install](#install) · [Download v0.15.137 ZIP](https://raw.githubusercontent.com/arseniy-io/hermes-codex-visual/main/downloads/hermes-codex-visual-v0.15.137.zip) · [Report a bug or request a feature](https://github.com/arseniy-io/hermes-codex-visual/issues/new/choose) · [Русский](README.ru.md)
+[Install](#install) · [Download v0.15.138 ZIP](https://raw.githubusercontent.com/arseniy-io/hermes-codex-visual/main/downloads/hermes-codex-visual-v0.15.138.zip) · [Report a bug or request a feature](https://github.com/arseniy-io/hermes-codex-visual/issues/new/choose) · [Русский](README.ru.md)
 
 ![Codex-style theme v0.15.89 in Hermes Desktop with a project sidebar, a reply containing a table, and the workspace summary](docs/images/workspace-dark.png)
 
 <sub>v0.15.89 on Hermes Desktop v0.23.1+2062. Public build with the Atlas demo project.</sub>
 
-Version 0.15.137 reduces repeated work during streaming and history loading, keeps the stopped status of a separate agent process after reopening the chat, and updates file previews, tooltips and the empty-chat welcome. [Release notes](CHANGELOG.md#v015137)
+Version 0.15.138 shows square image previews above sent messages, preserves the chat position when sending or returning, and keeps model commentary together with its actions. The release also updates the composer, model menu, rate-limit card and Activity. [Release notes](CHANGELOG.md#v015138)
 
 ## What you can do
 
@@ -44,7 +44,7 @@ Use [Hermes Desktop](https://hermes-agent.nousresearch.com/docs/user-guide/deskt
 
 ### Install from a ZIP
 
-Download the ZIP. In **Capabilities → Plugins**, open the app plugins folder and extract the `hermes-codex-visual` folder there. The path should end in `desktop-plugins/hermes-codex-visual/plugin.js`. Click **Rescan**, enable the plugin, and choose **Codex** in Appearance. [Download v0.15.137 ZIP](https://raw.githubusercontent.com/arseniy-io/hermes-codex-visual/main/downloads/hermes-codex-visual-v0.15.137.zip) · [SHA-256 checksums](downloads/SHA256SUMS.txt)
+Download the ZIP. In **Capabilities → Plugins**, open the app plugins folder and extract the `hermes-codex-visual` folder there. The path should end in `desktop-plugins/hermes-codex-visual/plugin.js`. Click **Rescan**, enable the plugin, and choose **Codex** in Appearance. [Download v0.15.138 ZIP](https://raw.githubusercontent.com/arseniy-io/hermes-codex-visual/main/downloads/hermes-codex-visual-v0.15.138.zip) · [SHA-256 checksums](downloads/SHA256SUMS.txt)
 
 To use Activity, Usage and saved chat history features, install the agent files from the same ZIP. On update, replace both parts with files from the new ZIP, restart the gateway if it already loaded the agent part, and rescan the desktop plugins. [Agent installation and updates](docs/development.md#usage-analytics-in-source-builds)
 

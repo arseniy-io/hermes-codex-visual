@@ -60,7 +60,10 @@ export function readFocusedSession({ state, root = document, readFiber = committ
   if (focusedId !== null && typeof focusedId !== 'string') return null
   const matches = []
   for (const surface of root.querySelectorAll('[data-chat-surface]')) {
-    if (surface.closest('[hidden], [data-pane-hidden]') || !surface.getClientRects().length) continue
+    if (surface.closest('[hidden], [data-pane-hidden], [inert]')) continue
+    // Hermes marks hidden layers in the pane tree, even when they retain a
+    // layout box. Use that contract so focus checks do not force layout.
+    if (!surface.closest('[data-tree-group]') && !surface.getClientRects().length) continue
     const native = nativeSessionView(surface, readFiber)
     if (!native) continue
     const { view, nativeOwner } = native

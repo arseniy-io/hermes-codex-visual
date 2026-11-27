@@ -1,4 +1,4 @@
-import { activityPresentation, describeActivity, repeatedActivityPresentation } from './chat-activity-labels.js'
+import { activityPresentation, describeActivity, pendingActivityPart, repeatedActivityPresentation } from './chat-activity-labels.js'
 import { disclosureMotion } from './chat-disclosure-motion.js'
 
 export const activityGroup = 'data-hcv-activity-group'
@@ -19,7 +19,8 @@ const protectedContent = ':is([data-approval-activity-only], [data-approval-stac
 // A compact header covers the ordinary activity between two prose messages;
 // agent cards and approvals remain outside; failed calls keep their original
 // state and output in the expanded activity, as they do in Codex.
-export function activityGroups(partsFor, setSite = () => {}, onNativeToggle = () => {}) {
+export function activityGroups(partsFor, setSite = () => {}, onNativeToggle = () => {},
+  setLabel = (label, value) => { if (label.textContent !== value) label.textContent = value }) {
   const byResponse = new Map()
   const groupPanels = new WeakMap()
   const repeatPanels = new Map()
@@ -68,17 +69,6 @@ export function activityGroups(partsFor, setSite = () => {}, onNativeToggle = ()
 
   function setOpen(state, open, updateOwners = true) {
     if (state.button.getAttribute('aria-expanded') !== String(open)) state.button.setAttribute('aria-expanded', String(open))
-    if (open) {
-      // A new file diff is a separate native disclosure inside the activity
-      // list. Initialise it once; later user choices must remain untouched.
-      for (const node of state.nodes) {
-        if (!node.matches('[data-file-edit]') || state.initializedDiffs.has(node)) continue
-        state.initializedDiffs.add(node)
-        if ((!state.wasInitiallyOpen || !state.initialNodes.has(node)) && !node.contains(document.activeElement)) {
-          setNativeOpen(state, node.querySelector('button[aria-expanded]'), false)
-        }
-      }
-    }
     for (const [index, node] of state.nodes.entries()) {
       const value = open ? (index === 0 ? 'first' : 'next') : 'closed'
       if (node.getAttribute(activityMember) !== value) node.setAttribute(activityMember, value)
@@ -113,8 +103,7 @@ export function activityGroups(partsFor, setSite = () => {}, onNativeToggle = ()
     // Codex IgqH.d defaults summary disclosures to closed. Native Hermes
     // auto-expansion is not a user preference; preserve only active focus.
     const wasOpen = nodes.some(node => node.contains(document.activeElement))
-    const state = { response, header, button, title, label, nodes, wasInitiallyOpen: wasOpen,
-      initialNodes: new WeakSet(nodes), initializedDiffs: new WeakSet(), changed: new Map() }
+    const state = { response, header, button, title, label, nodes, changed: new Map() }
     groupPanels.set(button, nodes)
     nodes[0].before(header)
     button.addEventListener('click', () => setOpen(state, button.getAttribute('aria-expanded') !== 'true'))
@@ -124,20 +113,21 @@ export function activityGroups(partsFor, setSite = () => {}, onNativeToggle = ()
 
   function present(parts, russian, running) {
     const descriptions = parts.map(describeActivity)
-    const pending = running ? parts.filter((part, index) => descriptions[index]?.pending) : []
-    const selected = pending.length ? [pending.at(-1)] : parts
-    const view = activityPresentation(selected, pending.length > 0, russian, false, true)
+    const pending = running ? pendingActivityPart(parts) : undefined
+    const selected = pending ? [pending] : parts
+    const view = activityPresentation(selected, Boolean(pending), russian, false, true)
     if (!view) return null
+    view.workingCommand = Boolean(pending && view.icon === 'activityTerminal')
     const browser = descriptions.find(item => item?.kind === 'chrome' || item?.kind === 'browser')
-    if (browser && !pending.length && !descriptions.some(item => item?.sources?.length)) {
+    if (browser && !pending && !descriptions.some(item => item?.sources?.length)) {
       view.icon = browser.icon
       view.site = descriptions.find(item => item?.kind === browser.kind && item.origin)?.origin
     }
     if (!view.label) {
       const kind = describeActivity(selected.at(-1))?.kind
       const labels = {
-        skill: pending.length ? (russian ? 'Читает скилл' : 'Reading a skill') : (russian ? 'Прочитал скилл' : 'Read a skill'),
-        image: pending.length ? (russian ? 'Смотрит изображения' : 'Viewing images') : (russian ? 'Просмотрел изображения' : 'Viewed images'),
+        skill: pending ? (russian ? 'Читает скилл' : 'Reading a skill') : (russian ? 'Прочитал скилл' : 'Read a skill'),
+        image: pending ? (russian ? 'Смотрит изображения' : 'Viewing images') : (russian ? 'Просмотрел изображения' : 'Viewed images'),
       }
       view.label = labels[kind] || (russian ? 'Выполнил действия' : 'Completed actions')
     }
@@ -148,7 +138,7 @@ export function activityGroups(partsFor, setSite = () => {}, onNativeToggle = ()
     const previous = byResponse.get(response) ?? []
     if (!previous.length && !response.querySelector(tool)) return
     const running = Boolean(response.querySelector('[data-message-streaming="true"], [data-slot="aui_response-loading"], ' +
-      '[data-slot="aui_turn-activity"][data-state="active"], [data-hcv-live-turn]'))
+      '[data-slot="aui_turn-activity"][data-state="active"]'))
     const ranges = []
     let entries = []
     function settle() {
@@ -182,18 +172,26 @@ export function activityGroups(partsFor, setSite = () => {}, onNativeToggle = ()
         if (node.matches(tool)) {
           const parts = partsFor(node)
           const descriptions = parts.map(describeActivity)
-          // Approvals and unsupported cards retain their separate surfaces.
-          // Ordinary failures are revealed with the calls in this group.
-          if (parts.length && !node.matches('[aria-hidden="true"], [inert]') &&
-            !node.matches(protectedContent) && !node.querySelector(protectedContent) &&
-            descriptions.every(item => item && !item.blocked && (!item.pending || running))) {
+          if (node.matches('[aria-hidden="true"], [inert]')) continue
+          // Keep user decisions and standalone image rows in timeline order.
+          // Ordinary failures stay inside the action summary.
+          if (node.matches(protectedContent) || node.querySelector(protectedContent) ||
+            descriptions.some(item => item?.blocked) ||
+            (descriptions.length && descriptions.every(item => item?.kind === 'image'))) {
+            settle()
+          } else if (parts.length && descriptions.every(item => item && (!item.pending || running))) {
             entries.push({ node, parts })
           }
           continue
         }
-        // A commentary paragraph is a hard boundary. Other native elements
-        // such as agent statuses and errors stay visible without splitting it.
-        if (node.matches('.aui-md') || node.querySelector('.aui-md')) settle()
+        // A blank streamed Markdown placeholder leaves the current run open.
+        if (node.matches('[hidden], [aria-hidden="true"]')) continue
+        if (node.matches(protectedContent) || node.querySelector(protectedContent)) {
+          settle()
+          continue
+        }
+        const paragraph = node.matches('.aui-md') ? node : node.querySelector('.aui-md')
+        if (paragraph && (paragraph.textContent.trim() || paragraph.querySelector('img, audio, video, hr'))) settle()
       }
     }
     settle()
@@ -220,7 +218,7 @@ export function activityGroups(partsFor, setSite = () => {}, onNativeToggle = ()
         if (nodes[0].previousElementSibling !== group.header) nodes[0].before(group.header)
       }
       if (group.header.getAttribute(activityGroup) !== view.icon) group.header.setAttribute(activityGroup, view.icon)
-      if (group.label.textContent !== view.label) group.label.textContent = view.label
+      setLabel(group.label, view.label, view.workingCommand)
       setSite(group.header, group.title, view.site)
       setOpen(group, group.button.getAttribute('aria-expanded') === 'true', false)
       return group

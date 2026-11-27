@@ -468,5 +468,5 @@ export function registerSettingsStyle(ctx, active) {
   }
 }
 `
-  mountStyle(ctx, sheet, { screens: ['settings', 'command-center'] })
+  mountStyle(ctx, sheet, { screens: ['settings', 'command-center'], retainAfterFirstUse: true })
 }

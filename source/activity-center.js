@@ -18,8 +18,11 @@ const labels = {
     inspect: 'Посмотреть правку', back: 'К предложениям', preview: 'Полный текст предложения',
     previewLoading: 'Открываем полный текст…', previewError: 'Не удалось открыть полный текст. Обновите очередь и повторите.',
     unavailable: 'Применение этого предложения недоступно.', accept: 'Принять', reject: 'Отклонить',
-    approved: 'Предложение принято.', rejected: 'Предложение отклонено.', working: 'Выполняем…',
-    uncertain: 'Результат не подтверждён. Обновите очередь и заново откройте предложение перед следующим решением.',
+    approved: 'Предложение принято.', rejected: 'Предложение отклонено.',
+    approving: 'Принимаем…', rejecting: 'Отклоняем…', decisionPending: 'Ждём ответ Hermes…',
+    skillCreated: name => 'Навык «' + name + '» создан.', skillFilesApplied: 'Файлы навыка сохранены.',
+    decisionRefused: 'Hermes отклонил применение. Результат изменений не подтверждён.',
+    uncertain: 'Результат не подтверждён. Обновите список и откройте предложение снова.',
     stale: 'Предложение или исходные файлы изменились. Обновите очередь и просмотрите правку заново.',
     retry: 'Повторить', unknownDate: 'Время не указано', unknown: 'Очередь ещё не проверена',
     locked: 'Обновите очередь и заново откройте предложение.', unsupported: 'Очередь недоступна в этом подключении.',
@@ -36,8 +39,16 @@ const labels = {
     summaryUnavailableOnly: 'Краткое описание недоступно.',
     missingSkillNext: 'Чтобы применить предложение, сначала создайте или восстановите навык, затем обновите список.',
     missingSkillCreate: 'В очереди есть предложение создать навык с таким названием. Рассмотрите его в первую очередь.',
-    openCreate: 'Рассмотреть создание навыка', proposedFiles: 'Предлагается записать в навык эти файлы:',
+    openCreate: 'Рассмотреть создание навыка',
     inspectCreate: 'Посмотреть предложение',
+    newSkillProposal: 'Предложение создать новый навык', skillFilesProposal: 'Предложение изменить файлы навыка',
+    noSkillDescription: 'Описание навыка не указано.', skillFilesDetails: 'Отдельное предложение по файлам',
+    projectName: name => 'Проект «' + name + '»', unknownProject: 'Проект не определён',
+    waitingPurpose: 'Уточняем, чем поможет навык…', retryPurpose: 'Обновить объяснение',
+    backToProposal: 'К предложению', fullText: 'Полный текст', readingProposal: 'Загружаем предложение…',
+    compactDestructive: 'Предложение включает удаление или полную замену файлов навыка.',
+    descriptionTooLong: (length, limit) => 'Создание заблокировано. Длина описания ' + length + ', допустимо до ' + limit + ' символов.',
+    invalidSkillContent: 'Создание заблокировано. Проверьте содержимое навыка.',
     changes: 'Изменённые фрагменты', fullFile: 'Полный текст файла', before: 'Было', after: 'Станет',
     fragmentsUnavailable: 'Не удалось выделить изменённые фрагменты. Откройте полный текст файла.',
     empty: 'Пусто', removed: 'Будет удалено', change: 'Изменение', create: 'Создание', replace: 'Полная замена',
@@ -54,8 +65,11 @@ const labels = {
     inspect: 'View proposed change', back: 'Back to proposals', preview: 'Full proposed change',
     previewLoading: 'Opening the full proposal…', previewError: 'Could not open the full proposal. Refresh the queue and try again.',
     unavailable: 'This proposal cannot be applied.', accept: 'Approve', reject: 'Reject',
-    approved: 'Proposal approved.', rejected: 'Proposal rejected.', working: 'Working…',
-    uncertain: 'The result is unconfirmed. Refresh the queue and review the proposal again before another decision.',
+    approved: 'Proposal approved.', rejected: 'Proposal rejected.',
+    approving: 'Approving…', rejecting: 'Rejecting…', decisionPending: 'Waiting for Hermes…',
+    skillCreated: name => 'Skill “' + name + '” created.', skillFilesApplied: 'Skill files saved.',
+    decisionRefused: 'Hermes rejected the change. The outcome of the changes is unconfirmed.',
+    uncertain: 'The result is unconfirmed. Refresh the list and open the proposal again.',
     stale: 'The proposal or source files changed. Refresh the queue and review the change again.',
     retry: 'Retry', unknownDate: 'Time not recorded', unknown: 'The queue has not been checked',
     locked: 'Refresh the queue and review the proposal again.', unsupported: 'The queue is unavailable on this connection.',
@@ -71,8 +85,16 @@ const labels = {
     summaryUnavailableOnly: 'An explanation is unavailable.',
     missingSkillNext: 'Create or restore the skill first, then refresh the list to apply this proposal.',
     missingSkillCreate: 'There is also a proposal to create a skill with this name. Review it first.',
-    openCreate: 'Review skill creation', proposedFiles: 'These files are proposed for the skill:',
+    openCreate: 'Review skill creation',
     inspectCreate: 'View proposal',
+    newSkillProposal: 'Proposal to create a new skill', skillFilesProposal: 'Proposal to change skill files',
+    noSkillDescription: 'No skill description was provided.', skillFilesDetails: 'Separate proposal for skill files',
+    projectName: name => 'Project “' + name + '”', unknownProject: 'Project unknown',
+    waitingPurpose: 'Preparing a practical explanation…', retryPurpose: 'Refresh explanation',
+    backToProposal: 'Back to proposal', fullText: 'Full text', readingProposal: 'Loading proposal…',
+    compactDestructive: 'The proposal includes removal or full replacement of skill files.',
+    descriptionTooLong: (length, limit) => 'Creation is blocked. The description has ' + length + ' characters. The limit is ' + limit + '.',
+    invalidSkillContent: 'Creation is blocked. Check the skill content.',
     changes: 'Changed passages', fullFile: 'Full file', before: 'Before', after: 'After', empty: 'Empty', removed: 'Will be removed',
     fragmentsUnavailable: 'Could not isolate the changed passages. Open the full file.',
     change: 'Change', create: 'Create', replace: 'Full replacement', deletion: 'Removal',
@@ -87,11 +109,34 @@ const proposalPath = item => `/activity/${item.kind}/${item.id}`
 const idValid = value => typeof value === 'string' && /^[0-9a-f]{8}$/.test(value)
 const text = value => typeof value === 'string' ? value : ''
 
+function compactSkill(item) {
+  return item?.kind === 'skills' && ['create', 'files'].includes(item.skill_action)
+}
+
+function creationIssueLabel(issue, t) {
+  if (issue?.code === 'skill_description_too_long' && Number.isInteger(issue.length) && Number.isInteger(issue.limit))
+    return t.descriptionTooLong(issue.length, issue.limit)
+  if (issue?.code === 'invalid_skill_content') return t.invalidSkillContent
+  return ''
+}
+
+function decisionErrorDetail(error) {
+  const match = /\b422:\s*(\{[\s\S]*\})\s*$/.exec(text(error?.message))
+  if (!match) return null
+  try { return JSON.parse(match[1]).detail } catch { return null }
+}
+
+function relatedCreation(snapshot, detail) {
+  if (!detail?.missing_skill) return []
+  return (snapshot?.items || []).filter(item => item.kind === 'skills' && item.skill_action === 'create' &&
+    item.names.length === 1 && item.names[0] === detail.missing_skill && item.id !== detail.id)
+}
+
 export function activityItem(value) {
   if (!value || !idValid(value.id) || !['skills', 'memory'].includes(value.kind) ||
       typeof value.version !== 'string' || !value.version) return null
   return { ...value, names: Array.isArray(value.names) ? value.names.filter(name => typeof name === 'string' && name) : [],
-    summary: text(value.summary), origin: text(value.origin) }
+    summary: text(value.summary), origin: text(value.origin), project: text(value.project) || null }
 }
 
 export function activitySnapshot(value) {
@@ -127,7 +172,7 @@ export function activityDetail(value, item, scope) {
         !value.proposed_files.every(file => file && typeof file.file === 'string' &&
           typeof file.heading === 'string' && typeof file.content === 'string')))) return null
   return { ...value, names: Array.isArray(value.names) ? value.names.filter(name => typeof name === 'string' && name) : item.names,
-    proposed_files: value.proposed_files || [] }
+    proposed_files: value.proposed_files || [], project: text(value.project) || item.project || null }
 }
 
 function dateLabel(value) {
@@ -145,6 +190,7 @@ function kindLabel(item, t) {
   return item.kind !== 'skills' ? t.memory : item.skill_action === 'create' ? t.skillCreate
     : item.skill_action === 'files' ? t.skillFiles : t.skill
 }
+function projectLabel(item, t) { return item.project ? t.projectName(item.project) : t.unknownProject }
 function originLabel(item, t) {
   return item.origin === 'background_review' ? t.auto
     : ['foreground', 'refine_review'].includes(item.origin) ? t.manual : t.unknownOrigin
@@ -201,9 +247,11 @@ function ActivityDialog({ model, controller }) {
   const locked = selected && state.locked.includes(itemKey(selected))
   const title = selected ? nameLabel(detail || selected, t) : t[state.section]
   const snapshot = state.snapshot
-  const creationMatches = detail?.missing_skill ? (snapshot?.items || []).filter(item => item.kind === 'skills' &&
-    item.skill_action === 'create' && item.names.length === 1 && item.names[0] === detail.missing_skill &&
-    itemKey(item) !== itemKey(selected)) : []
+  const compact = compactSkill(selected)
+  const creation = selected?.skill_action === 'create'
+  const creationMatches = compact ? [] : relatedCreation(snapshot, detail)
+  const linkedFiles = state.linkedFiles && snapshot?.items.find(item =>
+    itemKey(item) === itemKey(state.linkedFiles) && item.version === state.linkedFiles.version)
   const filteredItems = snapshot?.items.filter(item => state.filter === 'all' || item.kind === state.filter) || []
   const filteredEvents = list => list.filter(item => state.filter === 'all' || item.kinds.includes(state.filter))
   const explanation = detail?.explanation ?? (loading && selected && controller.savedExplanation(selected))
@@ -213,13 +261,34 @@ function ActivityDialog({ model, controller }) {
     : unavailableFragments ? t.summaryUnavailableFull : t.summaryUnavailable
   const destructive = detail?.changes.some(change => change.full_replacement || ['delete', 'remove_file', 'remove', 'edit', 'replace'].includes(change.action) ||
     (change.action === 'write_file' && change.before !== null))
+  const problem = creationIssueLabel(detail?.creation_issue, t)
+  const actionsDisabled = Boolean(state.busy) || locked || (!compact && explanation?.status === 'pending')
+  const actions = detail && h('div', { 'data-hcv-activity-actions': '' },
+    h(Button, { type: 'button', variant: 'outline', disabled: actionsDisabled,
+      onClick: () => controller.decide('reject') }, state.busy === 'reject' ? t.rejecting : t.reject),
+    h(Button, { type: 'button', disabled: actionsDisabled || !detail.applicable,
+      onClick: () => controller.decide('approve') }, state.busy === 'approve' ? t.approving : t.accept))
+  const message = mutating ? t.decisionPending : state.message
+  const compactTitle = creation ? t.newSkillProposal : t.skillFilesProposal
+  const skillDescription = explanation?.status === 'ready' ? explanation.text
+    : detail?.summary || selected?.summary || t.noSkillDescription
+  const files = compact && detail && [...new Set([
+    ...detail.changes.map(change => change.file), ...detail.proposed_files.map(file => file.file),
+  ])]
+  const fullText = compact && detail?.proposed_files.length
+    ? detail.proposed_files.map(file => file.file + '\n\n' + file.content).join('\n\n') : detail?.preview
+  const hasFullText = fullText && fullText !== detail.reason
   return h(Dialog, { open: true, onOpenChange: open => { if (!open) controller.close() } },
     h(DialogContent, {
       'data-hcv-activity': '', 'data-overlay-surface': '', blurBackdrop: false,
+      'data-hcv-activity-compact': compact ? '' : undefined,
       onCloseAutoFocus: event => { event.preventDefault(); controller.returnFocus() },
     },
-    h(DialogHeader, null, h(DialogTitle, null, t.title), h(DialogDescription, null, t.description)),
-    h('div', { 'data-hcv-activity-meta': '' }, `${t.profile}: ${state.profile}`),
+    h(DialogHeader, null,
+      h(DialogTitle, null, compact ? state.showFull ? t.preview : compactTitle : t.title),
+      compact && h('p', { 'data-hcv-activity-project': '' }, projectLabel(detail || selected, t)),
+      h(DialogDescription, null, !compact ? t.description : creation ? skillDescription : title)),
+    !compact && h('div', { 'data-hcv-activity-meta': '' }, `${t.profile}: ${state.profile}`),
     !selected && h('div', { 'data-hcv-activity-nav': '', role: 'group', 'aria-label': t.title },
       ['proposals', 'now', 'recent'].map(section => h(Button, { key: section, type: 'button', variant: 'text',
         'aria-pressed': state.section === section, onClick: () => controller.section(section) }, t[section]))),
@@ -227,22 +296,49 @@ function ActivityDialog({ model, controller }) {
       [['all', 'all'], ['skills', 'skills'], ['memory', 'memories']].map(([filter, label]) =>
         h(Button, { key: filter, type: 'button', variant: 'text', 'aria-pressed': state.filter === filter,
           onClick: () => controller.filter(filter) }, t[label]))),
-    h('div', { 'data-hcv-activity-toolbar': '' },
+    !compact && h('div', { 'data-hcv-activity-toolbar': '' },
       selected && h(Button, { type: 'button', variant: 'text', disabled: mutating, onClick: controller.back }, t.back),
       h('h2', { 'data-hcv-activity-heading': '' }, title),
       h(Button, { type: 'button', variant: 'outline', disabled: Boolean(state.busy), onClick: () => controller.refresh(true) }, t.refresh)),
-    h('div', { 'data-hcv-activity-body': '', 'aria-busy': Boolean(state.busy) },
-      state.message && h('p', { 'data-hcv-activity-message': '', role: 'status', tabIndex: -1 }, state.message),
-      selected ? h('section', { 'data-hcv-activity-detail': '', 'aria-label': title },
+    h('p', { 'data-hcv-activity-message': '', role: 'status' }, message),
+    h('div', { 'data-hcv-activity-body': '', 'aria-busy': state.busy === 'detail' || state.busy === 'list' },
+      compact ? h('section', { 'data-hcv-activity-detail': '', 'aria-label': title },
+        state.showFull && hasFullText ? h('pre', { 'data-hcv-activity-preview': '', tabIndex: 0 }, fullText)
+          : !detail ? h('p', { role: 'status' }, loading ? t.readingProposal : state.detailError || t.previewError)
+            : h('div', { 'data-hcv-activity-explanation': '' },
+              creation && explanation.status === 'pending' && !mutating &&
+                h('p', { 'data-hcv-activity-meta': '', role: 'status' }, t.waitingPurpose),
+              !detail.applicable && !message && h('p', { 'data-hcv-activity-warning': '', role: 'status' },
+                problem || (detail.missing_skill ? t.missingSkillNext : text(detail.reason) || t.unavailable)),
+              destructive && h('p', { 'data-hcv-activity-warning': '' }, t.compactDestructive),
+              actions),
+        h('div', { 'data-hcv-activity-compact-footer': '' },
+          !state.showFull && creation && h('p', { 'data-hcv-activity-meta': '' }, title),
+          !state.showFull && files?.length > 0 && h('ul', { 'data-hcv-activity-meta': '' },
+            files.map(file => h('li', { key: file }, file))),
+          h('div', { 'data-hcv-activity-toolbar': '' },
+            state.showFull
+              ? h(Button, { type: 'button', variant: 'text', onClick: () => controller.showFull(false) }, t.backToProposal)
+              : h(Button, { type: 'button', variant: 'text', disabled: mutating, onClick: controller.back }, t.back),
+            !state.showFull && hasFullText && h(Button, { type: 'button', variant: 'text', disabled: mutating,
+              onClick: () => controller.showFull(true) }, t.fullText),
+            !state.showFull && linkedFiles && h(Button, { type: 'button', variant: 'text', disabled: Boolean(state.busy),
+              onClick: () => controller.inspect(linkedFiles, true) }, t.skillFilesDetails),
+            !state.showFull && creation && explanation?.status === 'error' && h(Button, {
+              type: 'button', variant: 'text', disabled: Boolean(state.busy), onClick: controller.retryExplanation,
+            }, t.retryPurpose),
+            !state.showFull && (locked || state.detailError) && h(Button, { type: 'button', variant: 'text', disabled: Boolean(state.busy),
+              onClick: () => controller.refresh(true) }, t.refresh))))
+      : selected ? h('section', { 'data-hcv-activity-detail': '', 'aria-label': title },
         h('p', { 'data-hcv-activity-kind': '' }, kindLabel(detail || selected, t)),
+        h('p', { 'data-hcv-activity-project': '' }, projectLabel(detail || selected, t)),
         h('p', { 'data-hcv-activity-meta': '' }, `${originLabel(selected, t)} · ${dateLabel(selected.created_at)}`),
         explanation ? h('div', { 'data-hcv-activity-explanation': '' },
             detail && !detail.applicable && h('p', { 'data-hcv-activity-warning': '', role: 'status' }, text(detail.reason) || t.unavailable),
             detail?.missing_skill && h('p', null, creationMatches.length ? t.missingSkillCreate : t.missingSkillNext),
             creationMatches.length === 1 && h(Button, { type: 'button', variant: 'outline', disabled: Boolean(state.busy),
               onClick: () => controller.inspect(creationMatches[0]) }, t.openCreate),
-            detail?.proposed_files.length ? h('p', { 'data-hcv-activity-summary': '' }, t.proposedFiles)
-              : explanation.status === 'ready' ? h('p', { 'data-hcv-activity-summary': '' }, explanation.text)
+            explanation.status === 'ready' ? h('p', { 'data-hcv-activity-summary': '' }, explanation.text)
               : h('p', { role: 'status' }, explanation.status === 'pending' ? t.waitingSummary
                 : explanation.status === 'error' ? t.summaryError : unavailableMessage),
             explanation.status === 'ready' && h('p', { 'data-hcv-activity-meta': '' }, t.summaryHint),
@@ -251,15 +347,7 @@ function ActivityDialog({ model, controller }) {
             destructive && h('p', { 'data-hcv-activity-warning': '' }, t.destructive))
             : h('p', { role: 'status' }, loading ? t.previewLoading : state.detailError || t.previewError),
         locked && h('p', { 'data-hcv-activity-warning': '', role: 'status' }, t.locked),
-        detail?.proposed_files.length > 0 && h('div', { 'data-hcv-activity-proposed-files': '' },
-          detail.proposed_files.map((file, index) => h('details', { key: index, 'data-hcv-activity-full': '' },
-            h('summary', null, file.heading ? `${file.heading} · ${file.file}` : file.file),
-            h('pre', { tabIndex: 0 }, file.content)))),
-        detail && h('div', { 'data-hcv-activity-actions': '' },
-          h(Button, { type: 'button', variant: 'outline', disabled: Boolean(state.busy) || locked || explanation.status === 'pending',
-            onClick: () => controller.decide('reject') }, mutating ? t.working : t.reject),
-          h(Button, { type: 'button', disabled: Boolean(state.busy) || locked || !detail.applicable || explanation.status === 'pending',
-            onClick: () => controller.decide('approve') }, mutating ? t.working : t.accept)),
+        actions,
         detail?.changes.length > 0 && h(Changes, { changes: detail.changes, t }),
         detail && !detail.changes.length && detail.preview && detail.preview !== detail.reason && h('details', { 'data-hcv-activity-fallback': '' },
           h('summary', null, t.preview), h('pre', { 'data-hcv-activity-preview': '', tabIndex: 0 }, detail.preview)))
@@ -277,10 +365,12 @@ function ActivityDialog({ model, controller }) {
                 : h('ul', { 'data-hcv-activity-list': '' }, filteredItems.map(item =>
                   h('li', { key: itemKey(item), 'data-hcv-activity-item': itemKey(item) },
                     h('div', { 'data-hcv-activity-item-title': '' },
-                      h('span', { 'data-hcv-activity-kind': '' }, kindLabel(item, t)),
-                      h('h3', null, nameLabel(item, t))),
-                    h('p', { 'data-hcv-activity-meta': '' }, `${originLabel(item, t)} · ${dateLabel(item.created_at)}`),
-                    item.summary && h('p', { 'data-hcv-activity-summary': '' }, `${t.excerpt}: ${readable(item.summary)}`),
+                      item.skill_action === 'create'
+                        ? [h('h3', { key: 'title' }, t.newSkillProposal), h('span', { key: 'name', 'data-hcv-activity-meta': '' }, nameLabel(item, t))]
+                        : [h('span', { key: 'kind', 'data-hcv-activity-kind': '' }, kindLabel(item, t)), h('h3', { key: 'name' }, nameLabel(item, t))]),
+                    h('p', { 'data-hcv-activity-project': '' }, projectLabel(item, t)),
+                    item.skill_action !== 'create' && h('p', { 'data-hcv-activity-meta': '' }, `${originLabel(item, t)} · ${dateLabel(item.created_at)}`),
+                    item.summary && h('p', { 'data-hcv-activity-summary': '' }, item.skill_action === 'create' ? item.summary : `${t.excerpt}: ${readable(item.summary)}`),
                     h(Button, { type: 'button', variant: 'outline', disabled: Boolean(state.busy),
                       onClick: () => controller.inspect(item) }, item.skill_action === 'create' ? t.inspectCreate : t.inspect))))))))
 }
@@ -289,7 +379,7 @@ export function registerActivityCenter(ctx, active) {
   const root = document.documentElement
   const model = atom({ open: false, profile: host.state.profile.get() || 'default', snapshot: null,
     listStatus: 'loading', listError: '', selected: null, detail: null, detailError: '',
-    section: 'proposals', filter: 'all', busy: null, locked: [], message: '' })
+    section: 'proposals', filter: 'all', busy: null, locked: [], message: '', linkedFiles: null, showFull: false })
   let disposed = false, epoch = 0, identity = '', socket = null, gatewayState = ''
   const busyScopes = new Set()
   const networkBusy = () => busyScopes.has(identity)
@@ -332,7 +422,9 @@ export function registerActivityCenter(ctx, active) {
       const saved = explanations.get(itemKey(item))
       return saved?.version === item.version ? saved.explanation : null
     },
-    inspect: item => inspect(item), decide: action => decide(action), retryExplanation: () => retryExplanation(),
+    inspect: (item, standalone = false) => inspect(item, false, standalone),
+    showFull: showFull => write({ showFull }),
+    decide: action => decide(action), retryExplanation: () => retryExplanation(),
   }
 
   function stopSummaryPoll() { if (summaryPoll !== null) clearTimeout(summaryPoll); summaryPoll = null }
@@ -538,7 +630,7 @@ export function registerActivityCenter(ctx, active) {
       const selectedNow = selected && snapshot.items.find(item => itemKey(item) === itemKey(selected))
       write({ snapshot, listStatus: 'ready', listError: '',
         ...(selected && (!selectedNow || selectedNow.version !== selected.version)
-          ? { selected: null, detail: null, detailError: '', message: words().stale } : {}) })
+          ? { selected: null, detail: null, detailError: '', message: model.get().message || words().stale } : {}) })
       syncActivityPush()
       syncListPoll(readStartedAt)
       announce(snapshot)
@@ -553,7 +645,7 @@ export function registerActivityCenter(ctx, active) {
     }
   }
 
-  async function inspect(item, silent = false) {
+  async function inspect(item, silent = false, standalone = false) {
     if (!enabled()) return
     scopeChanged()
     if (networkBusy()) return
@@ -563,21 +655,34 @@ export function registerActivityCenter(ctx, active) {
     const token = epoch, route = identity
     busyScopes.add(route)
     if (!silent) stopSummaryPoll()
-    write(silent ? { busy: 'summary' } : { selected: fresh, detail: null, detailError: '', busy: 'detail', message: '' })
+    write(silent ? { busy: 'summary' } : { selected: fresh, detail: null, detailError: '', busy: 'detail',
+      message: '', linkedFiles: null, showFull: false })
+    let inspected = fresh
+    const isShowing = () => current(token) && itemKey(model.get().selected || {}) === itemKey(inspected) &&
+      model.get().selected?.version === inspected.version && model.get().snapshot?.scope === snapshot.scope
     try {
-      const response = await ctx.rest(proposalPath(fresh), { timeoutMs: 12000 })
-      if (!current(token)) return
-      if (itemKey(model.get().selected || {}) !== itemKey(fresh) || model.get().selected?.version !== fresh.version ||
-          model.get().snapshot?.scope !== snapshot.scope) return
-      const detail = activityDetail(response, fresh, snapshot.scope)
+      let response = await ctx.rest(proposalPath(inspected), { timeoutMs: 12000 })
+      if (!isShowing()) return
+      let detail = activityDetail(response, inspected, snapshot.scope)
       if (!detail) throw new Error('Invalid activity detail')
-      const key = itemKey(fresh)
-      if (detail.explanation.status === 'ready') explanations.set(key, { version: fresh.version, explanation: detail.explanation })
+      if (!silent && !standalone && fresh.skill_action === 'files') {
+        const matches = relatedCreation(snapshot, detail)
+        if (matches.length === 1) {
+          inspected = matches[0]
+          write({ selected: inspected, linkedFiles: fresh })
+          response = await ctx.rest(proposalPath(inspected), { timeoutMs: 12000 })
+          if (!isShowing()) return
+          detail = activityDetail(response, inspected, snapshot.scope)
+          if (!detail) throw new Error('Invalid activity detail')
+        }
+      }
+      const key = itemKey(inspected)
+      if (detail.explanation.status === 'ready') explanations.set(key, { version: inspected.version, explanation: detail.explanation })
       else explanations.delete(key)
       write({ detail, detailError: '' })
-      if (detail.explanation.status === 'pending') scheduleSummaryPoll(fresh)
+      if (detail.explanation.status === 'pending') scheduleSummaryPoll(inspected)
     } catch {
-      if (current(token) && itemKey(model.get().selected || {}) === itemKey(fresh) && model.get().selected?.version === fresh.version) {
+      if (isShowing()) {
         if (silent && model.get().detail) write({ detail: { ...model.get().detail, explanation: { status: 'error', text: '' } } })
         else write({ detail: null, detailError: words().previewError })
       }
@@ -622,8 +727,8 @@ export function registerActivityCenter(ctx, active) {
     scopeChanged()
     if (networkBusy()) return
     const state = model.get(), item = state.selected, detail = state.detail
-    if (!state.snapshot || !item || !detail || detail.explanation.status === 'pending' || locked.has(itemKey(item)) ||
-        (action === 'approve' && !detail.applicable)) return
+    if (!state.snapshot || !item || !detail || locked.has(itemKey(item)) ||
+        (!compactSkill(item) && detail.explanation.status === 'pending') || (action === 'approve' && !detail.applicable)) return
     const token = epoch, route = identity
     const key = itemKey(item)
     busyScopes.add(route)
@@ -635,21 +740,38 @@ export function registerActivityCenter(ctx, active) {
       if (response?.scope !== state.snapshot.scope || response.status !== (action === 'approve' ? 'approved' : 'rejected'))
         throw new Error('Unconfirmed decision')
       explanations.delete(key)
+      const t = words()
+      let message = action === 'approve' ? t.approved : t.rejected
+      if (action === 'approve' && item.skill_action === 'create') message = t.skillCreated(nameLabel(item, t))
+      if (action === 'approve' && item.skill_action === 'files') message = t.skillFilesApplied
       write({ selected: null, detail: null, detailError: '', snapshot: { ...state.snapshot,
-        items: state.snapshot.items.filter(candidate => itemKey(candidate) !== key) },
-        message: action === 'approve' ? words().approved : words().rejected })
+        items: state.snapshot.items.filter(candidate => itemKey(candidate) !== key) }, message })
       stopSummaryPoll()
     } catch (error) {
       if (!current(token)) return
-      locked.add(key)
-      // A timed-out POST may already have changed the queue. Never auto-retry it.
-      write({ message: /\b409\b|stale|conflict/i.test(String(error?.message)) ? words().stale : words().uncertain })
+      const t = words()
+      const issue = decisionErrorDetail(error)
+      if (action === 'approve' && creationIssueLabel(issue, t)) {
+        write({ detail: { ...detail, applicable: false, creation_issue: issue } })
+      } else {
+        locked.add(key)
+        // A timed-out POST may already have changed the queue. Never auto-retry it.
+        write({ message: issue?.code === 'skill_apply_refused' ? t.decisionRefused
+          : /\b409\b|stale|conflict/i.test(text(error?.message)) ? t.stale : t.uncertain })
+      }
     } finally {
       finishRequest(token, route, true)
     }
   }
 
-  const unsubscribe = model.listen(paintButton)
+  let previousBadgeState = model.get()
+  const unsubscribe = model.listen(state => {
+    const { open, listStatus, snapshot } = previousBadgeState
+    previousBadgeState = state
+    if (state.open !== open || state.listStatus !== listStatus ||
+        state.snapshot?.invalid_count !== snapshot?.invalid_count ||
+        state.snapshot?.items.length !== snapshot?.items.length) paintButton()
+  })
   ctx.addEventListener(window, sidebarHeaderEvent, scheduleMount)
   const theme = new MutationObserver(() => {
     scopeChanged()
@@ -707,6 +829,10 @@ function activityStyles(active) {
     ${active} [data-hcv-activity-count][data-hcv-activity-unknown="true"] { background: var(--hcv-hover); color: var(--hcv-text); }
     ${active} [data-hcv-activity-count][hidden] { display: none; }
     ${dialog} { inline-size: min(760px, calc(100vw - 32px)); max-inline-size: none; max-block-size: calc(100dvh - 48px); display: flex; flex-direction: column; gap: 12px; overflow: hidden; border-radius: 16px; background: var(--hcv-menu); color: var(--hcv-text); font-family: var(--hcv-ui-font); }
+    ${dialog}[data-hcv-activity-compact] { inline-size: min(560px, calc(100vw - 32px)); }
+    ${dialog} [data-hcv-activity-compact-footer] { display: grid; gap: 4px; padding-block-start: 8px; border-block-start: 1px solid var(--hcv-stroke); }
+    ${dialog} [data-hcv-activity-compact-footer] ul { padding-inline-start: 18px; }
+    ${dialog} [data-hcv-activity-compact-footer] [data-slot="button"] { font-size: 12px; color: var(--hcv-muted); }
     /* Codex 26.1111.2228.0: Sm6l/L4lx default, cardAction and dialogAction
        use rounded-full; 66582da7ee6b.css defines --radius-full as 9999px. */
     ${dialog} [data-slot="button"] { border-radius: 9999px; }
@@ -714,6 +840,7 @@ function activityStyles(active) {
     ${dialog} [data-slot="dialog-title"] { font-size: 20px; line-height: 28px; font-weight: 600; }
     ${dialog} [data-slot="dialog-description"] { color: var(--hcv-muted); font-size: 14px; line-height: 21px; }
     ${dialog} [data-hcv-activity-meta] { margin: 0; color: var(--hcv-muted); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
+    ${dialog} [data-hcv-activity-project] { margin: 0; color: var(--hcv-muted); font-size: 13px; line-height: 19px; overflow-wrap: anywhere; }
     ${dialog} [data-hcv-activity-nav], ${dialog} [data-hcv-activity-filter] { display: flex; flex-wrap: wrap; gap: 4px; }
     ${dialog} :is([data-hcv-activity-nav], [data-hcv-activity-filter]) [aria-pressed="true"] { background: var(--hcv-hover); color: var(--hcv-text); }
     ${dialog} [data-hcv-activity-toolbar] { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; flex: none; }
@@ -726,6 +853,8 @@ function activityStyles(active) {
     ${dialog} [data-hcv-activity-item-title] h3 { margin: 0; font-size: 14px; line-height: 21px; font-weight: 600; overflow-wrap: anywhere; }
     ${dialog} [data-hcv-activity-kind] { color: var(--hcv-muted); font-size: 12px; }
     ${dialog} [data-hcv-activity-summary], ${dialog} [data-hcv-activity-message], ${dialog} [data-hcv-activity-warning] { margin: 0 0 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+    ${dialog} [data-hcv-activity-message]:empty { position: absolute; }
+    ${dialog}[data-hcv-activity-compact] [data-slot="dialog-description"] { color: var(--hcv-text); overflow-wrap: anywhere; }
     ${dialog} [data-hcv-activity-detail] { display: grid; gap: 12px; }
     ${dialog} [data-hcv-activity-explanation] { display: grid; gap: 8px; }
     ${dialog} [data-hcv-activity-explanation] > p { margin: 0; }
@@ -736,8 +865,6 @@ function activityStyles(active) {
     ${dialog} [data-hcv-activity-fragment] { display: grid; gap: 8px; margin-block: 10px; }
     ${dialog} [data-hcv-activity-fragment] p { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
     ${dialog} [data-hcv-activity-full] pre { max-block-size: 45dvh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/20px var(--hcv-ui-font); user-select: text; }
-    ${dialog} [data-hcv-activity-proposed-files] { display: grid; gap: 8px; min-inline-size: 0; }
-    ${dialog} [data-hcv-activity-proposed-files] summary { overflow-wrap: anywhere; }
     ${dialog} [data-hcv-activity-preview] { margin: 8px 0; padding: 12px; border: 1px solid var(--hcv-stroke); border-radius: 8px; max-block-size: min(52dvh, 460px); overflow: auto; overscroll-behavior: contain; background: var(--hcv-chat); white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/20px var(--hcv-ui-font); user-select: text; }
     ${dialog} [data-hcv-activity-preview]:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }
     ${dialog} [data-hcv-activity-actions] { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }

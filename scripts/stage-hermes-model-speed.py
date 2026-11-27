@@ -24,7 +24,10 @@ def combined_candidates(core=stage.CORE):
     if not isinstance(helpers, list) or len(helpers) != 1:
         raise RuntimeError('Invalid combined companion helper manifest')
     for helper in helpers:
-        if set(helper) != {'source', 'target', 'candidate'}:
+        if set(helper) != {'source', 'target', 'candidate', 'baseline'}:
+            raise RuntimeError('Invalid combined companion helper entry')
+        baseline = helper['baseline']
+        if not isinstance(baseline, str) or len(baseline) != 64 or any(c not in '0123456789abcdef' for c in baseline):
             raise RuntimeError('Invalid combined companion helper entry')
         raw = (stage.ASSETS / stage.safe_relative(helper['source'])).read_bytes()
         if stage.digest(raw) != helper['candidate']:
@@ -33,7 +36,7 @@ def combined_candidates(core=stage.CORE):
         target = stage.checked_path(core, helper['target'], exists=False)
         if target.exists():
             original = target.read_bytes()
-            if stage.digest(original) != helper['candidate']:
+            if stage.digest(original) not in {baseline, helper['candidate']}:
                 raise RuntimeError('A different combined helper is already installed')
             originals[helper['target']] = original
         output[helper['target']] = raw

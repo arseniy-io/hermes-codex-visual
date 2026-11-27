@@ -14,64 +14,132 @@ w.matchMedia=()=>({matches:true,addEventListener(){},removeEventListener(){}})
 const atom=v=>{const f=new Set();return {get:()=>v,set(x){v=x;for(const fn of f)fn()},listen(fn){f.add(fn);return()=>f.delete(fn)}}}
 w.host={state:{connectionId:atom('local'),profile:atom('default'),activeSessionId:atom('one'),busyBySession:atom({one:true,two:true})}}
 w.ctx={onEvent:(name,fn)=>events.set(name,fn),onDispose:fn=>dispose.push(fn)}
-w.movedElementMatches=()=>false
+w.movedElementMatches = (record, selector) => [...record.addedNodes, ...record.removedNodes]
+  .some(node => node.matches?.(selector) || node.querySelector?.(selector))
 w.turnHistoryScope=()=>JSON.stringify(['local','default',w.host.state.activeSessionId.get()])
-w.openSavedTurnDiff=(scope,snapshot)=>opened.push({scope,snapshot})
+w.openSavedTurnDiff = (scope, snapshot, path) => opened.push({ scope, snapshot, path })
 const src=fs.readFileSync(process.argv[2] || path.resolve(dir,'../source/composer-changes.js'),'utf8').replace(/^import[\s\S]*?\bfrom ['"][^'"]+['"]\r?\n/gm,'').replace(/^export function /gm,'function ')
 w.eval(src+`\nregisterComposerChanges(ctx, 'html[data-hermes-theme="codex-workspace"]')`)
 const emit=(type,seq,payload,session='one')=>events.get(type)?.({session_id:session,connectionId:'local',profile:'default',seq,payload,replay_epoch:'replay-one',authority_epoch:21,execution_generation:seq >= 20 ? 2 : 1,admission_id:seq >= 20 ? 'admission-2' : 'admission-1'})
-const msg=(rev,state,diff,overrides={})=>({version:1,source:'codex_app_server',agentSessionId:'stored-one',hermesTurnId:'turn-one',threadId:'thread-one',codexTurnId:'native-one',revision:rev,state,...(diff!==undefined?{diff}:{}),...overrides})
-const diff='diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-old\n+new\n'
-async function flush(){for(let n=0;n<8;n++){await Promise.resolve();for(const [id,fn] of [...frames]){frames.delete(id);fn()}}}
+const msg = (revision, diff, session = 'one') => ({
+  version: 2, source: 'codex_app_server', agentSessionId: 'stored-' + session,
+  hermesTurnId: 'turn-' + session, threadId: 'thread-' + session,
+  codexTurnId: 'native-' + session, revision, diff,
+})
+const patch = (path, added, removed) =>
+  'diff --git a/' + path + ' b/' + path + '\n--- a/' + path + '\n+++ b/' + path +
+  '\n@@ -' + (removed ? '1' : '0') + ',' + removed + ' +1,' + added + ' @@\n' +
+  '-old\n'.repeat(removed) + '+new\n'.repeat(added)
+const one = patch('source/a.js', 2, 1)
+const four = patch('source/a.js', 7, 6) + patch('space b.js', 200, 0) +
+  patch('c.js', 58, 0) + patch('d.js', 1, 0)
+const rail = () => w.document.querySelector('[data-hcv-composer-changes]')
+const chip = () => rail()?.querySelector('[data-hcv-composer-changes-chip]')
+const list = () => rail()?.querySelector('[data-hcv-composer-changes-popover]')
+async function flush() {
+  for (let n = 0; n < 8; n++) {
+    await Promise.resolve()
+    for (const [id, fn] of [...frames]) { frames.delete(id); fn() }
+  }
+}
 try {
- emit('message.start',1,{}); emit('hcv.turn_diff',2,msg(1,'pending')); emit('hcv.turn_diff',3,msg(2,'observed',diff)); await flush()
- const chip=w.document.querySelector('[data-hcv-composer-changes-chip]')
- assert(chip&&!chip.hidden); assert.match(chip.getAttribute('aria-label'),/Отдельная подтверждённая правка, \+1, −1\. Могут быть и другие изменения/)
- // An old execution on the same session cannot replace or close this snapshot.
- const stale={session_id:'one',connectionId:'local',profile:'default',seq:4,replay_epoch:'replay-one',authority_epoch:21,execution_generation:0,admission_id:'old-admission'}
- events.get('hcv.turn_diff')({...stale,payload:msg(3,'unavailable')})
- events.get('message.complete')({...stale,payload:{}})
- await flush(); assert.equal(chip.hidden,false)
- chip.click();assert.equal(opened.length,1);assert.equal(opened[0].snapshot.unifiedDiff,diff)
- // A command invalidates synchronously, even before the scheduled repaint.
- emit('hcv.turn_diff',4,msg(3,'unavailable'));chip.click();assert.equal(opened.length,1);await flush()
- assert(chip.hidden);assert.equal(w.document.querySelector('[data-hcv-composer-changes-warning]').textContent,'Не все изменения удалось отследить')
- emit('hcv.turn_diff',5,msg(4,'observed',diff));await flush();assert(chip.hidden)
- // Another chat gets its own identity and cannot open the first snapshot.
- emit('message.start',10,{},'two'); w.host.state.activeSessionId.set('two'); await flush()
- const other=(rev,state,data)=>({version:1,source:'codex_app_server',agentSessionId:'stored-two',hermesTurnId:'turn-two',threadId:'thread-two',codexTurnId:'native-two',revision:rev,state,...data})
- emit('hcv.turn_diff',11,other(1,'pending'),'two');emit('hcv.turn_diff',12,other(2,'observed',{diff}),'two');await flush()
- chip.click();assert.equal(opened.length,2);assert.match(opened[1].scope,/two/);assert.match(opened[1].snapshot.snapshotId,/turn-two/)
- // A foreign turn identity or skipped revision invalidates, never opens stale data.
- emit('hcv.turn_diff',13,other(3,'observed',{diff,hermesTurnId:'foreign'}),'two');chip.click();assert.equal(opened.length,2);await flush();assert(chip.hidden)
- emit('message.complete',14,{},'two');await flush();assert.equal(w.document.querySelector('[data-hcv-composer-changes]'),null)
- // Invalid diff bodies and unsupported tools cannot become exact counts.
- w.host.state.activeSessionId.set('one');emit('message.start',20,{});emit('hcv.turn_diff',21,msg(1,'pending'));emit('hcv.turn_diff',22,msg(2,'observed','--- a/a\n+++ b/a\n@@ -1 +1 @@\n-old\n'));await flush()
- assert.equal(w.document.querySelector('[data-hcv-composer-changes-chip]').hidden,true)
- // A session replay gap blocks its old snapshot and future ambiguous frames.
- emit('session.replay_gap',23,{}); await flush()
- assert.equal(w.document.querySelector('[data-hcv-composer-changes]'),null)
- emit('message.start',24,{});emit('hcv.turn_diff',25,msg(1,'pending'));emit('hcv.turn_diff',26,msg(2,'observed',diff));await flush()
- assert.equal(w.document.querySelector('[data-hcv-composer-changes]'),null)
- // An unknown replay epoch has no comparable seq; clear synchronously and fail closed.
- w.host.state.activeSessionId.set('two');emit('message.start',30,{},'two')
- emit('hcv.turn_diff',31,other(1,'pending'),'two');emit('hcv.turn_diff',32,other(2,'observed',{diff}),'two');await flush()
- const current=w.document.querySelector('[data-hcv-composer-changes-chip]');assert(current&&!current.hidden)
- const before=opened.length
- events.get('message.start')({session_id:'two',connectionId:'local',profile:'default',seq:1,payload:{},replay_epoch:'replay-new',authority_epoch:21,execution_generation:3,admission_id:'new'})
- current.click();assert.equal(opened.length,before);await flush();assert.equal(w.document.querySelector('[data-hcv-composer-changes]'),null)
- // Reconnection clears every tracked snapshot and does not revive it from replay.
- w.host.state.busyBySession.set({one:true,two:true,three:true});w.host.state.activeSessionId.set('three')
- emit('message.start',1,{},'three');emit('hcv.turn_diff',2,msg(1,'pending'),'three');emit('hcv.turn_diff',3,msg(2,'observed',diff),'three');await flush()
- const third=w.document.querySelector('[data-hcv-composer-changes-chip]');assert(third&&!third.hidden)
- events.get('gateway.reconnecting')({});third.click();assert.equal(opened.length,before);await flush()
- assert.equal(w.document.querySelector('[data-hcv-composer-changes]'),null)
- emit('message.start',10,{},'three');emit('hcv.turn_diff',11,msg(1,'pending'),'three');emit('hcv.turn_diff',12,msg(2,'observed',diff),'three');await flush()
- assert.equal(w.document.querySelector('[data-hcv-composer-changes]'),null)
- console.log('PASS synthetic renderer: current snapshot only, invalidation before repaint, session/turn isolation, malformed diff, replay gap/epoch, reconnect')
-} finally {for(const fn of dispose.reverse())fn();dom.window.close()}
-
-
-
-
-
+  emit('message.start', 1, {})
+  emit('tool.complete', 2, { name: 'terminal', is_error: false, result: 'git status --short' })
+  emit('tool.complete', 3, { name: 'patch', is_error: false, result: { success: true, diff: one } })
+  emit('hcv.turn_diff', 4, { ...msg(1, one), version: 1, state: 'observed' })
+  await flush()
+  assert.equal(rail(), null, 'Partial edit events have no aggregate')
+  emit('hcv.turn_diff', 5, msg(1, ''))
+  await flush()
+  assert.equal(rail(), null, 'Empty authoritative snapshot')
+  emit('hcv.turn_diff', 6, msg(2, one))
+  await flush()
+  assert.equal(chip().getAttribute('aria-label'), 'Изменен 1 файл, +2, −1')
+  chip().click()
+  assert.equal(opened.at(-1).snapshot.unifiedDiff, one)
+  assert.equal(opened.at(-1).path, null)
+  
+  emit('hcv.turn_diff', 7, msg(3, four))
+  await flush()
+  assert.equal(chip().getAttribute('aria-label'), 'Изменено 4 файла, +266, −6')
+  assert.equal(chip().querySelector('[data-hcv-composer-changes-label]').textContent, 'Изменено 4 файла')
+  assert.equal(list().hidden, true)
+  chip().focus()
+  assert.equal(list().hidden, false)
+  const files = [...list().querySelectorAll('button')]
+  assert.deepEqual(files.map(button => button.title), ['source/a.js', 'space b.js', 'c.js', 'd.js'])
+  files[1].click()
+  assert.equal(opened.at(-1).path, 'space b.js')
+  assert.equal(opened.at(-1).snapshot.files[1].unifiedDiff, patch('space b.js', 200, 0))
+  
+  const blocker = w.document.createElement('div')
+  blocker.dataset.slot = 'tool-approval-card'
+  w.document.querySelector('[data-chat-surface]').append(blocker)
+  await flush()
+  assert.equal(rail(), null, 'An active approval takes priority')
+  blocker.setAttribute('inert', '')
+  await flush()
+  assert(chip(), 'Same turn restores the summary once the approval closes')
+  emit('hcv.turn_diff', 8, msg(4, ''))
+  await flush()
+  assert.equal(rail(), null, 'A full revert removes the total')
+  emit('hcv.turn_diff', 9, msg(5, four + patch('partial.txt', 1, 1).replace('+new\n', '')))
+  await flush()
+  assert.equal(rail(), null, 'A malformed file cannot leave partial counts')
+  emit('hcv.turn_diff', 10, msg(6, one))
+  await flush()
+  assert(chip(), 'A later complete snapshot can render')
+  
+  // Late frames from a previous admission cannot replace or close it.
+  const stale = { session_id: 'one', connectionId: 'local', profile: 'default', seq: 11,
+    replay_epoch: 'replay-one', authority_epoch: 21, execution_generation: 0, admission_id: 'old-admission' }
+  events.get('hcv.turn_diff')({ ...stale, payload: msg(7, '') })
+  events.get('message.complete')({ ...stale, payload: {} })
+  await flush()
+  assert.equal(chip().getAttribute('aria-label'), 'Изменен 1 файл, +2, −1')
+  const previous = chip()
+  w.host.state.activeSessionId.set('two')
+  emit('message.start', 12, {}, 'two')
+  await flush()
+  assert.equal(rail(), null)
+  const openedBeforeSwitch = opened.length
+  previous.click()
+  assert.equal(opened.length, openedBeforeSwitch)
+  emit('hcv.turn_diff', 13, msg(1, one, 'two'), 'two')
+  await flush()
+  chip().click()
+  assert.match(opened.at(-1).scope, /two/)
+  assert.match(opened.at(-1).snapshot.snapshotId, /turn-two/)
+  emit('hcv.turn_diff', 14, msg(2, one, 'foreign'), 'two')
+  await flush()
+  assert.equal(rail(), null, 'Changes with another native identity are withheld')
+  emit('message.complete', 15, {}, 'two')
+  await flush()
+  assert.equal(rail(), null)
+  w.host.state.activeSessionId.set('one')
+  await flush()
+  assert(chip(), 'Switching back shows the still-running turn')
+  events.get('gateway.reconnecting')({})
+  previous.click()
+  assert.equal(opened.length, openedBeforeSwitch + 1)
+  await flush()
+  assert.equal(rail(), null, 'Unproven replay after reconnect clears the summary')
+  // Native Hermes follows the same snapshot protocol without Codex thread ids.
+  w.host.state.busyBySession.set({ one: true, two: true, native: true })
+  w.host.state.activeSessionId.set('native')
+  emit('message.start', 1, {}, 'native')
+  const native = (revision, diff) => ({
+    version: 2, source: 'hermes_native', agentSessionId: 'kimi-native-session',
+    hermesTurnId: 'kimi-native-turn', revision, diff,
+  })
+  emit('hcv.turn_diff', 2, native(1, four), 'native')
+  await flush()
+  assert.equal(chip().getAttribute('aria-label'), 'Изменено 4 файла, +266, −6')
+  emit('hcv.turn_diff', 3, native(2, ''), 'native')
+  await flush()
+  assert.equal(rail(), null)
+  console.log('PASS complete totals, empty/reverted/partial hiding, file list and review, blocker, owner switch and reconnect')
+} finally {
+  for (const fn of dispose.reverse()) fn()
+  dom.window.close()
+}

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { verifyThreadTimeline } from './thread-timeline.spec-helper.mjs'
 
 const longTitle = 'Длинное название чата для проверки плавного затухания в проекте и верхней вкладке'
 const longReply = 'Ответ 60. Контрольный текст'
@@ -75,6 +76,7 @@ export async function verifySessionNavigation({ app, page, expect, projectChat, 
     await cdp.detach()
     return { sidebar, row }
   }
+  const threadTimeline = checking ? await verifyThreadTimeline({ page, expect, projectChat, screenshot }) : undefined
   const recents = page.locator('[data-hcv-recents-toggle]')
   const recentChat = title => page.locator('[data-hcv-recents-list]').getByRole('button', { name: title, exact: true })
   const openRecents = async () => {
@@ -273,7 +275,7 @@ export async function verifySessionNavigation({ app, page, expect, projectChat, 
     await expect(recentShortRow).not.toHaveAttribute('data-working', 'true')
   }
   await cdp.detach()
-  return { sidebar, tab, cold, addShort, warm }
+  return { sidebar, tab, cold, addShort, warm, threadTimeline }
 }
 
 async function observeProjectRow({ page, expect, long, short, shortRow, screenshot, cdp }) {

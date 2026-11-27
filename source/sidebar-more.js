@@ -235,7 +235,12 @@ export function attachProjectMore(t, projectRows) {
         if (!active(entry, state) || state.reveal) return
         state.failed = false
         stopNative(state)
-        state.reveal = { height: state.list.getBoundingClientRect().height, keyboard: event.detail === 0, button }
+        state.reveal = {
+          height: state.list.getBoundingClientRect().height,
+          keyboard: event.detail === 0,
+          visibleRows: state.marked,
+          button,
+        }
         apply(entry, state)
       })
     }
@@ -254,6 +259,9 @@ export function attachProjectMore(t, projectRows) {
     const native = list.querySelector(`:scope > div > ${nativeMore}`)
     const props = readProjectProps(entry)
     const count = Math.max(0, (props?.project.sessionCount ?? chats.length) - (props?.hiddenSessionCount ?? 0))
+    const tree = list.closest('[data-sessions-mode="projects"]')
+    const nativePreview = !state.allProfiles && Number(tree?.dataset.sessionsProjectPreviewLimit) >= firstPage
+    const missingPreview = chats.length < firstPage && chats.length < count
     const noMore = state.expanded || (!native && !state.tail && chats.length <= firstPage)
     let waiting = false
     if (state.allProfiles && props && (native || state.tail)) {
@@ -264,14 +272,17 @@ export function attachProjectMore(t, projectRows) {
         requestExtra(entry, state, props.project, limit)
       }
       waiting = Boolean(state.loading || state.view && !state.view.committed)
-    } else if (native && (state.reveal || (chats.length < firstPage && chats.length < count))) {
+    } else if (native && (state.reveal || (!nativePreview && missingPreview))) {
+      // Older Desktop builds provide three previews; their fourth row still
+      // comes through the native expansion. A four-row native preview can
+      // be short after filters, and the user can load those rows explicitly.
       loadNative(entry, state, native, chats.length)
       waiting = Boolean(state.nativeRequest || native.disabled)
     } else stopNative(state)
 
     const reveal = state.reveal
     const opened = reveal && !waiting && !state.failed
-    const newChats = opened ? chats.filter(chat => !state.marked.has(chat.anchor)) : []
+    const newChats = opened ? chats.filter(chat => !reveal.visibleRows.has(chat.anchor)) : []
     if (opened) state.expanded = true
     const next = new Set(state.expanded ? [] : chats.slice(0, firstPage).flatMap(chat => chat.rows))
     for (const row of state.marked) if (!next.has(row)) row.removeAttribute(visible)
@@ -280,7 +291,8 @@ export function attachProjectMore(t, projectRows) {
     list.toggleAttribute(limited, !state.expanded)
     if (opened || state.failed) state.reveal = undefined
     updateButton(entry, state, !state.expanded && (Boolean(state.reveal) ||
-      (!noMore && (chats.length > firstPage || (count > firstPage && chats.length >= firstPage) || state.failed))))
+      (!noMore && (chats.length > firstPage || (count > firstPage && chats.length >= firstPage) ||
+        (nativePreview && native && missingPreview) || state.failed))))
 
     if (opened) {
       // Start from the click's visible height even during a folder opening.

@@ -1,4 +1,4 @@
-import { chatStyles, mountStyle } from './style-scope.js'
+import { mountStyle } from './style-scope.js'
 import { host } from '@hermes/plugin-sdk'
 import { registerQueueAppearance, queueingPreference } from './queue.js'
 import { registerComposerLayout } from './composer-layout.js'
@@ -38,8 +38,8 @@ function isBusy(form) {
   return target === `tile:${host.state.focusedStoredSessionId.get()}` && host.state.busy.get()
 }
 
-function isSlashCommand(input) {
-  if (/^\/[^\s/]*(?:\s|$)/.test(input.innerText.trimStart())) return true
+function isSlashCommand(input, text) {
+  if (/^\/[^\s/]*(?:\s|$)/.test(text.trimStart())) return true
 
   // A selected slash command lives in a non-editable chip with its raw text
   // in data-ref-text. Only a chip at the start of the draft is a command.
@@ -51,9 +51,11 @@ function isSlashCommand(input) {
   return !prefix.toString().trim()
 }
 
-function shouldQueue(form, input) {
-  return isBusy(form) && !form.querySelector(queuedEdit) && !composerAwaitingInput(form, committedFiber)
-    && (form.querySelector(attachments) || !isSlashCommand(input))
+function shouldQueue(form, input, queueWithDraft = true) {
+  if (!isBusy(form) || form.querySelector(queuedEdit) || composerAwaitingInput(form, committedFiber)) return false
+  if (form.querySelector(attachments)) return queueWithDraft
+  const text = input.innerText
+  return (queueWithDraft || !text.trim()) && !isSlashCommand(input, text)
 }
 
 function queueWithNativeShortcut(event, input) {
@@ -94,8 +96,7 @@ function registerQueueShortcut(ctx, enabled, queueing) {
       return
     }
 
-    const empty = !input.innerText.trim() && !form.querySelector(attachments)
-    if ((queueing() || empty) && shouldQueue(form, input)) queueWithNativeShortcut(event, input)
+    if (shouldQueue(form, input, queueing())) queueWithNativeShortcut(event, input)
   }, true)
 
   ctx.addEventListener(document, 'submit', event => {
@@ -239,7 +240,7 @@ export function registerComposer(ctx, active) {
       ${rowTip} span:has(> [data-slot="tooltip-arrow"]) { display: none; }
     }
   `
-  mountStyle(ctx, sheet, chatStyles)
+  mountStyle(ctx, sheet)
   registerSlashGroups(ctx, root, enabled)
   registerComposerLayout(ctx, active)
   const queueing = () => queueingPreference(ctx)

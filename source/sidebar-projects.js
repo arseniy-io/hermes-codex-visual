@@ -18,7 +18,8 @@ const sectionHeader = '[data-hcv-projects-header]'
 const projectRow = '[data-hcv-project-row]'
 const sectionActions = '[data-hcv-projects-actions]'
 const previewCard = '[data-hcv-project-preview]'
-const sectionMotion = codex.disclosure
+// Codex 26.1120.6357.0 sidebar uses Q9sx._ with V8uZ.X7 for size and opacity.
+const sectionMotion = { heightTime: 300, ease: 'cubic-bezier(.19, 1, .22, 1)' }
 
 function el(tag, attributes = {}, text) {
   const node = document.createElement(tag)
@@ -85,7 +86,7 @@ export function disclosure(button, native, region, regionId, timing = sectionMot
     motion = undefined
     if (!previous) return
     previous.height.cancel()
-    previous.fade.cancel()
+    previous.fade?.cancel()
     previous.node.removeAttribute('data-hcv-disclosure-motion')
     if (previous.closing && !previous.wasInert) previous.node.inert = false
   }
@@ -95,8 +96,8 @@ export function disclosure(button, native, region, regionId, timing = sectionMot
       if (!opening && button.isConnected) toggleRegion()
       return
     }
-    const natural = blockSize(node)
-    if (!node.offsetHeight) {
+    const natural = opening ? blockSize(node) : from
+    if (!natural || natural.height === '0px') {
       if (!opening && button.isConnected) toggleRegion()
       return
     }
@@ -104,12 +105,16 @@ export function disclosure(button, native, region, regionId, timing = sectionMot
     if (!opening) node.inert = true
     node.setAttribute('data-hcv-disclosure-motion', '')
     const empty = { height: '0px', paddingBlockStart: '0px', paddingBlockEnd: '0px' }
-    const height = node.animate(
-      [from || empty, opening ? natural : empty],
-      { duration: timing.heightTime, easing: timing.ease, fill: 'both' },
-    )
-    const fade = node.animate(
-      [{ opacity: startOpacity, scale: opening && !from ? '.98' : '1' }, { opacity: opening ? 1 : 0, scale: opening ? '1' : '.98' }],
+    const frames = [from || empty, opening ? natural : empty]
+    const simultaneous = timing === sectionMotion
+    const endOpacity = opening ? 1 : 0
+    if (simultaneous) {
+      frames[0] = { ...frames[0], opacity: startOpacity }
+      frames[1] = { ...frames[1], opacity: endOpacity }
+    }
+    const height = node.animate(frames, { duration: timing.heightTime, easing: timing.ease, fill: 'both' })
+    const fade = simultaneous ? undefined : node.animate(
+      [{ opacity: startOpacity, scale: opening && !from ? '.98' : '1' }, { opacity: endOpacity, scale: opening ? '1' : '.98' }],
       { duration: opening ? timing.enterTime : timing.exitTime, delay: opening && !from ? timing.enterDelay : 0, easing: timing.ease, fill: 'both' },
     )
     const current = motion = { node, height, fade, closing: !opening, wasInert }

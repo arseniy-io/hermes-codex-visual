@@ -1,4 +1,4 @@
-import { chatStyles, mountStyle } from './style-scope.js'
+import { mountStyle } from './style-scope.js'
 import { codexIconRules, codexMask, codexReference as codex } from './codex-reference.js'
 import { registerComposerApproval } from './composer-approval.js'
 import { registerComposerChanges } from './composer-changes.js'
@@ -58,6 +58,11 @@ export function registerComposerLayout(ctx, active) {
         --composer-surface-pad-x: 8px;
         --composer-surface-pad-y: 8px;
         --hcv-composer-hover: var(--hcv-control-hover);
+      }
+      ${surface}, ${fallback} {
+        /* Ease the lower transitions into the straight edges at the existing radius. */
+        corner-bottom-left-shape: superellipse(1.125);
+        corner-bottom-right-shape: superellipse(1.125);
       }
       ${surface} ${backing}, ${fallback} ${backing},
       ${dock} > [data-slot="composer-root"] > .pointer-events-none.absolute.inset-0 {
@@ -251,29 +256,41 @@ export function registerComposerLayout(ctx, active) {
         ${approval} [data-hcv-approval-label] { display: none; }
       }
       ${rail} { display: flex; min-inline-size: 0; justify-content: center; margin-block-end: 8px; }
-      /* The native expanded status panel occupies the same position. */
-      ${dock}:has([data-slot="status-drawer-toggle"][aria-expanded="true"]):has(.coding-status-bar, [data-slot="composer-status-stack"]) > [data-hcv-composer-changes] { display: none; }
-      ${subagentsOnlyDock} > [data-hcv-composer-changes] { display: flex; }
+      ${rail} [data-hcv-composer-changes-anchor] { position: relative; min-inline-size: 0; max-inline-size: calc(100% - 16px); display: flex; justify-content: center; }
+      ${rail} [data-hcv-composer-changes-popover] {
+        position: absolute; z-index: 30; inset-block-end: 100%; inset-inline-start: 50%;
+        translate: -50% 0; inline-size: max-content; max-inline-size: min(340px, calc(100vw - 32px));
+        padding-block-end: 4px;
+      }
+      ${rail} [data-hcv-composer-changes-list] {
+        box-sizing: border-box; min-inline-size: min(220px, calc(100vw - 32px)); max-block-size: 240px;
+        overflow: auto; margin: 0; padding: 4px; list-style: none;
+        background: var(--hcv-menu); color: var(--hcv-text); border: 1px solid var(--hcv-hairline);
+        border-radius: 8px; box-shadow: 0 6px 18px #0003;
+      }
+      ${rail} [data-hcv-composer-changes-file] {
+        display: flex; align-items: center; gap: 12px; justify-content: space-between; width: 100%;
+        color: inherit; font: 13px/20px var(--hcv-ui-font); cursor: pointer;
+        text-align: start; padding: 4px 8px; border-radius: 4px;
+      }
+      ${rail} [data-hcv-composer-changes-file]:hover { background: var(--hcv-control-hover); }
+      ${rail} [data-hcv-composer-changes-file]:focus-visible { outline: 2px solid var(--hcv-focus, Highlight); outline-offset: -2px; }
+      ${rail} [data-hcv-composer-changes-file-name] { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       ${chip} {
         display: flex; align-items: center; gap: 4px;
-        max-inline-size: calc(100% - 16px); padding: 6px 12px;
+        min-inline-size: 0; max-inline-size: 100%; padding: 6px 12px;
         border: 1px solid var(--hcv-hairline); border-radius: 14px;
         background: var(--hcv-menu); color: var(--hcv-muted);
         font: 14px/20px var(--hcv-ui-font); white-space: nowrap;
       }
-      ${rail} [data-hcv-composer-changes-warning] {
-        align-items: center; padding: 6px 12px; border: 1px solid var(--hcv-hairline);
-        border-radius: 14px; background: var(--hcv-menu); color: var(--hcv-muted);
-        font: 14px/20px var(--hcv-ui-font);
-      }
-      ${rail} [data-hcv-composer-changes-warning][hidden], ${chip}[hidden] { display: none; }
-      ${chip} { cursor: pointer; flex-wrap: wrap; justify-content: center; }
+      ${chip}[hidden] { display: none; }
+      ${chip} { cursor: pointer; justify-content: center; }
       ${chip}:focus-visible { outline: 2px solid var(--hcv-focus, Highlight); outline-offset: -2px; }
-      ${chip} :is([data-hcv-composer-changes-label], [data-hcv-composer-changes-coverage]) { white-space: normal; }
+      ${chip}:hover { color: var(--hcv-text); }
       ${chip} [data-hcv-composer-changes-label] { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; }
-      ${chip} [data-hcv-composer-changes-totals] { display: inline-flex; align-items: center; gap: 4px; flex: none; }
-      ${chip} [data-hcv-composer-changes-added] { color: light-dark(#00a240, #40c977); }
-      ${chip} [data-hcv-composer-changes-removed] { color: light-dark(#ba2623, #fa423e); }
+      ${rail} [data-hcv-composer-changes-totals] { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+      ${rail} [data-hcv-composer-changes-added] { color: light-dark(#00a240, #40c977); }
+      ${rail} [data-hcv-composer-changes-removed] { color: light-dark(#ba2623, #fa423e); }
       ${chip} :is([data-hcv-composer-changes-added], [data-hcv-composer-changes-removed], [data-hcv-changes-digits]) {
         display: inline-flex; align-items: center; font-variant-numeric: tabular-nums; letter-spacing: -.025em;
       }
@@ -291,7 +308,7 @@ export function registerComposerLayout(ctx, active) {
       }
     }
   `
-  mountStyle(ctx, sheet, chatStyles)
+  mountStyle(ctx, sheet)
   // Hermes exposes the branch actions through its native context menu. Once
   // the separate kebab is hidden, offer the same menu from the focused branch.
   const openBranchContext = event => {

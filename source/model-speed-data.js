@@ -8,10 +8,18 @@ export function codexModelName(value) {
   ).join(separator).replace(/^GPT (?=\d)/u, 'GPT-')).join('')
 }
 
+const antigravityProviders = new Set(['antigravity-oauth', 'agy-oauth', 'google-antigravity'])
+
+export function isAntigravityProvider(slug) {
+  return antigravityProviders.has(slug)
+}
+
 export function providerName(value) {
   if (typeof value !== 'string') return value
   if (/^(?:chatgpt or codex subscription|openai-codex)$/i.test(value.trim())) return 'GPT'
   if (/^(?:kimi\s*\/\s*kimi coding plan|kimi coding plan|kimi-coding)$/i.test(value.trim())) return 'Kimi'
+  if (isAntigravityProvider(value.trim().toLowerCase()) ||
+      /^google antigravity(?: \(oauth\))?$/i.test(value.trim())) return 'Google Antigravity'
   return value
 }
 

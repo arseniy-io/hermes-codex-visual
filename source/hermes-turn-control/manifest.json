@@ -55,8 +55,12 @@
     },
     "agent/managed_worker.py": {
       "baseline": "e7c800c2452ff76c085abcaac09394240196f9d221bdcea24fe78ce2b305d662",
-      "candidate": "d147c4e62936be5e39eeca2d47204d22b094bea05e2e80487c5255c98372a458",
-      "previous_candidate": "3f1aa63a5e4ace5174e674bac0636b3da28d08dc7dff5f29f997474427229a2f"
+      "candidate": "ca99c6d522c4bba249b05a99b452743d96c0acdeb7f65d2b6b569bd26c41cc8a",
+      "previous_candidate": "3f1aa63a5e4ace5174e674bac0636b3da28d08dc7dff5f29f997474427229a2f",
+      "upgrade": {
+        "from": "d147c4e62936be5e39eeca2d47204d22b094bea05e2e80487c5255c98372a458",
+        "patch": "--- a/agent/managed_worker.py\n+++ b/agent/managed_worker.py\n@@ -393,6 +393,14 @@\n     controls = WorkerControls(channel, frame['route'])\n     register_gateway_notify(frame['route'], controls.approval)\n     agent = None\n+\n+    def native_tool_progress(kind, *_args, **kwargs):\n+        if kind == \"hcv.turn_diff\":\n+            from tools.hcv_file_changes import valid_turn_diff\n+            snapshot = kwargs.get(\"hcv_diff\")\n+            if valid_turn_diff(snapshot):\n+                channel.send(\"hcv.turn_diff\", snapshot=snapshot)\n+\n     try:\n         with policy_scope(policy, home=frame['home']):\n             agent = _construct_agent(frame, AIAgent, policy, model=policy.model, provider=policy.provider, base_url=policy.base_url,\n@@ -411,6 +419,7 @@\n                 **routing_agent_kwargs(policy.config(), policy.model, policy.provider, policy.base_url),\n                 stream_delta_callback=lambda text: channel.send('delta', text=text) if text else None,\n                 clarify_callback=controls.clarify,\n+                tool_progress_callback=native_tool_progress,\n                 tool_start_callback=lambda call_id, name, args: channel.send('tool.start', **tool_frame(call_id, name, args)),\n                 tool_complete_callback=lambda call_id, name, args, result: channel.send('tool.complete',\n                                                                                          **tool_frame(call_id, name, args, result)))\n"
+      }
     },
     "gateway/session_managed_worker.py": {
       "baseline": "43e91bbe0dff1a07e32f8c6d608a7243795f112b8c342276b940495e55c3971b",
@@ -129,7 +133,9 @@
       "target": "gateway/hcv_tree_owner.py",
       "candidate": "9cc0a0a0009870b7ffbed9ee4353b20595bcdcb17d5aff3b71eeaec40b0046db",
       "baseline": "c3cb19e9b47ae880769b2ff7dc00d13d0889b15de753cb1b7525d2d58a6811f0",
-      "previous_candidates": ["3ab8f01ae226b603dcc0c53bcede83c5232fe396aa56aa9e9e47bec313193600"]
+      "previous_candidates": [
+        "3ab8f01ae226b603dcc0c53bcede83c5232fe396aa56aa9e9e47bec313193600"
+      ]
     }
   ]
 }

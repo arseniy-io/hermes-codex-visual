@@ -20,7 +20,11 @@
     },
     "agent/tool_executor.py": {
       "baseline": "b9d14eb5fd362e3053476f6a240dbd5b2cdeb1489598443db0c30e58edf62c10",
-      "candidate": "6090aaf0ab88dc2757d674e5c19d0ddf5626fef12da102aa9f11f36a2dbeef40"
+      "candidate": "5d36cce3d02b910da947be3e9d48c8daec99797723ed34fbe6f14418d6bd9b87",
+      "upgrade": {
+        "from": "6090aaf0ab88dc2757d674e5c19d0ddf5626fef12da102aa9f11f36a2dbeef40",
+        "patch": "--- a/agent/tool_executor.py\n+++ b/agent/tool_executor.py\n@@ -1103,6 +1103,8 @@\n     pre-persist content for UI previews) or ``None`` when the flush failed (stop the batch).\n     \"\"\"\n     _hcv_file_result = function_result\n+    if hasattr(function_result, \"_hcv_native_edits\"):\n+        function_result = str(function_result)\n     function_name, function_args, tool_call_id, effective_task_id = ref.name, ref.args, ref.call_id, ref.task_id\n     from hermes_cli.observability.shared_metrics_harness import observe_tool_outcome\n \n@@ -1199,6 +1201,12 @@\n             agent.tool_progress_callback, \"Tool progress\",\n             \"tool.completed\", function_name, None, None, duration=tool_duration, is_error=is_error, result=function_result,\n         )\n+        if function_name in (\"write_file\", \"patch\"):\n+            try:\n+                from tools.hcv_file_changes import report_turn_diff as _hcv_report_turn_diff\n+                _hcv_report_turn_diff(agent, function_name, _hcv_file_result)\n+            except Exception:\n+                logging.debug(\"Native turn diff unavailable\", exc_info=True)\n     if isinstance(function_result, str) and len(function_result) >= _LARGE_TOOL_RESULT_TRIM_CHARS:\n         agent._trim_after_tool_batch = True\n     return persisted_result, function_result, tool_message.get(\"_tool_output_risk\")\n"
+      }
     },
     "agent/turn_finalizer.py": {
       "baseline": "415d8cd0d1ae8988514fc5a68a726abfa1c78dce733bd88a9ef5f8971fd4f254",
@@ -28,7 +32,11 @@
     },
     "tools/file_tools.py": {
       "baseline": "972ca3b2f92adcc8c4cefb4bb5f763e2b28c98417e2a339d9639b97827a98956",
-      "candidate": "e8b2295023fcf7873d6724d8deee4563bb38b0b472ef8c98c9c37f401f96225a"
+      "candidate": "bd39d973226a32b7153a714f53a3230e4712a0234d2ff19ded15a3642bdca893",
+      "upgrade": {
+        "from": "e8b2295023fcf7873d6724d8deee4563bb38b0b472ef8c98c9c37f401f96225a",
+        "patch": "--- a/tools/file_tools.py\n+++ b/tools/file_tools.py\n@@ -943,10 +943,10 @@\n             except Exception:\n                 pass\n             result = _hcv_file_ops.write_file(_resolved or path, content)\n-            _hcv_snapshot = None\n+            _hcv_snapshot, _hcv_edits = None, None\n             if _hcv_before is not None:\n                 try:\n-                    _hcv_snapshot = _hcv_changes.capture_after(_hcv_before, result)\n+                    _hcv_snapshot, _hcv_edits = _hcv_changes.capture_write(_hcv_before, result)\n                 except Exception:\n                     pass\n             result_dict = result.to_dict()\n@@ -968,9 +968,9 @@\n                     _mark_full_write_baseline(_resolved, task_id, getattr(result, \"_content_sha256\", None))\n                 _note_edited(task_id, [path], path_to_resolved, session_id)\n         _hcv_json = json.dumps(result_dict, ensure_ascii=False)\n-        if _hcv_snapshot is not None:\n+        if _hcv_snapshot is not None or _hcv_edits is not None:\n             try:\n-                return _hcv_changes.decorate_result(_hcv_json, _hcv_snapshot)\n+                return _hcv_changes.decorate_result(_hcv_json, _hcv_snapshot, _hcv_edits)\n             except Exception:\n                 pass\n         return _hcv_json\n@@ -1058,6 +1058,13 @@\n             # Whole-file knowledge held BEFORE the patch reads, under the same locks. Like\n             # every baseline check it stats the host path, so a sandbox path carries nothing.\n             _known = _known_full_content_sha256(_path_to_resolved.values(), task_id)\n+            _hcv_before = None\n+            try:\n+                from tools import hcv_file_changes as _hcv_changes\n+                _hcv_before = _hcv_changes.capture_patch_before(\n+                    (_path_to_entry.get(p) or _path_to_resolved.get(p) for p in _paths_to_check), file_ops)\n+            except Exception:\n+                pass\n \n             # Hand the shell layer the RESOLVED targets so both layers agree on\n             # which file is edited even when the shell's cwd differs.\n@@ -1076,6 +1083,12 @@\n             else:\n                 return tool_error(f\"Unknown mode: {mode}\")\n \n+            _hcv_edits = None\n+            if _hcv_before is not None:\n+                try:\n+                    _hcv_edits = _hcv_changes.capture_patch(_hcv_before, result)\n+                except Exception:\n+                    pass\n             result_dict = result.to_dict()\n             if stale_warnings:\n                 result_dict[\"_warning\"] = \" | \".join(stale_warnings)\n@@ -1111,7 +1124,13 @@\n                 result_dict[\"_hint\"] = (\n                     \"old_string not found. Use read_file to verify the current \"\n                     \"content, or search_files to locate the text.\")\n-        return json.dumps(result_dict, ensure_ascii=False)\n+        _hcv_json = json.dumps(result_dict, ensure_ascii=False)\n+        if _hcv_edits is not None:\n+            try:\n+                return _hcv_changes.decorate_result(_hcv_json, edits=_hcv_edits)\n+            except Exception:\n+                pass\n+        return _hcv_json\n     except Exception as e:\n         return tool_error(str(e))\n \n"
+      }
     },
     "gateway/session_transcript_subagent.py": {
       "baseline": "c7dd5723c3a989506ea697316d87a2590c71fe796a4e06b8b1bc41eee1093053",
@@ -45,6 +53,10 @@
     "apps/shared/src/gateway-contract.openrpc.json": {
       "baseline": "7fa9efb29d5d0d4e6f4dab1490ebb63475ac070fd0dc9adfd191b010745e9726",
       "candidate": "01cf1627da80f45d3eba2df657ece59d963e30959b3ad5857e788df851eb2ad7"
+    },
+    "gateway/run_turn_progress.py": {
+      "baseline": "39867955503b7e1fd7259969d877c42ba821bdb4c2c3d2f7141155008df48be5",
+      "candidate": "6fead27ac17e1b3c62aeae325f95b39b4b5d9f0e6951e2ad08c2c9c02246cf65"
     }
   },
   "helpers": [
@@ -57,7 +69,10 @@
       "source": "file_capture.py",
       "target": "tools/hcv_file_changes.py",
       "baseline": "09d7d6f179d905109760299d7c8e98820febbe7eaa47961c49c289a8580d669e",
-      "candidate": "1cbca559b772afc09f4290b2991981b8d1546b66b8f634523d18dee902372f96"
+      "candidate": "1a7aeaa687244b45cfbaa2989d75825b7a0dc4e17b860a506f02371ebd231a24",
+      "previous_candidates": [
+        "1cbca559b772afc09f4290b2991981b8d1546b66b8f634523d18dee902372f96"
+      ]
     }
   ]
 }

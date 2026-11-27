@@ -34,9 +34,15 @@ function fixture({ kind = 'tile', storedId = 'saved-1', empty = true, count = 0,
   const view = { kind, $storedId: atom(storedId), $runtimeId: atom('runtime-1'),
     $cwd: atom(cwd), $messagesEmpty: atom(empty) }
   const surface = {
-    hidden: false, visible: true,
-    closest() { return this.hidden ? {} : null },
-    getClientRects() { return this.visible ? [{}] : [] },
+    hidden: false, inert: false, visible: true, paneTree: false, geometryReads: 0,
+    closest(selector) {
+      if (selector === '[data-tree-group]') return this.paneTree ? {} : null
+      return this.hidden || (this.inert && selector.includes('[inert]')) ? {} : null
+    },
+    getClientRects() {
+      this.geometryReads++
+      return this.visible ? [{}] : []
+    },
     getAttribute: name => name === 'data-session-anchor' ? (kind === 'primary' ? 'workspace' : `session-tile:${storedId}`) : null,
   }
   const ownerProps = nativeOwner ? { modelOptionsOwnerConnectionId: nativeOwner.connectionId,
@@ -113,6 +119,23 @@ test('focused ownership never borrows an ambient owner for a tile or accepts a m
   primary.root.surfaces.push({ ...primary.surface })
   primary.fibers.set(primary.root.surfaces[1], primary.fibers.get(primary.surface))
   assert.equal(primary.read(), null, 'Two visible matching surfaces do not guess a focus')
+})
+
+test('pane tree visibility resolves focus without reading layout', () => {
+  const f = fixture()
+  f.surface.paneTree = true
+  assert.equal(f.read()?.surface, f.surface)
+  f.surface.hidden = true
+  assert.equal(f.read(), null, 'Keep-alive panes retain a box when hidden')
+  f.surface.hidden = false
+  f.surface.inert = true
+  assert.equal(f.read(), null, 'A retained chat behind an overlay is inert')
+  assert.equal(f.surface.geometryReads, 0)
+  f.surface.inert = false
+  f.surface.paneTree = false
+  f.surface.visible = false
+  assert.equal(f.read(), null, 'Outside the pane tree, keep the existing geometry fallback')
+  assert.equal(f.surface.geometryReads, 1)
 })
 
 test('project selection matches the longest explicit path and its exact backend/profile', () => {

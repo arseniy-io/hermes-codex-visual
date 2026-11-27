@@ -7,6 +7,11 @@ const attachments = '[data-slot="composer-attachments"]'
 const nativePill = 'div[class~="group/attachment"]'
 const picture = '> button:first-child > span:first-child > :is(img, svg.tabler-icon-photo)'
 const pill = `${nativePill}:has(${picture})`
+const userMessage = '[data-slot="aui_user-message-root"]'
+const directiveContent = '[data-slot="aui_directive-text"]'
+const imageList = '[data-slot="aui_embedded-images"]'
+const attachmentRow = 'div:not([data-slot])'
+const imagePath = `> ${directiveContent} > ${imageList}`
 const row = '[data-tool-row][data-slot="tool-block"]'
 const group = '[data-tool-group][data-slot="tool-block"]'
 const summary = '[data-tool-summary]'
@@ -79,6 +84,14 @@ export function registerChatImages(ctx, active) {
   const card = `${composer} ${attachments} > ${pill}`
   const open = `${card} > button:first-child`
   const remove = `${card} > button:nth-child(2)`
+  const sentTurn = `${active} ${chat} [data-slot="aui_turn-pair"]`
+  // The turn may insert a stop notice between the prompt and the native row.
+  const sentRow = `${sentTurn} > ${userMessage} ~ ${attachmentRow}:has(${imagePath})`
+  const sentContent = `${sentRow} > ${directiveContent}`
+  const sentImages = `${sentContent} > ${imageList}`
+  const imageOnlyRow = `${sentRow}:not(:has(> ${directiveContent} > :not(${imageList})))`
+  const sentTile = `${sentImages} > :is([data-slot="aui_directive-image"], [data-slot="aui_embedded-image"])`
+  const sentButton = `${sentTile} > button:first-child`
   const step = `${active} ${chat} ${row}${analysis}`
   const run = `${active} ${chat} ${group}${analysisGroup}`
   const header = `:is(${step} > div:first-child, ${run} > ${summary})`
@@ -105,7 +118,46 @@ export function registerChatImages(ctx, active) {
 
   mountCSS(ctx, 'data-hcv-chat-images', `
     ${close}, ${pager}, ${label} { display: none; }
+    /* Desktop GL6x.BW/ep in 407859.bb57f12697.js: sent uploads have a separate
+       right-aligned 80px rail above the message. Preserve native DOM order. */
+    ${sentTurn}:has(> ${userMessage} ~ ${attachmentRow} ${imagePath}), ${sentContent} {
+      reading-flow: flex-visual;
+    }
+    ${sentRow} {
+      order: -1; justify-content: flex-end; min-inline-size: 0;
+      margin-block: 0;
+    }
+    ${sentTurn} > ${userMessage}:has(~ ${attachmentRow} ${imagePath}) { padding-block-start: 0; }
+    ${sentContent} {
+      display: flex; flex-wrap: wrap; justify-content: flex-end;
+      min-inline-size: 0; inline-size: 100%; gap: 8px 4px;
+    }
+    ${sentImages} {
+      order: -1; flex: 0 0 100%; flex-wrap: nowrap; align-items: end; justify-content: safe flex-end; gap: 8px;
+      margin-block-start: 0; min-inline-size: 0; min-block-size: 80px;
+      overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+    }
+    ${imageOnlyRow} {
+      flex-direction: row-reverse; justify-content: flex-start;
+      overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+    }
+    ${imageOnlyRow} > ${directiveContent} { flex: none; inline-size: max-content; }
+    ${sentTile}, ${sentImages} > span[aria-hidden="true"][class~="animate-pulse"] {
+      flex: none; inline-size: 80px; block-size: 80px; border-radius: 10px;
+    }
+    ${sentButton} {
+      display: block; box-sizing: border-box; inline-size: 100%; block-size: 100%;
+      border: 1px solid; border-radius: inherit; padding: 0;
+    }
+    ${sentButton} > img {
+      display: block; inline-size: 100%; block-size: 100%; max-block-size: none;
+      border: 0; border-radius: 8px; object-fit: cover; outline: none;
+    }
     @media (forced-colors: none) {
+      /* The turn's 16px gap is 8px above the bubble in Codex. */
+      ${sentRow} { margin-block-end: -8px; }
+      ${sentButton} { border-color: light-dark(color-mix(in oklab, var(--hcv-text) 12%, transparent), #ffffff29); }
+      ${sentButton}:focus-visible { outline: 2px solid var(--hcv-focus); outline-offset: -2px; }
       ${rail} {
         flex-wrap: nowrap; align-items: end; gap: 8px; padding: 4px;
         overflow-x: auto; overflow-y: hidden; scrollbar-width: none;

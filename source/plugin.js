@@ -184,9 +184,6 @@ const fileRow = `${fileList} > button`
 const assistantRoot = `${chat} [data-slot="aui_assistant-message-root"]`
 const assistantMarkdown = `:is(${assistantRoot}, ${active} [data-hcv-agent-message="assistant"]) .aui-md.prose`
 const elapsedBar = `${chat} [data-hcv-turn-line]`
-const liveTurn = `${chat} :is([data-slot="aui_response-loading"], [data-slot="aui_turn-activity"][data-state="active"], [data-hcv-live-turn])`
-const thinkingLabel = `${liveTurn} > [data-hcv-thinking]`
-const thinkingSweep = `${thinkingLabel} > [data-hcv-thinking-sweep]`
 const arrow = codexMask('turnDisclosure')
 
 const glyphs = [
@@ -587,58 +584,6 @@ export default {
     transform: rotate(90deg);
   }
 
-  ${liveTurn} {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    min-block-size: 18px;
-    margin-block-start: 9px;
-    color: var(--hcv-muted);
-    font-variant-numeric: tabular-nums;
-  }
-  ${liveTurn} > .dither { display: none; }
-  ${thinkingLabel} {
-    position: relative;
-    display: inline-block;
-    flex: none;
-    overflow: hidden;
-    white-space: nowrap;
-    user-select: none;
-    font-size: var(--conversation-text-font-size);
-    line-height: calc(var(--conversation-text-font-size) + 8px);
-    color: color-mix(in srgb, var(--hcv-text) 38.5%, transparent);
-  }
-  ${thinkingSweep} {
-    position: absolute; inset: 0 auto 0 0; inline-size: 100%; overflow: hidden; pointer-events: none;
-    transform: translateX(-50%);
-    mask-image: linear-gradient(90deg, transparent 0%, black 20% 30%, transparent 50% 100%);
-  }
-  ${thinkingSweep}::before {
-    content: attr(data-hcv-thinking-sweep);
-    display: block; inline-size: 100%; overflow: hidden;
-    color: #ffffffbf;
-    transform: translateX(50%);
-  }
-  /* Codex's first sweep waits 600 ms, then runs for one second every four. */
-  @media (prefers-reduced-motion: no-preference) {
-    ${thinkingSweep} { animation: hcv-thinking-sweep 4s .6s infinite; }
-    ${thinkingSweep}::before { animation: hcv-thinking-highlight 4s .6s infinite; }
-  }
-  @keyframes hcv-thinking-sweep {
-    0% { transform: translateX(-50%); animation-timing-function: steps(48, end); }
-    25%, 100% { transform: translateX(125%); }
-  }
-  @keyframes hcv-thinking-highlight {
-    0% { transform: translateX(50%); animation-timing-function: steps(48, end); }
-    25%, 100% { transform: translateX(-125%); }
-  }
-  ${liveTurn}:has(> [data-hcv-thinking]) > :is([data-hcv-live-time], [aria-hidden="true"]:not(.dither, [data-hcv-thinking])) { display: none; }
-  ${liveTurn} > :is([data-hcv-live-time], [aria-hidden="true"]:not(.dither, [data-hcv-thinking])) {
-    color: color-mix(in srgb, var(--hcv-text) 38.5%, transparent);
-    font-size: var(--conversation-text-font-size);
-    line-height: calc(var(--conversation-text-font-size) + 8px);
-    letter-spacing: inherit;
-  }
   @media (prefers-reduced-motion: reduce) {
     ${chat} button[data-hcv-turn-line]::after { transition: none; }
   }

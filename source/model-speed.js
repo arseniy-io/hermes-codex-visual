@@ -9,9 +9,14 @@ const pill = '[data-slot="composer-surface"] button[data-tour="model-pill"]'
 const regularPill = `${pill}:has(> span.truncate)`
 const effort = '[data-slot="composer-surface"] [data-testid="reasoning-pill"]'
 const effortButton = '[data-testid="reasoning-pill"]'
-const catalog = '[data-slot="dropdown-menu-content"]:has(> [data-slot="dropdown-menu-search"])'
+const pairedModel = `${regularPill}:not(:disabled):has(+ ${effortButton}:not(:disabled))`
+const pairedEffort = `${regularPill}:not(:disabled) + ${effortButton}:not(:disabled)`
+const highlightedControl = ':is(:hover, [aria-expanded="true"]):not(:disabled)'
+const search = '[data-slot="dropdown-menu-search"]'
+const catalog = `[data-slot="dropdown-menu-content"]:has(> ${search})`
 const menus = '[data-slot="dropdown-menu-sub-content"], [data-slot="dropdown-menu-content"]'
-const header = `${catalog} [class~="group/label"] > span.truncate`
+const providerHeader = '[class~="group/label"] > span.truncate'
+const header = `${catalog} ${providerHeader}`
 const tip = '[data-slot="tooltip-content"]'
 const modelOptions = '[data-hcv-model-options]'
 const speedOption = '[data-hcv-speed-option]'
@@ -19,7 +24,9 @@ const standardSpeed = '[data-hcv-standard-speed]'
 const speedHeading = '[data-hcv-speed-heading]'
 const speedDescription = '[data-hcv-speed-description]'
 const marked = `[data-hcv-model-label], [data-hcv-model-speed], [data-hcv-provider-label], [data-hcv-effort-ultra], ${modelOptions}, ${speedOption}`
-const optionsLabel = ':scope > [data-slot="dropdown-menu-label"]'
+const menuLabel = '[data-slot="dropdown-menu-label"]'
+const optionsLabel = `:scope > ${menuLabel}`
+const mountCandidates = `[data-tour="model-pill"], ${effortButton}, ${menus}, ${tip}, ${search}, ${menuLabel}`
 const acceleratedTier = tier => tier === 'fast' || tier === 'priority' || tier === 'ultrafast'
 
 // Read the native menu's owning row; never guess a model from a displayed name.
@@ -67,8 +74,10 @@ function setAttribute(node, name, value) {
 
 export function registerModelSpeed(ctx, active) {
   const root = document.documentElement
-  let disposed = false, frame = 0
-  let observed = []
+  let disposed = false, enabled = false, frame = 0
+  let controlsDirty = false
+  const surfaces = new Map()
+  const dirtyMenus = new Set()
   const views = new Map()
   const writtenText = new Map()
   const controlLabels = new Map()
@@ -129,9 +138,13 @@ export function registerModelSpeed(ctx, active) {
   }
 
   function editTooltip(trigger, format) {
-    const accessible = document.getElementById(trigger.getAttribute('aria-describedby') || '')
-    const label = accessible?.closest(tip)?.querySelector('[data-slot="tooltip-label"]')
+    const described = trigger.getAttribute('aria-describedby')
+    if (!described) return
+    const accessible = document.getElementById(described)
+    const tooltip = accessible?.closest(tip)
+    const label = tooltip?.querySelector('[data-slot="tooltip-label"]')
     if (label) {
+      watch(tooltip, 'tooltip')
       editText(label, format)
       editText(accessible, format)
     }
@@ -181,120 +194,194 @@ export function registerModelSpeed(ctx, active) {
     views.clear()
   }
 
-  function labelText() {
+  function labelControls() {
     const seen = new Set()
-    for (const button of document.querySelectorAll(pill)) editControlLabel(button, tooltipCopy)
-    for (const node of document.querySelectorAll(`${pill} > span.truncate`)) {
+    for (const [button, { type }] of surfaces) {
+      if (type === 'effort') {
+        const label = editText(button.querySelector(':scope > span'), original => compactEffort(original, root.lang))
+        setAttribute(button, 'data-hcv-effort-ultra', label === 'Ultra' ? 'true' : '')
+        editTooltip(button, original => effortMenuLabel(original, root.lang))
+        editControlLabel(button, original => effortMenuLabel(original, root.lang))
+        continue
+      }
+      if (type !== 'model') continue
+      editControlLabel(button, tooltipCopy)
+      const node = button.querySelector(':scope > span.truncate')
+      if (!node) {
+        setAttribute(button, 'data-hcv-model-speed', '')
+        continue
+      }
       const view = sessionView(node)
       if (!view) {
         setAttribute(node, 'data-hcv-model-label', '')
-        setAttribute(node.parentElement, 'data-hcv-model-speed', '')
+        setAttribute(button, 'data-hcv-model-speed', '')
         continue
       }
       seen.add(view)
-      if (!views.has(view)) views.set(view, [view.$fast, view.$serviceTier].filter(Boolean).map(atom => atom.listen(schedule)))
+      if (!views.has(view)) {
+        const update = () => {
+          controlsDirty = true
+          queueOptions()
+        }
+        const atoms = [view.$model, view.$provider, view.$fast, view.$serviceTier]
+        views.set(view, atoms.filter(atom => typeof atom?.listen === 'function').map(atom => atom.listen(update)))
+      }
       const tier = view.$serviceTier?.get(), fast = view.$fast.get()
       const speed = tier === 'ultrafast' ? 'ultrafast' : fast || tier === 'priority' || tier === 'fast' ? 'fast' : ''
-      // When no speed tier is on, a model ID ending in -fast is part of the
-      // actual model name and must not become a speed indicator.
+      // With a standard tier, a model ID ending in -fast is part of the model name.
       const name = editText(node, original => speed ? modelLabel(original).name : codexModelName(original))
       setAttribute(node, 'data-hcv-model-label', name)
-      setAttribute(node.parentElement, 'data-hcv-model-speed', speed)
-      if (name) editTooltip(node.parentElement, original => original.replace(/^(Модель|Model)(?: ·)? .+$/iu, (_, label) => `${label} ${name}`))
-    }
-    for (const button of document.querySelectorAll(effort)) {
-      const label = editText(button.querySelector(':scope > span'), original => compactEffort(original, root.lang))
-      setAttribute(button, 'data-hcv-effort-ultra', label === 'Ultra' ? 'true' : '')
-      editTooltip(button, original => effortMenuLabel(original, root.lang))
-      editControlLabel(button, original => effortMenuLabel(original, root.lang))
+      setAttribute(button, 'data-hcv-model-speed', speed)
+      if (name) editTooltip(button, original => original.replace(/^(Модель|Model)(?: ·)? .+$/iu, (_, label) => `${label} ${name}`))
     }
     for (const [view, dispose] of views) if (!seen.has(view)) { for (const off of dispose) off(); views.delete(view) }
-    for (const node of document.querySelectorAll(header)) {
+    // Consume only the labels written above. The native DOM updates are queued
+    // by the observer before this animation frame.
+    for (const { type, observer } of surfaces.values()) {
+      if (type === 'model' || type === 'effort' || type === 'tooltip') observer.takeRecords()
+    }
+  }
+
+  function labelCatalog(menu) {
+    for (const node of menu.querySelectorAll(providerHeader)) {
       const value = node.textContent.trim(), short = providerName(value)
       setAttribute(node, 'data-hcv-provider-label', short !== value ? short : '')
     }
   }
-  function options() {
+
+  function options(menu) {
     const isRu = /^ru(?:-|$)/i.test(root.lang)
     const speedLanguage = isRu || !root.lang || /^en(?:-|$)/i.test(root.lang)
-    for (const menu of document.querySelectorAll(menus)) {
-      const label = menu.querySelector(optionsLabel)
-      const native = menuModel(label)
-      if (!native) {
-        if (menu.hasAttribute('data-hcv-model-options')) {
-          menu.removeAttribute('data-hcv-model-options')
-          for (const node of menu.querySelectorAll(`${standardSpeed}, ${speedHeading}, ${speedDescription}`)) removeElement(node)
-        }
-        continue
+    const label = menu.querySelector(optionsLabel)
+    const native = menuModel(label)
+    if (!native) {
+      if (menu.hasAttribute('data-hcv-model-options')) {
+        menu.removeAttribute('data-hcv-model-options')
+        for (const node of menu.querySelectorAll(`${standardSpeed}, ${speedHeading}, ${speedDescription}`)) removeElement(node)
       }
-      menu.setAttribute('data-hcv-model-options', '')
-      for (const row of menu.querySelectorAll('[data-slot="dropdown-menu-radio-item"]')) editText(row, original => effortMenuLabel(original, root.lang))
-      if (!speedLanguage) continue
-      const rows = []
-      const items = [...menu.querySelectorAll(':scope > [data-slot="dropdown-menu-item"]')]
-      for (const row of items) {
-        const control = row.querySelector(':scope > [data-slot="switch"][role="switch"]')
-        const name = (control?.getAttribute('aria-label') || '').trim().toLowerCase()
-        const kind = /^(?:быстрая|быстрый|fast)$/.test(name) ? 'fast' :
-          /^(?:ультрабыстрая|ультрабыстрый|ultrafast)$/.test(name) ? 'ultrafast' : ''
-        setAttribute(row, 'data-hcv-speed-option', kind)
-        if (kind) {
-          rows.push(row)
-          editText(row, original => isRu ? (kind === 'fast' ? 'Быстрый' : 'Ультрабыстрый') : original)
-          writeElement(row, speedDescription, 'span', modelSpeedDescription(kind, native, root.lang))
-        } else {
-          const description = row.querySelector(speedDescription)
-          if (description) removeElement(description)
-          editText(row, original => original)
-        }
-      }
-      const reset = items.find(row => /^(?:Использовать стандартную скорость|Use standard speed)$/iu.test(row.textContent.trim()))
-      if (!rows.length && native.provider === 'openai-codex') recoverColdCatalog(label, native)
-      else stopCatalogRetry(menu)
-      if (!rows.length && !reset && native.provider !== 'openai-codex') {
-        for (const node of menu.querySelectorAll(`${standardSpeed}, ${speedHeading}`)) removeElement(node)
-        continue
-      }
-      const before = rows[0] || reset || menu.querySelector(':scope > [data-slot="dropdown-menu-separator"]')
-      let standard = menu.querySelector(standardSpeed)
-      if (reset) {
-        if (standard) removeElement(standard)
-        standard = null
-      } else {
-        standard = writeElement(menu, standardSpeed, 'div', isRu ? 'Стандартный' : 'Standard', before)
-        setAttribute(standard, 'role', 'menuitemradio')
-        setAttribute(standard, 'tabindex', '-1')
-        const activeTier = native.provider === 'openai-codex' && acceleratedTier(native.serviceTier)
-        setAttribute(standard, 'aria-disabled', rows.length || activeTier ? '' : 'true')
-        const accelerated = activeTier || rows.some(row => row.querySelector('[role="switch"]').getAttribute('aria-checked') === 'true')
-        setAttribute(standard, 'aria-checked', String(!accelerated))
-      }
-      writeElement(menu, speedHeading, 'div', isRu ? 'Скорость' : 'Speed', standard || before)
+      stopCatalogRetry(menu)
+      return
     }
-    for (const menu of catalogRetries.keys()) if (!menu.isConnected) stopCatalogRetry(menu)
+    if (!menu.hasAttribute('data-hcv-model-options')) menu.setAttribute('data-hcv-model-options', '')
+    for (const row of menu.querySelectorAll('[data-slot="dropdown-menu-radio-item"]')) editText(row, original => effortMenuLabel(original, root.lang))
+    if (!speedLanguage) return
+    const rows = []
+    const items = [...menu.querySelectorAll(':scope > [data-slot="dropdown-menu-item"]')]
+    for (const row of items) {
+      const control = row.querySelector(':scope > [data-slot="switch"][role="switch"]')
+      const name = (control?.getAttribute('aria-label') || '').trim().toLowerCase()
+      const kind = /^(?:быстрая|быстрый|fast)$/.test(name) ? 'fast' :
+        /^(?:ультрабыстрая|ультрабыстрый|ultrafast)$/.test(name) ? 'ultrafast' : ''
+      setAttribute(row, 'data-hcv-speed-option', kind)
+      if (kind) {
+        rows.push(row)
+        editText(row, original => isRu ? (kind === 'fast' ? 'Быстрый' : 'Ультрабыстрый') : original)
+        writeElement(row, speedDescription, 'span', modelSpeedDescription(kind, native, root.lang))
+      } else {
+        const description = row.querySelector(speedDescription)
+        if (description) removeElement(description)
+        editText(row, original => original)
+      }
+    }
+    const reset = items.find(row => /^(?:Использовать стандартную скорость|Use standard speed)$/iu.test(row.textContent.trim()))
+    if (!rows.length && native.provider === 'openai-codex') recoverColdCatalog(label, native)
+    else stopCatalogRetry(menu)
+    if (!rows.length && !reset && native.provider !== 'openai-codex') {
+      for (const node of menu.querySelectorAll(`${standardSpeed}, ${speedHeading}`)) removeElement(node)
+      return
+    }
+    const before = rows[0] || reset || menu.querySelector(':scope > [data-slot="dropdown-menu-separator"]')
+    let standard = menu.querySelector(standardSpeed)
+    if (reset) {
+      if (standard) removeElement(standard)
+      standard = null
+    } else {
+      standard = writeElement(menu, standardSpeed, 'div', isRu ? 'Стандартный' : 'Standard', before)
+      setAttribute(standard, 'role', 'menuitemradio')
+      setAttribute(standard, 'tabindex', '-1')
+      const activeTier = native.provider === 'openai-codex' && acceleratedTier(native.serviceTier)
+      setAttribute(standard, 'aria-disabled', rows.length || activeTier ? '' : 'true')
+      const accelerated = activeTier || rows.some(row => row.querySelector('[role="switch"]').getAttribute('aria-checked') === 'true')
+      setAttribute(standard, 'aria-checked', String(!accelerated))
+    }
+    writeElement(menu, speedHeading, 'div', isRu ? 'Скорость' : 'Speed', standard || before)
+  }
+
+  function sync() {
+    frame = 0
+    if (!enabled) return
+    for (const [node, { type, observer }] of surfaces) {
+      if (node.isConnected) continue
+      observer.disconnect()
+      surfaces.delete(node)
+      dirtyMenus.delete(node)
+      if (type === 'options') stopCatalogRetry(node)
+      if (type === 'model' || type === 'effort') controlsDirty = true
+    }
+    if (controlsDirty) {
+      controlsDirty = false
+      labelControls()
+    }
+    for (const menu of dirtyMenus) {
+      const surface = surfaces.get(menu)
+      if (surface.type === 'catalog') labelCatalog(menu)
+      else options(menu)
+      surface.observer.takeRecords()
+    }
+    dirtyMenus.clear()
     for (const node of added) if (!node.isConnected) added.delete(node)
     for (const node of writtenText.keys()) if (!node.isConnected) writtenText.delete(node)
     for (const node of controlLabels.keys()) if (!node.isConnected) controlLabels.delete(node)
   }
-  function sync() {
-    frame = 0
-    if (disposed) return
-    for (const node of observed) node.disconnect()
-    observed = []
-    if (!root.matches(active)) {
-      resetPresentation()
-      return
-    }
-    labelText()
-    options()
-    for (const node of document.querySelectorAll(`${pill}, ${effort}, ${menus}, ${tip}`)) {
-      const observer = new MutationObserver(schedule)
-      observer.observe(node, { subtree: true, childList: true, characterData: true,
-        attributes: true, attributeFilter: ['aria-checked', 'aria-describedby', 'aria-label'] })
-      observed.push(observer)
+
+  function schedule() { if (!frame && enabled) frame = requestAnimationFrame(sync) }
+  function invalidate(node, type) {
+    if (type === 'catalog' || type === 'options') dirtyMenus.add(node)
+    else controlsDirty = true
+    schedule()
+  }
+  function queueOptions() {
+    for (const [node, { type }] of surfaces) if (type === 'options') dirtyMenus.add(node)
+    if (dirtyMenus.size || controlsDirty) schedule()
+  }
+  function queueAll() {
+    for (const [node, { type }] of surfaces) invalidate(node, type)
+  }
+
+  function watch(node, type) {
+    if (surfaces.has(node)) return
+    const observer = new MutationObserver(() => invalidate(node, type))
+    const attributes = type === 'options' ? ['aria-checked', 'aria-label'] :
+      type === 'model' || type === 'effort' ? ['aria-describedby', 'aria-label'] : null
+    observer.observe(node, { subtree: true, childList: true, characterData: true,
+      ...(attributes ? { attributeFilter: attributes } : {}) })
+    surfaces.set(node, { type, observer })
+  }
+
+  function discover(node) {
+    // A portal can mount its container before the search or options label.
+    if (node.matches(`${search}, ${menuLabel}`)) node = node.parentElement
+    if (!node?.isConnected || surfaces.has(node)) return
+    const type = node.matches(pill) ? 'model' :
+      node.matches(effort) ? 'effort' :
+        node.matches(catalog) ? 'catalog' :
+          node.matches(menus) && menuModel(node.querySelector(optionsLabel)) ? 'options' : ''
+    if (type) {
+      watch(node, type)
+      invalidate(node, type)
+    } else if (node.matches(tip)) {
+      for (const [button, surface] of surfaces) {
+        if (surface.type !== 'model' && surface.type !== 'effort') continue
+        const described = button.getAttribute('aria-describedby')
+        if (described && node.contains(document.getElementById(described))) {
+          controlsDirty = true
+          schedule()
+          break
+        }
+      }
     }
   }
-  function schedule() { if (!frame && !disposed) frame = requestAnimationFrame(sync) }
+
   function activate(event) {
     if (!root.matches(active) || !(event.target instanceof Element)) return
     const standard = event.target.closest(`${standardSpeed}:not([aria-disabled="true"])`)
@@ -339,22 +426,50 @@ export function registerModelSpeed(ctx, active) {
   document.addEventListener('click', activate, true)
   document.addEventListener('keydown', activate, true)
   const mounts = new MutationObserver(records => {
-    const surfaces = `${pill}, ${effort}, ${menus}, ${tip}`
-    if (records.some(record => [...record.addedNodes, ...record.removedNodes].some(node => node.nodeType === 1 &&
-      (node.matches(surfaces) || node.querySelector(surfaces))))) schedule()
+    let removed = false
+    for (const { addedNodes, removedNodes } of records) {
+      removed ||= removedNodes.length > 0
+      for (const node of addedNodes) {
+        if (!(node instanceof Element) || !node.isConnected) continue
+        if (node.matches(mountCandidates)) discover(node)
+        if (node.firstElementChild) for (const child of node.querySelectorAll(mountCandidates)) discover(child)
+      }
+    }
+    if (removed) {
+      for (const node of surfaces.keys()) if (!node.isConnected) { schedule(); break }
+    }
   })
-  mounts.observe(document.body, { subtree: true, childList: true })
-  const theme = new MutationObserver(records => {
-    if (records.some(record => record.attributeName === 'lang')) resetPresentation()
-    schedule()
-  })
+  function stop() {
+    enabled = false
+    mounts.disconnect()
+    cancelAnimationFrame(frame)
+    frame = 0
+    controlsDirty = false
+    dirtyMenus.clear()
+    for (const { observer } of surfaces.values()) observer.disconnect()
+    surfaces.clear()
+    resetPresentation()
+  }
+  function refreshTheme(localeChanged = false) {
+    if (disposed) return
+    if (!root.matches(active)) {
+      if (enabled) stop()
+      return
+    }
+    if (!enabled) {
+      enabled = true
+      mounts.observe(document.body, { subtree: true, childList: true })
+      for (const node of document.querySelectorAll(mountCandidates)) discover(node)
+    } else if (localeChanged) {
+      resetPresentation()
+      queueAll()
+    }
+  }
+  const theme = new MutationObserver(records => refreshTheme(records.some(record => record.attributeName === 'lang')))
   theme.observe(root, { attributes: true, attributeFilter: ['data-hermes-theme', 'lang'] })
-  const subscriptions = [host.state.profile, host.state.connectionId].map(atom => atom.listen(() => {
-    schedule()
-  }))
+  const subscriptions = [host.state.profile, host.state.connectionId].map(atom => atom.listen(queueAll))
   const unsubscribeCatalog = queryClient?.getQueryCache().subscribe(event => {
-    if (event.type === 'updated' && event.action.type === 'success' && event.query.queryKey[0] === 'model-options' &&
-        document.querySelector(modelOptions)) schedule()
+    if (event.type === 'updated' && event.action.type === 'success' && event.query.queryKey[0] === 'model-options') queueOptions()
   })
 
   mountCSS(ctx, 'data-hcv-model-speed-style', `
@@ -413,14 +528,14 @@ export function registerModelSpeed(ctx, active) {
     @media (forced-colors: none) {
       ${active} ${regularPill}, ${active} ${effort} {
         align-items: center;
-        border-radius: 9999px;
+        border-radius: calc(var(--composer-control-size, 28px) / 2) !important;
         block-size: var(--composer-control-size, 28px);
         font: 400 14px/18px var(--hcv-ui-font);
         padding-inline: 8px;
         --chrome-action-hover: var(--hcv-composer-hover, var(--hcv-dropdown-hover));
       }
       ${active} ${regularPill} { color: var(--hcv-text); gap: 4px; }
-      ${active} ${regularPill}:has(+ ${effortButton}) {
+      ${active} ${pairedModel} {
         border-start-start-radius: calc(var(--composer-control-size, 28px) / 2) !important;
         border-end-start-radius: calc(var(--composer-control-size, 28px) / 2) !important;
         border-start-end-radius: 0 !important;
@@ -428,12 +543,13 @@ export function registerModelSpeed(ctx, active) {
         margin-inline-end: calc(-1 * var(--composer-control-gap, 4px));
         padding-inline-end: 3px;
       }
-      ${active} ${effort} {
+      ${active} ${effort} { color: var(--hcv-text); }
+      /* Square inner corners only when both buttons can paint the shared fill. */
+      ${active} ${pairedEffort} {
         border-start-start-radius: 0 !important;
         border-end-start-radius: 0 !important;
         border-start-end-radius: calc(var(--composer-control-size, 28px) / 2) !important;
         border-end-end-radius: calc(var(--composer-control-size, 28px) / 2) !important;
-        color: var(--hcv-text);
         padding-inline: 3px 6px;
       }
       ${active} ${regularPill} > span.truncate,
@@ -444,9 +560,9 @@ export function registerModelSpeed(ctx, active) {
         color: var(--hcv-muted);
       }
       ${active} ${effort}[data-hcv-effort-ultra] > span { color: #924ff7; }
-      ${active} :is(${regularPill}, ${effort}):is(:hover, [aria-expanded="true"]):not(:disabled),
-      ${active} ${regularPill}:has(+ ${effortButton}:is(:hover, [aria-expanded="true"]):not(:disabled)),
-      ${active} ${regularPill}:is(:hover, [aria-expanded="true"]):not(:disabled) + ${effortButton} {
+      ${active} :is(${regularPill}, ${effort})${highlightedControl},
+      ${active} ${regularPill}:not(:disabled):has(+ ${effortButton}${highlightedControl}),
+      ${active} ${regularPill}${highlightedControl} + ${effortButton}:not(:disabled) {
         background-color: var(--chrome-action-hover) !important;
       }
       ${active} :is(${regularPill}, ${effort}):focus-visible {
@@ -469,13 +585,16 @@ export function registerModelSpeed(ctx, active) {
   `)
   ctx.onDispose(() => {
     disposed = true
-    mounts.disconnect(); theme.disconnect(); cancelAnimationFrame(frame)
+    theme.disconnect()
     document.removeEventListener('click', activate, true)
     document.removeEventListener('keydown', activate, true)
-    for (const node of observed) node.disconnect()
     for (const off of subscriptions) off()
     unsubscribeCatalog?.()
-    resetPresentation()
+    stop()
   })
-  sync()
+  refreshTheme()
+  if (frame) {
+    cancelAnimationFrame(frame)
+    sync()
+  }
 }

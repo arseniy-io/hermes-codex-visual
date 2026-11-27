@@ -53,6 +53,7 @@ function dateLabel(date) {
 function styles(active, transcript) {
   const enhanced = `${active} ${transcript} ${actionBar}:has(${rowSelector})`
   const row = `${enhanced} ${rowSelector}`
+  const nativeBubbleActions = `${enhanced} [data-context-menu-skip] > ${bubbleSelector} + div.absolute.pointer-events-none`
   const menu = `${active} ${menuSelector}`
   const reply = `${active} ${transcript} ${replyRoot}`
   const footer = `${reply} div:has(> ${replyActions})`
@@ -72,6 +73,8 @@ function styles(active, transcript) {
     border-radius: 22px;
     corner-shape: superellipse(1.5);
   }
+  /* Hermes places the hover time and inline Stop in this layer. */
+  ${nativeBubbleActions},
   ${enhanced} ${restoreButton},
   ${enhanced} .human-message-with-todos-wrapper:has(> ${rowSelector} > time:not([hidden])) > ${nativeTimestamp} { display: none; }
 
@@ -427,7 +430,7 @@ export function registerMessageActions(ctx, active, transcript, promptSelector) 
         stamp.title = date.toLocaleString(document.documentElement.lang || undefined)
       }
       copy.hidden = !data?.state.content.some(part => part.type === 'text' && part.text.trim())
-      if (edit.isConnected) {
+      if (edit.parentElement === row) {
         edit.title = bubble.getAttribute('aria-label')
         edit.setAttribute('aria-label', edit.title)
         edit.disabled = bubble.disabled
@@ -486,8 +489,9 @@ export function registerMessageActions(ctx, active, transcript, promptSelector) 
       menu.style.top = Math.max(8, Math.min(y, window.innerHeight - menu.offsetHeight - 8)) + 'px'
       restoreItem.focus({ preventScroll: true })
     }, options)
-    holder.after(row)
+    // Fill the detached row before publishing it to the transcript.
     update()
+    holder.after(row)
     return { row, prompt, messageId, bubble, update, remove() {
       clearCopied?.()
       listeners.abort()

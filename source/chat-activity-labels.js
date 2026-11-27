@@ -185,6 +185,13 @@ export function describeActivity(part) {
   return null
 }
 
+export function pendingActivityPart(parts) {
+  return parts.findLast(part => {
+    const item = describeActivity(part)
+    return item?.pending && !item.blocked && !item.failed
+  })
+}
+
 export function activityPresentation(parts, live, russian, detail = false, summary = false) {
   const items = parts.map(describeActivity)
   const known = items.filter(Boolean)
@@ -260,6 +267,11 @@ export function activityPresentation(parts, live, russian, detail = false, summa
     return { ...fallback, label: primary.action }
   }
   if (live) {
+    const command = latest.command?.trim()
+    if (command) {
+      const preview = command.length <= 500 ? command : command.slice(0, 499) + '…'
+      return { ...fallback, label: (russian ? 'Выполняется ' : 'Running ') + preview }
+    }
     const working = {
       chrome: russian ? 'Использован Chrome' : 'Used Chrome',
       browser: russian ? 'Использован браузер' : 'Used the browser',

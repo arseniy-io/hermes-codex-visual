@@ -6,29 +6,44 @@ const prompt = 'Проверь живой счётчик правок.'
 const finished = 'Тестовые правки завершены.'
 
 export function makeComposerFixture(folder) {
-  const next = Promise.withResolvers()
-  const finish = Promise.withResolvers()
-  const content = Array.from({ length: 420 }, (_, index) => 'строка ' + (index + 1)).join('\n') + '\n'
-  const file = path.join(folder, 'live-lines.txt')
+  const file = path.join(folder, 'a-kimi.txt')
+  const created = path.join(folder, 'b-kimi.txt')
+  const base = 'Исходная строка Kimi\n'
+  const keep = 'Уже было изменено до ответа\n'
+  const first = 'Первая правка Kimi\nЕщё строка Kimi\n'
+  const second = 'Последняя правка Kimi\n'
+  const added = 'Новый файл Kimi\nВторая строка нового файла\n'
+  const replace = (id, old_string, new_string) => ({
+    id, name: 'patch', args: { mode: 'replace', path: file, old_string, new_string },
+  })
+  const steps = [
+    { id: 'call_hcv_status', name: 'terminal', args: { command: 'git status --short', workdir: folder } },
+    replace('call_hcv_first', base, first),
+    replace('call_hcv_second', first, second),
+    { id: 'call_hcv_create', name: 'write_file', args: { path: created, content: added } },
+    { id: 'call_hcv_restore', name: 'patch', args: {
+      mode: 'patch', patch: ['*** Begin Patch', '*** Update File: ' + file, '@@',
+        '-' + second.trimEnd(), '+' + base.trimEnd(), '*** Delete File: ' + created, '*** End Patch'].join('\n'),
+    } },
+    replace('call_hcv_final', base, second),
+  ]
+  const gates = steps.map(() => Promise.withResolvers())
+  const results = []
   return {
-    next: next.resolve, finish: finish.resolve, file, content,
+    file, created, base, keep, first, second, added, results,
+    begin() { fs.writeFileSync(file, base + keep) },
+    advance(step) { gates[step].resolve() },
+    release() { for (const gate of gates) gate.resolve() },
     async reply(request, send) {
       const user = request.messages.findLastIndex(row => row.role === 'user')
       if (!request.messages[user]?.content?.includes?.(prompt)) return false
-      const completed = request.messages.slice(user + 1).filter(row => row.role === 'tool').length
-      if (!completed) {
-        send('Записываю тестовый файл.', [{ id: 'call_hcv_lines', name: 'write_file', args: { path: file, content } }])
-      } else if (completed === 1) {
-        await next.promise
-        send('Проверяю повторную правку и ещё один файл.', [
-          { id: 'call_hcv_replace', name: 'patch', args: { mode: 'replace', path: file, old_string: 'строка 1\n', new_string: 'первая строка\n' } },
-          { id: 'call_hcv_new', name: 'write_file', args: { path: path.join(folder, 'live-extra.txt'), content: 'ещё одна\n' } },
-          { id: 'call_hcv_failed', name: 'patch', args: { mode: 'replace', path: path.join(folder, 'never-created.txt'), old_string: 'x', new_string: 'y' } },
-        ])
-      } else {
-        await finish.promise
-        send(finished, [])
+      const tools = request.messages.slice(user + 1).filter(row => row.role === 'tool')
+      if (tools.length) {
+        results[tools.length - 1] = tools.at(-1).content
+        await gates[tools.length - 1].promise
       }
+      const step = steps[tools.length]
+      send(step ? '' : finished, step ? [step] : [])
       return true
     },
   }
@@ -113,7 +128,6 @@ export async function verifyComposerLive({ page, expect, screenshot, fixture, re
   const approvalMenu = page.locator('[data-hcv-approval-menu]')
   const chip = chat.locator('[data-hcv-composer-changes-chip]')
   const rail = chat.locator('[data-hcv-composer-changes]')
-  const warning = chat.locator('[data-hcv-composer-changes-warning]')
 
   await expect(editor).toBeEditable()
   await expect(mode).toBeVisible()
@@ -186,75 +200,92 @@ export async function verifyComposerLive({ page, expect, screenshot, fixture, re
   await projectChat('Ревью интерфейса').click()
   await expect(grip).toHaveAttribute('aria-expanded', 'true')
   const kebab = chat.locator('.coding-status-bar button:has(> .codicon-kebab-vertical)')
-  await expect(kebab).toHaveCount(1)
-  await expect(kebab).toBeHidden()
-  // The hidden icon must not remove the native branch actions.
-  const branch = chat.locator('.coding-status-bar')
-  const branchButton = branch.locator('button:has(> .codicon-git-branch)')
-  const branchMenu = page.getByRole('menu').filter({ has: page.getByRole('menuitem') })
-  await branch.click({ button: 'right' })
-  await expect(branchMenu).toBeVisible()
-  const mouseItems = await branchMenu.getByRole('menuitem').allTextContents()
-  assert(mouseItems.length > 0, 'Right-click should expose native branch actions')
-  await page.keyboard.press('Escape')
-  await expect(branchMenu).toBeHidden()
-  await page.keyboard.press('Tab')
-  await branchButton.focus()
-  console.log('Branch keyboard focus', JSON.stringify(await page.evaluate(() => ({
-    tag: document.activeElement?.tagName, className: document.activeElement?.className,
-    inBranch: Boolean(document.activeElement?.closest('.coding-status-bar')),
-  }))))
-  await expect(branchButton).toBeFocused()
-  assert(await branchButton.evaluate(node => node.matches(':focus-visible')))
-  await expect(branchButton).toHaveCSS('outline-style', 'solid')
-  await page.keyboard.press('Shift+F10')
-  await expect(branchMenu).toBeVisible()
-  assert.deepEqual(await branchMenu.getByRole('menuitem').allTextContents(), mouseItems)
-  await page.keyboard.press('Escape')
-  await expect(branchMenu).toBeHidden()
-  // Use the real native button with the keyboard, not a synthetic attribute mutation.
-  await grip.focus()
-  await page.keyboard.press('Space')
-  await expect(grip).toHaveAttribute('aria-expanded', 'false')
-  await expect(chip).toHaveCount(0)
+  // The native branch actions exist only in profiles with worktree actions.
+  if (await kebab.count()) {
+    await expect(kebab).toBeHidden()
+    // The hidden icon must not remove the native branch actions.
+    const branch = chat.locator('.coding-status-bar')
+    const branchButton = branch.locator('button:has(> .codicon-git-branch)')
+    const branchMenu = page.getByRole('menu').filter({ has: page.getByRole('menuitem') })
+    await branch.click({ button: 'right' })
+    await expect(branchMenu).toBeVisible()
+    const mouseItems = await branchMenu.getByRole('menuitem').allTextContents()
+    assert(mouseItems.length > 0, 'Right-click should expose native branch actions')
+    await page.keyboard.press('Escape')
+    await expect(branchMenu).toBeHidden()
+    await page.keyboard.press('Tab')
+    await branchButton.focus()
+    console.log('Branch keyboard focus', JSON.stringify(await page.evaluate(() => ({
+      tag: document.activeElement?.tagName, className: document.activeElement?.className,
+      inBranch: Boolean(document.activeElement?.closest('.coding-status-bar')),
+    }))))
+    await expect(branchButton).toBeFocused()
+    assert(await branchButton.evaluate(node => node.matches(':focus-visible')))
+    await expect(branchButton).toHaveCSS('outline-style', 'solid')
+    await page.keyboard.press('Shift+F10')
+    await expect(branchMenu).toBeVisible()
+    assert.deepEqual(await branchMenu.getByRole('menuitem').allTextContents(), mouseItems)
+    await page.keyboard.press('Escape')
+    await expect(branchMenu).toBeHidden()
+  }
+  await expect(rail).toHaveCount(0)
+  fixture.begin()
   await editor.fill(prompt)
   await editor.press('Enter')
-  // This fixture uses ordinary Hermes tools, not the owner-bound Codex patch
-  // stream. It must report incomplete tracking rather than sum tool deltas.
-  await expect(warning).toHaveText('Не все изменения удалось отследить', { timeout: 45000 })
-  await expect(warning).toBeVisible()
-  await expect(chip).toBeHidden()
-  assert.equal(fs.readFileSync(fixture.file, 'utf8'), fixture.content)
-  await grip.focus()
-  await page.keyboard.press('Enter')
-  await expect(grip).toHaveAttribute('aria-expanded', 'true')
-  await expect(rail).toBeHidden()
-  await grip.focus()
-  await page.keyboard.press('Space')
-  await expect(grip).toHaveAttribute('aria-expanded', 'false')
-  await expect(warning).toBeVisible()
+  await expect.poll(() => fixture.results[0], { timeout: 45000 }).toMatch(/a-kimi\.txt/)
+  await expect(rail).toHaveCount(0)
+  await screenshot('composer-live-unchanged.png')
 
-  await editor.fill('Сообщение ждёт в очереди.')
-  await editor.press('Enter')
-  const queue = chat.getByRole('group', { name: 'Очередь сообщений' })
-  await expect(queue).toBeHidden()
+  const expectLabel = async label => expect(chip).toHaveAccessibleName(label, { timeout: 45000 })
+  fixture.advance(0)
+  await expectLabel('Изменен 1 файл, +2, −1')
+  assert.equal(fs.readFileSync(fixture.file, 'utf8'), fixture.first + fixture.keep)
+  fixture.advance(1)
+  await expectLabel('Изменен 1 файл, +1, −1')
+  assert.equal(fs.readFileSync(fixture.file, 'utf8'), fixture.second + fixture.keep)
+  fixture.advance(2)
+  await expectLabel('Изменено 2 файла, +3, −1')
+  assert.equal(fs.readFileSync(fixture.created, 'utf8'), fixture.added)
+
+  const popover = chat.locator('[data-hcv-composer-changes-popover]')
+  await expect(popover).toBeHidden()
+  const lineCenters = await chip.evaluate(node => {
+    const center = selector => {
+      const box = node.querySelector(selector).getBoundingClientRect()
+      return box.y + box.height / 2
+    }
+    return [center('[data-hcv-composer-changes-label]'), center('[data-hcv-composer-changes-totals]')]
+  })
+  assert(Math.abs(lineCenters[0] - lineCenters[1]) < 1)
+  await page.mouse.move(1100, 460)
   await screenshot('composer-live-changes.png')
-  await grip.focus()
-  await page.keyboard.press('Enter')
-  await expect(grip).toHaveAttribute('aria-expanded', 'true')
-  await expect(queue).toBeVisible()
-  await expect(rail).toBeHidden()
-  await grip.focus()
-  await page.keyboard.press('Space')
-  await expect(grip).toHaveAttribute('aria-expanded', 'false')
-  await expect(queue).toBeHidden()
-  await expect(warning).toBeVisible()
+  await chip.hover()
+  await expect(popover).toBeVisible()
+  const files = popover.getByRole('button')
+  await expect(files).toHaveCount(2)
+  await expect(files.nth(0)).toHaveAccessibleName(/a-kimi\.txt\s*\+1\s*−1/)
+  await expect(files.nth(1)).toHaveAccessibleName(/b-kimi\.txt\s*\+2\s*−0/)
+  await screenshot('composer-live-files.png')
+  await files.nth(1).click()
+  const review = page.locator('[data-hcv-saved-turn-diff]:visible')
+  await expect(review).toContainText('Новый файл Kimi')
+  await expect(review).not.toContainText('Последняя правка Kimi')
+  await chip.click()
+  await expect(review).toContainText('Последняя правка Kimi')
+  await expect(review).not.toContainText('Первая правка Kimi')
 
-  fixture.next()
-  await expect(warning).toHaveText('Не все изменения удалось отследить')
-  fixture.finish()
+  fixture.advance(3)
+  await expect.poll(() => Boolean(fixture.results[4]), { timeout: 45000 }).toBe(true)
+  assert.equal(fs.readFileSync(fixture.file, 'utf8'), fixture.base + fixture.keep)
+  assert.equal(fs.existsSync(fixture.created), false)
+  await expect(rail).toHaveCount(0)
+  await screenshot('composer-live-restored.png')
+  fixture.advance(4)
+  await expectLabel('Изменен 1 файл, +1, −1')
+  fixture.advance(5)
   await expect(chat.getByText(finished, { exact: true })).toBeVisible({ timeout: 45000 })
   await expect(rail).toHaveCount(0)
-  console.log(JSON.stringify({ surfaceHeight: surfaceBox.height, controlsHeight: plusBox.height, approvals: 3,
-    unsupportedToolsMarkedIncomplete: true, hiddenOnFinish: true }))
+  console.log(JSON.stringify({ surfaceHeight: surfaceBox.height, controlsHeight: plusBox.height,
+    nativeEdits: true, repeatedFileCount: 1, files: 2, added: 3, removed: 1, oneLine: true,
+    opensWholeTurnAndFile: true, readOnlyHidden: true, zeroHidden: true, completionHidden: true }))
 }

@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.15.138
+
+- Show sent images as square thumbnails above the prompt and preserve the transcript position as the image draft clears.
+- Place message navigation on the left. Keep file diffs folded until opened, hold the card in place when expanding its file list, and preserve the reading position when returning to a chat.
+- Keep model commentary in the work disclosure, including after a turn resumes from a limit. Remove repeated status text and hidden clock updates. Show time and actions below the user message.
+- Update the composer, the live file-change counter, the model and effort menus, and the inline rate-limit card. The live counter covers supported Codex and Kimi edits.
+- Streamline skill proposals in Activity and reduce repeated work in Activity and the sidebar. Improve project previews and the recent-chat list.
+
+В выпуск вошли правки отправки фото, прокрутки, навигации по чату и ленты работы. Заголовок карточки правок остаётся на месте при раскрытии списка файлов. Обновлены меню модели, карточка лимита и счётчик правок для Codex и Kimi. В «Активности» понятнее объясняется польза предлагаемого навыка и виден результат принятия.
+
+ZIP для Windows включает интерфейсную и агентскую части одной версии. [Установка](README.ru.md#установка) · [Контрольные суммы](downloads/SHA256SUMS.txt).
+
 ## v0.15.137
 
 - Reduce repeated work during streaming, history loading and subagent status updates. Pause refreshes for Usage and the Git summary while the window is hidden.

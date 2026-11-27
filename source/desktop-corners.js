@@ -42,5 +42,6 @@ export function registerDesktopCorners(ctx, active) {
   mountStyle(ctx, sheet, {
     screens: ['messaging', 'cron', 'capabilities', 'kanban'],
     surface: '.arc-border, .driver-popover, div[draggable][style*="--kanban-tone:"]',
+    retainAfterFirstUse: true
   })
 }

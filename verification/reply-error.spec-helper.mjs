@@ -130,3 +130,103 @@ export async function verifyReplyError({ page, expect, screenshot, projectChat, 
   await dismiss.click()
   await expect(card).toHaveCount(0)
 }
+
+
+export const rateLimitPrompt = 'Проверка карточки лимита.'
+const rateLimitError = 'Test provider request rate limit reached.'
+
+export function replyWithRateLimit(response) {
+  response.writeHead(429, { 'content-type': 'application/json' })
+  response.end(JSON.stringify({ error: {
+    message: rateLimitError, type: 'rate_limit_error', code: 'rate_limit_exceeded',
+  } }))
+}
+
+export async function verifyRateLimitCard({ page, expect, projectChat, editsPrompt, screenshot,
+  openThemeSettings, closeSettings, rateLimitAttempts }) {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  const decline = page.getByRole('button', { name: 'Нет, спасибо', exact: true }).first()
+  if (await decline.isVisible()) await decline.click()
+  await projectChat('Ревью интерфейса').click()
+  const chat = page.locator('[data-chat-surface][data-composer-target="main"]:visible')
+  const editor = chat.locator('[data-slot="composer-rich-input"]')
+  const changes = chat.locator('[data-hcv-saved-turn-card]')
+  await expect(chat.getByText('Тестовый чат готов к проверке.', { exact: true })).toBeVisible()
+  await editor.fill(editsPrompt)
+  await editor.press('Enter')
+  await expect(changes.locator('[data-hcv-turn-card-title]')).toHaveText('Изменено 5 файлов', { timeout: 60000 })
+  const card = chat.locator('[data-slot="aui_error-card"][role="alert"]')
+  const retry = card.getByRole('button', { name: 'Повторить', exact: true })
+  const toggle = card.locator('button[aria-controls][aria-expanded]')
+  const dismiss = card.getByRole('button', { name: 'Скрыть ошибку', exact: true })
+  const details = card.locator('[data-slot="aui_error-details"]')
+  await editor.fill(rateLimitPrompt)
+  await editor.press('Enter')
+  await expect.poll(rateLimitAttempts, { timeout: 20000 }).toBeGreaterThan(0)
+  await expect(card).toContainText('Достигнут лимит запросов', { timeout: 30000 })
+  await expect(card).toHaveAttribute('data-severity', 'degraded')
+
+  const checkWidth = async () => {
+    let edges
+    await expect.poll(async () => {
+      const [error, files] = await Promise.all([card.boundingBox(), changes.boundingBox()])
+      if (!error || !files) return Infinity
+      edges = { error: [error.x, error.x + error.width], files: [files.x, files.x + files.width] }
+      return Math.max(...edges.error.map((edge, index) => Math.abs(edge - edges.files[index])))
+    }).toBeLessThan(0.5)
+    await expect.poll(() => card.evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true)
+    return edges
+  }
+  const checkButtons = async () => {
+    await page.mouse.move(4, 40)
+    const review = changes.locator('[data-hcv-turn-card-review]')
+    for (const prop of ['block-size', 'border-radius', 'font-size', 'font-weight', 'border-top-width', 'background-color']) {
+      await expect(retry).toHaveCSS(prop, await review.evaluate((node, name) => getComputedStyle(node).getPropertyValue(name), prop))
+    }
+    await expect(toggle).toHaveCSS('text-decoration-line', 'none')
+    await expect(dismiss).toHaveCSS('block-size', '24px')
+    const fills = []
+    for (const button of [retry, toggle, dismiss]) {
+      await page.mouse.move(4, 40)
+      const fill = () => button.evaluate(node => getComputedStyle(node).backgroundColor)
+      const rest = await fill()
+      await button.hover()
+      await expect.poll(fill).not.toBe(rest)
+      fills.push({ rest, hover: await fill() })
+    }
+    await page.mouse.move(4, 40)
+    return fills
+  }
+  const dark = { edges: await checkWidth(), buttons: await checkButtons() }
+  await screenshot('rate-limit-dark.png', { locator: card })
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  await expect(details).toContainText(rateLimitError)
+  await checkWidth()
+
+  await openThemeSettings()
+  await page.getByText(/^(Светлая|Light)$/, { exact: true }).first().click()
+  await closeSettings()
+  for (const name of ['Скрыть боковую панель', 'Скрыть сводку']) {
+    const hide = page.getByRole('button', { name, exact: true })
+    if (await hide.isVisible()) await hide.click()
+  }
+  const viewport = page.viewportSize()
+  await page.setViewportSize({ width: 620, height: 760 })
+  await expect(page.locator('[data-narrow-overlay]')).toHaveCount(0)
+  await expect(card).toHaveCSS('background-color', 'rgb(250, 250, 250)')
+  const lightNarrow = { edges: await checkWidth(), buttons: await checkButtons() }
+  await screenshot('rate-limit-light-narrow.png', { locator: card })
+  await page.setViewportSize(viewport)
+
+  const attemptsBeforeRetry = rateLimitAttempts()
+  await retry.click()
+  await expect.poll(rateLimitAttempts, { timeout: 20000 }).toBeGreaterThan(attemptsBeforeRetry)
+  await expect(card).toHaveCount(2, { timeout: 30000 })
+  await expect(card.last()).toContainText('Достигнут лимит запросов')
+  await dismiss.last().click()
+  await expect(card).toHaveCount(1)
+  await dismiss.click()
+  await expect(card).toHaveCount(0)
+  return { dark, lightNarrow, retryAndDismiss: true, detailsOpened: true }
+}

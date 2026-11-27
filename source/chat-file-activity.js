@@ -1,6 +1,51 @@
 import { agentPartDiff } from './agent-transcript-data.js'
 import { describeActivity } from './chat-activity-labels.js'
 
+export const fileDiffOpen = 'data-hcv-file-activity-open'
+
+function nativeFileDisclosureId(tool) {
+  const part = tool?.memoizedProps?.part
+  if (!part) return null
+  for (let context = tool.dependencies?.firstContext; context; context = context.next) {
+    const client = context.memoizedValue
+    if (!client?.message?.source) continue
+    const id = client.message().__internal_getRuntime?.()?.getState()?.id
+    if (!id) continue
+    // Hermes fallback-model/targets.ts also covers older calls without a call id.
+    if (part.toolCallId) return 'tool-entry:' + id + ':tool:' + part.toolCallId
+    const args = JSON.stringify(part.args ?? '')
+    let hash = 0
+    for (let index = 0; index < args.length; index++) hash = Math.imul(31, hash) + args.charCodeAt(index)
+    return 'tool-entry:' + id + ':tool:' + part.toolName + ':' + Math.abs(hash).toString(36)
+  }
+  return null
+}
+
+export function fileDiffDisclosure(readFiber) {
+  const closing = new WeakSet()
+  return row => {
+    if (!row.hasAttribute('data-file-edit')) {
+      closing.delete(row)
+      if (row.hasAttribute(fileDiffOpen)) row.removeAttribute(fileDiffOpen)
+      return
+    }
+    if (closing.has(row) || row.hasAttribute(fileDiffOpen)) return
+    const toggle = row.querySelector(':scope > :first-child > div > button[aria-expanded="true"]:enabled')
+    // The host stores intentional opens under this id. Its automatic open
+    // when a diff arrives has no saved entry. Keep that distinction on remount.
+    try {
+      const id = nativeFileDisclosureId(readFiber(row)?.return)
+      const saved = JSON.parse(localStorage.getItem('hermes.desktop.toolDisclosure.v1'))
+      if (toggle && id && saved?.[id] !== true) {
+        closing.add(row)
+        toggle.click()
+        return
+      }
+    } catch { /* An unknown host keeps its native disclosure available. */ }
+    row.setAttribute(fileDiffOpen, '')
+  }
+}
+
 function patchHeaders(text) {
   const headers = []
   let oldRemaining = 0, newRemaining = 0

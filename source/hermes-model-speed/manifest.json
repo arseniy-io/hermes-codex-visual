@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "scope": "Codex account-scoped dynamic speed tiers and bounded single-patch live diff experiment",
+  "scope": "Codex account-scoped speed tiers and authoritative turn diffs",
   "files": {
     "agent/fast_mode.py": {
       "baseline": "7ad547db41b45f978d748b31e353b35eb1ca32f7da35dfa0957a172dd7a2172c",
@@ -61,7 +61,8 @@
     {
       "source": "hcv_codex_diff_bridge.py",
       "target": "agent/hcv_codex_diff_bridge.py",
-      "candidate": "a7031a614c4743890059b774cfcf6b95de4f69d32ff65145cbae3ef5e14d57bf"
+      "candidate": "0a8aaafd393be4e36940f7e71c1c9a8153e175467ad36bd58471d2116e0874b9",
+      "baseline": "a7031a614c4743890059b774cfcf6b95de4f69d32ff65145cbae3ef5e14d57bf"
     }
   ]
 }

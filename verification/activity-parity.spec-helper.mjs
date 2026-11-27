@@ -23,6 +23,89 @@ export async function installActivityReadinessFixture(page, intercept) {
   })
 }
 
+const filePrompt = 'Проверь раскрытие правки одного файла.'
+const fileComment = 'Сейчас отредактирую тестовый файл.'
+const fileAnswer = 'Одиночная правка завершена.'
+const fileTool = { name: 'patch', tool_id: 'activity-solo-patch' }
+const fileName = 'fixture-solo.md'
+const changedLine = 'Новая строка одиночной правки.'
+
+export function createStandaloneFileFixture() {
+  let emit
+  return {
+    intercept(frame, route) {
+      if (frame.method !== 'prompt.submit' || frame.params?.text !== filePrompt) return false
+      const sessionId = frame.params.session_id
+      emit = (type, payload = {}) => route.send(JSON.stringify({
+        jsonrpc: '2.0', method: 'event', params: { type, payload, session_id: sessionId },
+      }))
+      route.send(JSON.stringify({
+        jsonrpc: '2.0', id: frame.id,
+        result: { admission_id: 'hcv-solo-file', ref: { session_id: sessionId }, sequence: 1,
+          status: 'started', outcome: null, authority_epoch: 1, execution_generation: 1 },
+      }))
+      setTimeout(() => {
+        emit('message.start')
+        emit('message.delta', { text: fileComment })
+        emit('message.interim', { text: fileComment, already_streamed: true })
+        emit('tool.start', { ...fileTool, args: { mode: 'replace', path: fileName } })
+      }, 150)
+      return true
+    },
+    completeEdit() {
+      emit('tool.complete', { ...fileTool, result: { success: true, diff:
+        ['--- a/' + fileName, '+++ b/' + fileName, '@@ -1 +1 @@', '-Старая строка.', '+' + changedLine].join('\n'),
+      } })
+    },
+    finish() {
+      emit('message.delta', { text: fileAnswer })
+      emit('message.complete', { text: fileAnswer })
+    },
+  }
+}
+
+export async function verifyStandaloneFileDisclosure({ page, expect, screenshot, fixture }) {
+  const chat = page.locator('[data-chat-surface][data-composer-target="main"]:visible')
+  const editor = chat.locator('[data-slot="composer-rich-input"]')
+  await editor.fill(filePrompt)
+  await editor.press('Enter')
+  const turn = chat.locator('[data-slot="aui_turn-pair"]').filter({ hasText: filePrompt })
+  await expect(turn.getByText(fileComment, { exact: true })).toBeVisible()
+  const row = turn.locator('[data-tool-row]')
+  await expect(row).toBeVisible()
+  await expect(turn.locator('[data-hcv-activity-group]')).toHaveCount(0)
+  const toggle = row.locator(':scope > :first-child button').first()
+  await turn.evaluate(root => {
+    const panelHeights = []
+    const observer = new MutationObserver(() => {
+      const panel = root.querySelector('[data-file-edit][data-tool-row] > :nth-child(2)')
+      if (panel) panelHeights.push(panel.getBoundingClientRect().height)
+    })
+    observer.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-file-edit'] })
+    root.readFileDiffHeights = () => {
+      observer.disconnect()
+      delete root.readFileDiffHeights
+      return panelHeights
+    }
+  })
+  fixture.completeEdit()
+  await expect(row.locator('[data-hcv-file-activity-label]')).toHaveText('Редактирование ' + fileName + ' +1 −1')
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  await expect(row.locator(':scope > :nth-child(2)')).toHaveCount(0)
+  const firstHeights = await turn.evaluate(root => root.readFileDiffHeights())
+  assert(firstHeights.every(height => height === 0), JSON.stringify(firstHeights))
+  await screenshot('standalone-file-folded.png', { locator: turn })
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  await expect(row.getByText(changedLine, { exact: true })).toBeVisible()
+  await toggle.press('Enter')
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  await expect(row.getByText(changedLine, { exact: true })).toHaveCount(0)
+  fixture.finish()
+  await expect(turn.getByText(fileAnswer, { exact: true })).toBeVisible()
+  return { initialDiffHeights: firstHeights, defaultFolded: true, openedByClick: true, closedByKeyboard: true }
+}
+
 function maskHash(value) {
   const body = /data:image\/svg\+xml,([^")]+)/.exec(value)?.[1]
   return body ? createHash('sha256').update(decodeURIComponent(body)).digest('hex') : null
@@ -361,6 +444,27 @@ async function verifyTimeline({ app, page, expect, chat, screenshot, translation
     mixedGroup: true, groupStepsIndent: 24, groupStepsGap: 12, receipt: true }
 }
 
+async function verifyContinuedCommentary({ chat, expect, projectChat, screenshot }) {
+  await projectChat('Продолжение после лимита').click()
+  const turn = chat.locator('[data-slot="aui_turn-pair"]').filter({ hasText: 'Продолжай проверку отчёта.' })
+  const steps = turn.locator('button[data-hcv-turn-line]')
+  const comments = ['Проверяю сохранённые данные.', 'Сверяю подготовленный отчёт.']
+    .map(text => turn.getByText(text, { exact: true }))
+  const reply = turn.getByText('Отчёт готов к отправке.', { exact: true })
+  await expect(reply).toBeVisible()
+  await expect(steps).toHaveAttribute('aria-expanded', 'false')
+  for (const comment of comments) await expect(comment).toBeHidden()
+  await expect(turn.getByText('Все данные сверены.', { exact: true })).toBeVisible()
+  await screenshot('continued-commentary-collapsed.png')
+  await steps.click()
+  for (const comment of comments) await expect(comment).toBeVisible()
+  await expect(reply).toBeVisible()
+  await screenshot('continued-commentary-expanded.png')
+  await steps.click()
+  for (const comment of comments) await expect(comment).toBeHidden()
+  await expect(reply).toBeVisible()
+}
+
 export async function verifyActivityParity({ page, app, expect, projectChat, screenshot, openThemeSettings, closeSettings, themeCard, translationRequests }) {
   const before = process.env.HERMES_VISUAL_ACTIVITY_BEFORE === '1'
   const fixtureIcon = 'data:image/svg+xml;base64,' + Buffer.from(
@@ -375,8 +479,17 @@ export async function verifyActivityParity({ page, app, expect, projectChat, scr
     })
   }, fixtureIcon)
   await page.setViewportSize({ width: 1440, height: 960 })
-  await projectChat('Проверка каталога').click()
   const chat = page.locator('[data-chat-surface][data-session-anchor="workspace"]:visible')
+  const catalogChat = projectChat('Проверка каталога')
+  if (!before) {
+    await verifyContinuedCommentary({ chat, expect, projectChat, screenshot })
+    // The preview can omit this fixture chat when newer chats fill its four slots.
+    if (!(await catalogChat.isVisible())) {
+      const project = catalogChat.locator('xpath=ancestor::*[@data-sessions-project][1]')
+      await project.locator('[data-hcv-project-more] > button').click()
+    }
+  }
+  await catalogChat.click()
   const turn = chat.locator('[data-slot="aui_turn-pair"]').filter({ hasText: 'Проверка оформления закончена.' })
   // Native history can initially mount only its last page. Load the earlier
   // fixture turns with the same action a reader uses before inspecting them.

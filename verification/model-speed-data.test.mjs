@@ -8,6 +8,8 @@ test('Codex formatting keeps provider abbreviations and model variants distinct'
   assert.equal(codexModelName('Kimi K3'), 'Kimi K3')
   assert.equal(providerName('ChatGPT or Codex Subscription'), 'GPT')
   assert.equal(providerName('Kimi / Kimi Coding Plan'), 'Kimi')
+  assert.equal(providerName('Google Antigravity (OAuth)'), 'Google Antigravity')
+  assert.equal(providerName('antigravity-oauth'), 'Google Antigravity')
   assert.equal(providerName('Other provider'), 'Other provider')
   assert.deepEqual(modelLabel('GPT-6.2-sol · Ultrafast'), { name: 'GPT-6.2 Sol', speed: 'ultrafast' })
   assert.deepEqual(modelLabel('GPT-6.2-sol · Fast'), { name: 'GPT-6.2 Sol', speed: 'fast' })

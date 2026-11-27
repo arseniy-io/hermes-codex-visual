@@ -122,5 +122,5 @@ export function registerDesktopPages(ctx, active) {
       }
     }
   `
-  mountStyle(ctx, sheet, { screens: ['messaging', 'artifacts', 'cron'] })
+  mountStyle(ctx, sheet, { screens: ['messaging', 'artifacts', 'cron'], retainAfterFirstUse: true })
 }

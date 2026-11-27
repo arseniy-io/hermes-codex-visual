@@ -197,7 +197,30 @@
          raise ValueError('invalid_worker_result')
      accepted = dict(result)
      for key in STRUCTURED_FIELDS:
-@@ -417,6 +439,14 @@
+@@ -371,6 +393,14 @@
+     controls = WorkerControls(channel, frame['route'])
+     register_gateway_notify(frame['route'], controls.approval)
+     agent = None
++
++    def native_tool_progress(kind, *_args, **kwargs):
++        if kind == "hcv.turn_diff":
++            from tools.hcv_file_changes import valid_turn_diff
++            snapshot = kwargs.get("hcv_diff")
++            if valid_turn_diff(snapshot):
++                channel.send("hcv.turn_diff", snapshot=snapshot)
++
+     try:
+         with policy_scope(policy, home=frame['home']):
+             agent = _construct_agent(frame, AIAgent, policy, model=policy.model, provider=policy.provider, base_url=policy.base_url,
+@@ -389,6 +419,7 @@
+                 **routing_agent_kwargs(policy.config(), policy.model, policy.provider, policy.base_url),
+                 stream_delta_callback=lambda text: channel.send('delta', text=text) if text else None,
+                 clarify_callback=controls.clarify,
++                tool_progress_callback=native_tool_progress,
+                 tool_start_callback=lambda call_id, name, args: channel.send('tool.start', **tool_frame(call_id, name, args)),
+                 tool_complete_callback=lambda call_id, name, args, result: channel.send('tool.complete',
+                                                                                          **tool_frame(call_id, name, args, result)))
+@@ -417,6 +448,14 @@
                  result = {'provider': getattr(agent, 'provider', None), 'model': getattr(agent, 'model', None), **native_result}
              finally:
                  finish_root(controls)

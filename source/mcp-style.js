@@ -32,5 +32,5 @@ export function registerMcpStyle(ctx, active) {
     letter-spacing: normal;
   }
 }
-`, { screens: ['capabilities'] })
+`, { screens: ['capabilities'], retainAfterFirstUse: true })
 }

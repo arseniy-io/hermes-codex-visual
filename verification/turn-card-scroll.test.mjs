@@ -53,6 +53,23 @@ test('replaces an earlier anchor in the same viewport and cleans up after settli
   assert.equal(f.listeners.size, 0)
 })
 
+test('keeps a recent resize anchored when native follow writes after the first timeout', () => {
+  const f = setup()
+  keepTurnCardHeader(f.header, f.viewport, f.turn)
+  f.advance(180)
+  f.move(100)
+  f.advance(180)
+  assert.equal(f.observer.disconnected, undefined)
+  f.header.getBoundingClientRect = () => ({ top: 60 })
+  f.listeners.get('scroll')()
+  const pending = [...f.frames.values()]
+  f.frames.clear()
+  pending.forEach(fn => fn())
+  assert.equal(f.viewport.scrollTop, 60)
+  f.listeners.get('wheel')({ target: f.header })
+  assert.equal(f.observer.disconnected, true)
+})
+
 test('does not repeat a scroll correction once the header has returned to its original position', () => {
   const f = setup()
   let contentTop = 200

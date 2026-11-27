@@ -32,14 +32,6 @@ function waitForHotspot(message, res) {
   return gate.promise
 }
 
-export function timerSeconds(text) {
-  const value = String(text ?? '').trim()
-  if (/^\d+s$/.test(value)) return Number(value.slice(0, -1))
-  const minutes = /^(\d+):(\d{2})$/.exec(value)
-  if (minutes && Number(minutes[2]) < 60) return Number(minutes[1]) * 60 + Number(minutes[2])
-  throw new Error(`Unexpected thinking timer: ${JSON.stringify(value)}`)
-}
-
 export async function verifyProjectActivity({ app, page, expect, navigation, projectChat, prompt, mock, release }) {
   await app.evaluate(({ BrowserWindow }) => {
     for (const win of BrowserWindow.getAllWindows()) win.webContents.setBackgroundThrottling(false)
@@ -57,28 +49,11 @@ export async function verifyProjectActivity({ app, page, expect, navigation, pro
   await input.fill(prompt)
   await input.press('Enter')
   const loading = page.locator('[data-slot="aui_response-loading"]')
-  const waitingTimer = loading.locator(':scope > [aria-hidden="true"]:not(.dither)')
-  await expect(loading.locator('[data-hcv-thinking]')).toHaveText('Думаю')
-  await expect(waitingTimer).toBeHidden()
-  await expect.poll(() => loading.innerText()).toBe('Думаю')
-  assert.equal(timerSeconds('59s'), 59)
-  assert.equal(timerSeconds('1:00'), 60)
-  assert.equal(timerSeconds('10:33'), 633)
-  const beforeTransition = timerSeconds(await waitingTimer.textContent())
-  const waitingSpacing = await waitingTimer.evaluate(node => getComputedStyle(node).letterSpacing)
+  await expect(loading).toHaveCSS('clip-path', 'inset(50%)')
   release()
   await mock.waitForHeldStream()
-  const live = page.locator('[data-hcv-live-turn]')
-  const seconds = live.locator('[data-hcv-live-time]')
-  await expect(live.locator('[data-hcv-thinking]')).toHaveText('Думаю')
-  await expect(seconds).toBeHidden()
-  await expect.poll(() => live.innerText()).toBe('Думаю')
-  const start = timerSeconds(await seconds.textContent())
-  assert(start >= beforeTransition, 'Thinking timer must not reset when streaming starts')
-  const liveSpacing = await seconds.evaluate(node => getComputedStyle(node).letterSpacing)
-  console.log('Thinking timer transition', JSON.stringify({ beforeTransition, start, waitingSpacing, liveSpacing }))
-  assert.equal(waitingSpacing, liveSpacing, 'Thinking timer letter spacing must stay consistent during the transition')
-  await expect.poll(async () => timerSeconds(await seconds.textContent()), { timeout: 8000 }).toBeGreaterThan(start)
+  await expect(page.locator('[data-slot="aui_response-group"] [data-message-streaming="true"]').last()).toBeAttached()
+  await expect(page.locator('[data-hcv-thinking], [data-hcv-live-turn]')).toHaveCount(0)
   await folder.click()
   await expect(spinner).toBeVisible()
   await navigation('new-session').first().click()
@@ -298,7 +273,7 @@ export async function measurePerformance({ app, page, expect, navigation, projec
         await expect(chip).toHaveAttribute('aria-label', /^(Изменен 1 файл|1 file changed), \+2, −0$/)
         await expect(references).toHaveCount(hotspotLinks, { timeout: 45000 })
         await expect(chip).toBeVisible()
-        await expect(last.locator('[data-hcv-live-turn]')).toHaveCount(1)
+        await expect(last.locator('[data-message-streaming="true"]')).toHaveCount(1)
         await expect(sourcesPane).toBeVisible()
         results.hotspots.streams.push({
           reply: i, fileReferences: await references.count(),
@@ -310,7 +285,7 @@ export async function measurePerformance({ app, page, expect, navigation, projec
         release('observed')
       }
       await expect(last.getByText(end, { exact: true })).toBeVisible({ timeout: hotspotMode ? 45000 : 20000 })
-      await expect(last.locator('[data-hcv-live-turn]')).toHaveCount(0)
+      await expect(last.locator('[data-message-streaming="true"]')).toHaveCount(0)
       if (hotspotMode) await expect(page.locator(chat + ' [data-hcv-composer-changes-chip]')).toHaveCount(0)
     }, async i => {
       if (hotspotMode && i === cases.at(-1)) {

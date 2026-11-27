@@ -22,7 +22,8 @@ export function completedWorkSteps(group, final, { isInterim = () => false } = {
   const add = node => { if (!protect(node) && !nestedGroup(node)) steps.push(node) }
   let sawFinal = false
   for (const row of group.children) {
-    if (row === final) sawFinal = true
+    const isFinal = row === final
+    if (isFinal) sawFinal = true
     if (row.matches(background)) {
       // Standalone notifications that arrived after the answer still need
       // to announce themselves, until a subsequent answer incorporates them.
@@ -37,17 +38,20 @@ export function completedWorkSteps(group, final, { isInterim = () => false } = {
     const children = [...body.children]
     const prose = '.aui-md:not([data-hcv-stop-diagnostic])'
     const lastTextIndex = children.findLastIndex(child => child.matches(prose))
-    const lastWorkIndex = children.findLastIndex((child, index) => index < lastTextIndex && child.matches(step))
-    const interim = row !== final && isInterim(row)
-    if (row !== final && !protect(row) && !nestedGroup(row) && (interim || (lastTextIndex < 0 && children.some(child => child.matches(step))))) {
-      add(row)
+    // Restored work can end in a tool call in its own bubble, with the final
+    // reply in a later bubble. Within the final bubble keep the last text.
+    const lastWorkIndex = children.findLastIndex((child, index) =>
+      (!isFinal || index < lastTextIndex) && child.matches(step))
+    const interim = !isFinal && isInterim(row)
+    if (!isFinal && (interim || lastTextIndex < lastWorkIndex) && !protect(row) && !nestedGroup(row)) {
+      steps.push(row)
       continue
     }
     for (const [index, child] of children.entries()) {
       if (child.matches(step)) add(child)
       // Only an explicit interim or a later work boundary separates this
       // prose from the answer. Keep all prose after the last such boundary.
-      else if (child.matches(prose) && (row !== final ? interim : index < lastWorkIndex)) add(child)
+      else if (child.matches(prose) && (interim || index < lastWorkIndex)) add(child)
     }
   }
   return steps

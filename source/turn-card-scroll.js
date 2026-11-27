@@ -1,6 +1,8 @@
 // Codex 26.1117.4957.0: nMdB.I keeps the clicked card header stationary
 // as the turn changes height, and stops as soon as the user scrolls away.
 const active = new WeakMap()
+const quietMs = 350
+const maxAnchorMs = 1200
 
 export function anchorTurnCard(header) {
   const viewport = header?.closest('[data-slot="aui_thread-viewport"], [data-hcv-subagent-feed]')
@@ -15,26 +17,30 @@ export function keepTurnCardHeader(header, viewport, turn) {
   previous?.stop()
   const view = header.ownerDocument.defaultView
   const originalTop = header.getBoundingClientRect().top
-  let lastResize = -Infinity, deadline = 0, timer, frame = null, stopped = false
+  let lastMovement = -Infinity, deadline = 0, timer, frame = null, stopped = false
   const correct = () => {
     if (!header.isConnected || !viewport.contains(header) || header.closest('[hidden], [data-pane-hidden], [inert]')) {
       stop()
       return
     }
     const offset = header.getBoundingClientRect().top - originalTop
-    if (offset) viewport.scrollTop += offset
+    if (offset) {
+      lastMovement = view.performance.now()
+      viewport.scrollTop += offset
+    }
   }
   const schedule = () => {
     if (!stopped && frame == null) frame = view.requestAnimationFrame(() => { frame = null; correct() })
   }
   const observer = new view.ResizeObserver(() => {
-    lastResize = view.performance.now()
+    lastMovement = view.performance.now()
     if (frame != null) { view.cancelAnimationFrame(frame); frame = null }
     correct(); schedule()
   })
   observer.observe(turn)
   // Hermes may follow a growing transcript one frame after ResizeObserver.
-  // Correct that later movement while the short-lived anchor is active.
+  // Let native follow settle after its last correction. It can continue
+  // writing after the turn itself has stopped resizing.
   const scrolled = () => schedule()
   viewport.addEventListener('scroll', scrolled, { passive: true })
   const stop = () => {
@@ -48,14 +54,14 @@ export function keepTurnCardHeader(header, viewport, turn) {
     if (active.get(viewport)?.stop === stop) active.delete(viewport)
   }
   const timeout = () => {
-    const remaining = Math.min(lastResize + 50, deadline) - view.performance.now()
+    const remaining = Math.min(lastMovement + quietMs, deadline) - view.performance.now()
     if (remaining > 0) timer = view.setTimeout(timeout, Math.ceil(remaining))
     else stop()
   }
   const renew = () => {
     view.clearTimeout(timer)
-    deadline = view.performance.now() + 700
-    timer = view.setTimeout(timeout, 350)
+    deadline = view.performance.now() + maxAnchorMs
+    timer = view.setTimeout(timeout, quietMs)
     schedule()
   }
   const input = event => {

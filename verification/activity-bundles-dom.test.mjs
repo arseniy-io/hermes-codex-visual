@@ -97,7 +97,8 @@ test('activity groups keep failed calls inside their disclosure and stop at agen
     edit.dataset.slot = 'tool-block'
     edit.dataset.toolRow = ''
     edit.dataset.fileEdit = ''
-    edit.innerHTML = '<button aria-expanded="true">Изменён файл</button>'
+    // The file disclosure owns its own initial folded state.
+    edit.innerHTML = '<button aria-expanded="false">Изменён файл</button>'
     edit.parts = [{ toolName: 'edit_file', args: { path: 'fixture.txt' }, result: {}, completedAt: 1 }]
     const editToggle = edit.querySelector('button')
     editToggle.addEventListener('click', () => editToggle.setAttribute('aria-expanded', String(editToggle.getAttribute('aria-expanded') !== 'true')))
@@ -377,6 +378,75 @@ test('a closed overall disclosure leaves hidden native summaries untouched until
     groups.clear()
     assert.equal(native.getAttribute('aria-expanded'), 'true')
     assert.equal(invalidated, 2)
+  } finally {
+    globalThis.document = previousDocument
+    dom.window.close()
+  }
+})
+
+test('empty prose preserves one running command group and visible prose and images split it', () => {
+  const dom = new JSDOM('<!doctype html><div data-slot="aui_response-group"></div>')
+  const previousDocument = globalThis.document
+  globalThis.document = dom.window.document
+  try {
+    const doc = dom.window.document
+    const response = doc.querySelector('[data-slot="aui_response-group"]')
+    const root = doc.createElement('div')
+    root.dataset.slot = 'aui_assistant-message-root'
+    const body = doc.createElement('div')
+    body.dataset.slot = 'aui_assistant-message-content'
+    root.append(body)
+    response.append(root)
+    const marker = doc.createElement('span')
+    marker.dataset.messageStreaming = 'true'
+    root.append(marker)
+
+    const addTool = (part) => {
+      const node = doc.createElement('div')
+      node.dataset.slot = 'tool-block'
+      node.part = part
+      body.append(node)
+      return node
+    }
+    const terminal = (command, result) => ({ toolName: 'terminal', args: { command }, result })
+    const first = addTool(terminal('echo first', { exit_code: 0 }))
+    const placeholder = doc.createElement('div')
+    placeholder.className = 'aui-md'
+    placeholder.innerHTML = '<p> </p>'
+    body.append(placeholder)
+    const second = addTool(terminal('echo second'))
+    const third = addTool(terminal('echo third'))
+    const groups = activityGroups(node => node.part ? [node.part] : [])
+    const headers = () => [...response.querySelectorAll('[' + activityGroup + '] > button')]
+    groups.sync(response, true)
+    assert.equal(headers().length, 1)
+    const header = headers()[0]
+    assert.equal(header.textContent, 'Выполняется echo third')
+    assert.deepEqual(groups.panels(header), [first, second, third])
+
+    third.part.result = { exit_code: 1 }
+    groups.sync(response, true)
+    assert.equal(headers()[0], header)
+    assert.equal(header.textContent, 'Выполняется echo second')
+    second.part.result = { exit_code: 0 }
+    groups.sync(response, true)
+    assert.equal(headers()[0], header)
+    assert.equal(header.textContent, 'Выполнил команды')
+
+    const image = addTool({ toolName: 'vision_analyze', args: {}, result: {} })
+    const fourth = addTool(terminal('echo fourth', { exit_code: 0 }))
+    const fifth = addTool(terminal('echo fifth', { exit_code: 0 }))
+    groups.sync(response, true)
+    assert.equal(headers().length, 2)
+    assert.equal(image.hasAttribute(activityMember), false)
+    assert.deepEqual(groups.panels(headers()[1]), [fourth, fifth])
+
+    placeholder.textContent = 'Продолжаю проверку.'
+    groups.sync(response, true)
+    assert.equal(headers().length, 2)
+    assert.equal(first.hasAttribute(activityMember), false)
+    assert.deepEqual(groups.panels(headers()[0]), [second, third])
+    groups.clear()
   } finally {
     globalThis.document = previousDocument
     dom.window.close()

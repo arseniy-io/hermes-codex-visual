@@ -32,7 +32,8 @@ if (!pinnedRuntimeAudit) {
   console.warn('HCV_UNPINNED_PLAYWRIGHT: direct run; pinned runtime and gateway identity are not verified')
 }
 const evidence = path.join(feature, 'evidence')
-const displayFocus = process.env.HERMES_VISUAL_FOCUS === 'display'
+const chatTransitionsFocus = process.env.HERMES_VISUAL_FOCUS === 'chat-transitions'
+const displayFocus = process.env.HERMES_VISUAL_FOCUS === 'display' || chatTransitionsFocus
 const contextFocus = process.env.HERMES_VISUAL_FOCUS === 'context-meter'
 const composerFocus = process.env.HERMES_VISUAL_FOCUS === 'composer'
 const composerLiveFocus = process.env.HERMES_VISUAL_FOCUS === 'composer-live'
@@ -63,6 +64,7 @@ const personalQueueFocus = process.env.HERMES_VISUAL_FOCUS === 'personal-queue'
 const dictationFocus = process.env.HERMES_VISUAL_FOCUS === 'dictation'
 const shellFocus = process.env.HERMES_VISUAL_FOCUS === 'shell-surfaces'
 const replyErrorFocus = process.env.HERMES_VISUAL_FOCUS === 'reply-error'
+const rateLimitFocus = replyErrorFocus && Boolean(process.env.HERMES_VISUAL_TIMELINE_PACKAGE)
 const systemRuFocus = process.env.HERMES_VISUAL_FOCUS === 'system-ru'
 const interfaceCopyFocus = process.env.HERMES_VISUAL_FOCUS === 'interface-copy'
 const renameTabsFocus = process.env.HERMES_VISUAL_FOCUS === 'rename-tabs'
@@ -206,7 +208,7 @@ test(`${mode} native desktop smoke`, async () => {
   const delegateFocus = chatParityFocus || subagentsPaneFocus
   const settingsAudit = process.env.HERMES_VISUAL_FOCUS === 'settings-audit'
   const sidebarMoreFocus = ['sidebar-more', 'sidebar-more-all'].includes(process.env.HERMES_VISUAL_FOCUS)
-  const localModelFocus = turnDiffFocus || summaryLayoutFocus || activityComposerFocus || imageParityFocus || videoParityFocus || reviewProposalsFocus
+  const localModelFocus = turnDiffFocus || rateLimitFocus || summaryLayoutFocus || activityComposerFocus || imageParityFocus || videoParityFocus || reviewProposalsFocus
     || chatActivityFocus || sidebarWidthFocus || summaryParityFocus || summarySourcesFocus || subagentsPaneFocus
     || chatHoverFocus || tableFocus || commandPaletteFocus || projectDialogFocus || newChatDotFocus || composerLiveFocus || approvalFocus || renameTabsFocus || newChatWelcomeFocus || turnControlFocus || personalQueueFocus
   if (responsivenessFocus || styleScopeFocus || performanceFocus || projectActivityFocus) test.setTimeout(300000)
@@ -260,6 +262,8 @@ test(`${mode} native desktop smoke`, async () => {
   const tableFixture = tables?.makeTableFixture()
   const composerLive = composerLiveFocus ? await import('./composer-live.spec-helper.mjs') : null
   const composerFixture = composerLive?.makeComposerFixture(projectFolder)
+  const sendCheck = imageParityFocus ? await import('./send-message.spec-helper.mjs') : null
+  const sendFixture = sendCheck?.makeSendFixture()
   const editsPrompt = 'Обнови заметку и подготовь четыре тестовых файла.'
   const singleEditPrompt = 'Добавь две строки в один тестовый файл.'
   const singleFile = 'review/single-file.md'
@@ -280,6 +284,8 @@ test(`${mode} native desktop smoke`, async () => {
     ...newFiles.map(name => turnDiffFocus ? appendLines(name, [oneLine])
       : { name: 'write_file', args: { path: path.join(projectFolder, name), content: 'Одна строка для проверки.\n' } }),
   ]
+  const replyErrorCheck = replyErrorFocus ? await import('./reply-error.spec-helper.mjs') : null
+  let rateLimitRequests = 0
   const mock = await startMockServer({
     extraModels: contextFocus || interfaceCopyFocus ? ['mock-wide'] : modelMenuFocus || modelSpeedFocus || densityFocus ? ['mock-variant-preview'] : undefined,
     holdFirstStreamForPrompt: mode === 'candidate' ? prompt : undefined,
@@ -329,7 +335,9 @@ test(`${mode} native desktop smoke`, async () => {
       if (req.url === '/v1/chat/completions') {
         const request = JSON.parse(data.toString())
         if (activityCenterFocus && request.messages?.[0]?.content?.includes?.('Ты объясняешь владельцу предлагаемое изменение')) {
-          return replyToFixture(res, request, 'Сверять дату и результаты тестового отчёта с источниками.', [])
+          const purpose = request.messages[0].content.includes('создание нового навыка')
+            ? activityCenter.newSkillPurpose : 'Сверять дату и результаты тестового отчёта с источниками.'
+          return replyToFixture(res, request, purpose, [])
         }
         if (contextFocus) { contextInferenceModels.push(request.model); console.log('Context inference model', request.model) }
         if (activityParityFocus && request.messages?.[0]?.content?.startsWith?.('Translate each string of the input JSON array')) {
@@ -338,10 +346,15 @@ test(`${mode} native desktop smoke`, async () => {
         }
         if (await performanceCheck?.replyToPerformancePrompt(res, request, projectFolder)) return
         if (await tableFixture?.reply(res, request)) return
+        if (await sendFixture?.reply(request, (content, tools) => replyToFixture(res, request, content, tools))) return
         if (await composerFixture?.reply(request, (content, tools) => replyToFixture(res, request, content, tools))) return
         if (await chatFixture?.reply(request, (content, tools = []) => replyToFixture(res, request, content, tools))) return
         if (await queueFixture?.reply(request, (content, tools = []) => replyToFixture(res, request, content, tools))) return
         const message = request.messages?.findLast((item) => item.role === 'user')?.content
+        if (rateLimitFocus && message?.includes?.(replyErrorCheck.rateLimitPrompt)) {
+          rateLimitRequests++
+          return replyErrorCheck.replyWithRateLimit(res)
+        }
         if (turnControlFocus) {
           const text = Array.isArray(message) ? message.filter(part => part.type === 'text').map(part => part.text).join('\n')
             : typeof message === 'string' ? message : JSON.stringify(message)
@@ -551,11 +564,13 @@ test(`${mode} native desktop smoke`, async () => {
         + (projectCatalogFixFocus ? `\n  github:\n    url: ${mcpUrl}` : '')
         + (turnControlFocus ? `\ngateway:\n  managed_workers: ${process.env.HCV_INPROC === '1' ? 'false' : 'true'}` : '')
         + (localModelFocus ? `\nmodels_dev:\n  url: ${fixtureUrl}/models-registry.json` : '')
+        + (imageParityFocus ? '\nagent:\n  image_input_mode: native' : '')
         + (personalQueueFocus ? '\ndelegation:\n  provider: kimi-coding\n  model: kimi-for-coding' : '')
         + (modelSpeedFocus ? `\nmodel:\n  default: gpt-6.2-sol\n  provider: openai-codex\n  openai_runtime: ${modelSpeedAppserverFocus ? 'codex_app_server' : 'codex_responses'}` : '')
         + ((reviewProposalsFocus || activityCenterFocus) ? '\nskills:\n  write_approval: true\nmemory:\n  write_approval: true\n  memory_enabled: true\n  user_profile_enabled: true' : '')
         + ((activityCenterFocus || workspaceSummaryFocus || process.env.HERMES_VISUAL_TIMELINE_PACKAGE) ? '\nplugins:\n  enabled:\n    - hermes-codex-visual' : '')
         + (turnDiffFocus ? '\nlsp:\n  enabled: false' : '')
+        + (rateLimitFocus ? '\nagent:\n  api_max_retries: 1' : '')
         + (dictationFocus ? `\nstt:\n  enabled: true\n  provider: openai\n  openai:\n    api_key: e2e-mock-key\n    base_url: ${fixtureUrl}/v1\n    model: whisper-1` : ''),
     )
     // Every focused run uses the same local mock provider. Its current
@@ -694,6 +709,8 @@ for i, title in enumerate(titles, 1):
         sent = time() - (3 - i) * 7 * 86400
     db.append_message(sid, 'user', request, timestamp=sent)
     reply = 'Тестовый чат готов к проверке.'
+    if i == 1 and sys.argv[3] == 'image-parity':
+        reply += chr(10) * 2 + (chr(10) * 2).join(f'Абзац {n} для проверки прокрутки открытого чата.' for n in range(1, 31))
     if sys.argv[3] == 'interface-copy':
         reply = ${JSON.stringify('Тестовый чат готов к проверке (ответ) — всё видно.\n\n`a—b`\n\n[Ссылка — пример](https://example.invalid/a%E2%80%94b)')}
     if sys.argv[3] == 'readme':
@@ -1044,6 +1061,23 @@ if sys.argv[3] == 'activity-parity':
     db.append_message(sid, 'user', chr(10).join(['[ASYNC DELEGATION COMPLETE]', '--- RESULT ---', 'Отчёт об интервалах.']),
         display_kind='async_delegation_complete', display_metadata={'display_text': 'Subagent Task Completed: Уникальная проверка интервалов'})
     db.append_message(sid, 'assistant', 'Текст после уведомления агента.')
+    sid = '20261108_124508_beef03'
+    db.create_session(sid, 'desktop', model='mock-model', cwd=sys.argv[2], profile_name='default', git_repo_root=sys.argv[2])
+    db.set_session_title(sid, 'Продолжение после лимита')
+    db.append_message(sid, 'user', 'Начни проверку отчёта.')
+    db.append_message(sid, 'assistant', 'Тестовый лимит исчерпан.', display_kind='failed_turn')
+    db.append_message(sid, 'user', 'Продолжай проверку отчёта.')
+    db.append_message(sid, 'assistant', 'Проверяю сохранённые данные.')
+    append_activity([
+        ('tool_resume_1', 'terminal', {'command': 'echo verify-saved'}, {'stdout': 'saved', 'exit_code': 0}),
+    ])
+    db.append_message(sid, 'assistant', 'Сверяю подготовленный отчёт.')
+    append_activity([
+        ('tool_resume_2', 'terminal', {'command': 'echo verify-report'}, {'stdout': 'report', 'exit_code': 0}),
+    ])
+    db.append_message(sid, 'user', chr(10).join(['[ASYNC DELEGATION COMPLETE]', '--- RESULT ---', 'Проверка закончена.']),
+        display_kind='async_delegation_complete', display_metadata={'display_text': 'Subagent Task Completed: Проверка отчёта'})
+    db.append_message(sid, 'assistant', (chr(10) * 2).join(['Отчёт готов к отправке.', 'Все данные сверены.']))
 if sys.argv[3] in ('chat-activity', 'image-parity'):
     import base64, json, struct, zlib
     sid = '20261108_124502_aab002'
@@ -1134,7 +1168,7 @@ if sys.argv[3] == 'file-links':
     sid = '20261108_124502_aab002'
     db.append_message(sid, 'user', 'Покажи ссылки на подготовленные файлы.')
     db.append_message(sid, 'assistant', sample)
-if sys.argv[3] == 'display':
+if sys.argv[3] in ('display', 'chat-transitions', 'workspace-summary-live'):
     from datetime import datetime
     from hermes_cli.profiles import create_profile
 
@@ -1157,13 +1191,14 @@ if sys.argv[3] == 'display':
             db, 'default', f'20261120_1100{n:02d}_aaaa{n:02d}', f'Свободный чат {n:02d}', 20,
             [('user', 'Короткий запрос.'), ('assistant', 'Короткий ответ.')],
         )
-    extra = create_profile('visual-other', no_alias=True, no_skills=True)
-    other = SessionDB(db_path=extra / 'state.db')
-    seed_loose(
-        other, 'visual-other', '20261102_110000_bbbb00', 'Старый чат другого профиля', 2,
-        [('user', 'Запрос из старого чата.'), ('assistant', 'Ответ из другого профиля.')],
-    )
-    other.close()
+    if sys.argv[3] != 'workspace-summary-live':
+        extra = create_profile('visual-other', no_alias=True, no_skills=True)
+        other = SessionDB(db_path=extra / 'state.db')
+        seed_loose(
+            other, 'visual-other', '20261102_110000_bbbb00', 'Старый чат другого профиля', 2,
+            [('user', 'Запрос из старого чата.'), ('assistant', 'Ответ из другого профиля.')],
+        )
+        other.close()
 if sys.argv[3] == 'settings-audit':
     from hermes_cli.profiles import create_profile
     from shutil import copyfile
@@ -1296,7 +1331,7 @@ import(pathToFileURL(path.join(desktop, 'dist', 'electron-main.mjs')).href).catc
     app = await _electron.launch({
       executablePath: process.env.HERMES_VISUAL_ELECTRON || findElectron(),
       args: [entry, ...(process.env.HERMES_VISUAL_GPU === '1' ? [] : ['--disable-gpu']),
-        ...(styleScopeFocus || performanceFocus || projectActivityFocus || sessionNavigationFocus || chatHoverFocus || commandPaletteFocus || approvalFocus
+        ...(styleScopeFocus || performanceFocus || projectActivityFocus || sessionNavigationFocus || chatHoverFocus || commandPaletteFocus || approvalFocus || chatTransitionsFocus || workspaceSummaryFocus
           ? ['--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows'] : []),
         '--no-sandbox',
         ...(dictation ? ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream',
@@ -1351,6 +1386,10 @@ import(pathToFileURL(path.join(desktop, 'dist', 'electron-main.mjs')).href).catc
     await page.emulateMedia({ colorScheme: 'dark', forcedColors: 'none', reducedMotion: 'reduce' })
     // Match the reference's opaque dark window in this temporary profile only.
     if (displayFocus) await page.clock.setFixedTime(new Date('2026-11-20T12:00:00+03:00'))
+    if (mode === 'candidate' && process.env.HERMES_VISUAL_FOCUS === 'sidebar') {
+      // This scenario starts with a configured provider in the isolated profile.
+      await page.addInitScript(() => localStorage.setItem('hermes-onboarding-skipped-v1', '1'))
+    }
     await page.addInitScript(({ showTerminal, collapseOldDate, renameRightTile, showDatedProjectChats, dockFilesOnRight, enableMarkdownPlugin }) => {
       localStorage.setItem('hermes-desktop-mode-v1', 'dark')
       if (enableMarkdownPlugin) {
@@ -1399,7 +1438,7 @@ import(pathToFileURL(path.join(desktop, 'dist', 'electron-main.mjs')).href).catc
         }))
       }
     }, {
-      showTerminal: displayFocus || process.env.HERMES_VISUAL_FOCUS === 'polish',
+      showTerminal: displayFocus || workspaceSummaryFocus || process.env.HERMES_VISUAL_FOCUS === 'polish',
       collapseOldDate: displayFocus && !displayBaseline,
       renameRightTile: (renameTabsFocus || approvalFocus) ? '20261108_124502_aab002' : null,
       showDatedProjectChats: process.env.HERMES_VISUAL_FOCUS === 'sidebar-chat-order',
@@ -1412,8 +1451,7 @@ import(pathToFileURL(path.join(desktop, 'dist', 'electron-main.mjs')).href).catc
     const shellFixture = await shellCheck?.installShellFixture(page)
     const settingsCheck = settingsAudit ? await import('./settings-audit.spec-helper.mjs') : null
     await settingsCheck?.installSettingsAuditFixture(app, page, desktop)
-    const replyErrorCheck = replyErrorFocus ? await import('./reply-error.spec-helper.mjs') : null
-    await replyErrorCheck?.installReplyErrorFixture(page)
+    if (!rateLimitFocus) await replyErrorCheck?.installReplyErrorFixture(page)
     const systemRuCheck = systemRuFocus ? await import('./system-ru.spec-helper.mjs') : null
     await systemRuCheck?.installSystemRuFixture(app, page)
     if (process.env.HERMES_VISUAL_FOCUS === 'mcp-page') {
@@ -1430,7 +1468,9 @@ import(pathToFileURL(path.join(desktop, 'dist', 'electron-main.mjs')).href).catc
     const rhythmFixture = chatRhythm?.createChatRhythmFixture()
     const agentLifecycleFixture = agentLifecycle?.createAgentLifecycleFixture()
     const bundlesFixture = activityBundles?.createActivityBundlesFixture()
-    await readiness?.installActivityReadinessFixture(page, rhythmFixture?.intercept || bundlesFixture?.intercept || agentLifecycleFixture?.intercept)
+    const standaloneFileFixture = activityParityFocus ? activityParity.createStandaloneFileFixture() : null
+    await readiness?.installActivityReadinessFixture(page,
+      rhythmFixture?.intercept || bundlesFixture?.intercept || agentLifecycleFixture?.intercept || standaloneFileFixture?.intercept)
     const benchmarkReplacement = responsivenessFocus && process.env.HERMES_VISUAL_REPLACEMENT_PLUGIN
     const checkCatalog = projectCatalogFixFocus || Boolean(benchmarkReplacement)
     const benchmark = responsivenessFocus || styleScopeFocus || checkCatalog || performanceFocus ? await import('./responsiveness.spec-helper.mjs') : null
@@ -1523,7 +1563,7 @@ import(pathToFileURL(path.join(desktop, 'dist', 'electron-main.mjs')).href).catc
       else await pluginTab.click({ timeout: 10000 })
       // Restrict this focused scenario to installed packages, so a late public
       // catalog response cannot page the switch out of the visible results.
-      if (sidebarActivityFocus && enabled) {
+      if (enabled && (sidebarActivityFocus || workspaceSummaryFocus)) {
         await page.locator('[data-catalog="plugins"]').getByRole('button', { name: /^(Фильтры|Filters)$/ }).click()
         await page.getByRole('button', { name: /^(Установленные|Installed)$/ }).click()
         await page.keyboard.press('Escape')
@@ -1559,6 +1599,22 @@ import(pathToFileURL(path.join(desktop, 'dist', 'electron-main.mjs')).href).catc
 
     fs.mkdirSync(evidence, { recursive: true })
     const evidenceVersion = process.env.HERMES_VISUAL_EVIDENCE_VERSION || 'v07'
+    async function checkChatReturns() {
+      const { verifyChatTransitions, assertChatTransitions } = await import('./chat-transitions.spec-helper.mjs')
+      const sidebar = page.locator('[data-hcv-sidebar-shell]')
+      const save = result => {
+        const proof = {
+          ...result,
+          runtime: { electron: runtime.electron, renderer: identity.appVersion },
+          moduleSha256: createHash('sha256').update(fs.readFileSync(process.env.HERMES_VISUAL_FIXTURE_PLUGIN)).digest('hex'),
+        }
+        fs.writeFileSync(path.join(evidence, evidenceVersion + '-chat-transitions.json'), JSON.stringify(proof, null, 2))
+      }
+      const result = await verifyChatTransitions({ page, expect, sidebar, navigation, save })
+      save(result)
+      assertChatTransitions(result)
+      return result
+    }
     const typographyAudit = process.env.HERMES_VISUAL_TYPOGRAPHY
       ? await (await import('./typography.spec-helper.mjs')).createTypographyAudit(page, data => {
         fs.writeFileSync(path.join(evidence, evidenceVersion + '-typography.json'), JSON.stringify({
@@ -2035,6 +2091,13 @@ import(pathToFileURL(path.join(desktop, 'dist', 'electron-main.mjs')).href).catc
           fs.writeFileSync(path.join(evidence, evidenceVersion + '-activity-hot-swap.json'), JSON.stringify(results, null, 2))
           return
         }
+        let standaloneFile
+        if (process.env.HERMES_VISUAL_ACTIVITY_BEFORE !== '1') {
+          standaloneFile = await activityParity.verifyStandaloneFileDisclosure({
+            page, expect, screenshot, fixture: standaloneFileFixture,
+          })
+          console.log('Standalone file disclosure', JSON.stringify(standaloneFile))
+        }
         const results = await activityParity.verifyActivityParity({
           page, app, expect, projectChat, screenshot, openThemeSettings, closeSettings, themeCard, translationRequests,
         })
@@ -2064,6 +2127,7 @@ import(pathToFileURL(path.join(desktop, 'dist', 'electron-main.mjs')).href).catc
           await expect(nativeToggle).toHaveAttribute('aria-expanded', 'true')
           await expect(nativeEdit.getByText(/Вторая строка/)).toBeVisible()
           results.pluginUnloaded = true
+          results.standaloneFile = standaloneFile
         }
         results.runtime = { electron: runtime.electron, renderer: identity.appVersion }
         results.moduleSha256 = createHash('sha256').update(fs.readFileSync(process.env.HERMES_VISUAL_FIXTURE_PLUGIN)).digest('hex')
@@ -2077,10 +2141,16 @@ import(pathToFileURL(path.join(desktop, 'dist', 'electron-main.mjs')).href).catc
         return
       }
       if (imageParityFocus) {
-        const { verifyImageParity } = await import('./image-parity.spec-helper.mjs')
-        const results = await verifyImageParity({
-          app, page, expect, projectChat, screenshot, projectFolder, openThemeSettings, closeSettings, themeCard,
-        })
+        const baseline = process.env.HERMES_VISUAL_SEND_BASELINE === '1'
+        const send = await sendCheck.verifySendMessage({ page, expect, projectChat, projectFolder, screenshot,
+          fixture: sendFixture, baseline })
+        const results = { send }
+        if (!baseline) {
+          const { verifyImageParity } = await import('./image-parity.spec-helper.mjs')
+          Object.assign(results, await verifyImageParity({
+            app, page, expect, projectChat, screenshot, projectFolder, openThemeSettings, closeSettings, themeCard,
+          }))
+        }
         results.runtime = { electron: runtime.electron, renderer: identity.appVersion }
         results.moduleSha256 = createHash('sha256').update(fs.readFileSync(process.env.HERMES_VISUAL_FIXTURE_PLUGIN)).digest('hex')
         fs.writeFileSync(path.join(evidence, evidenceVersion + '-image-parity.json'), JSON.stringify(results, null, 2))
@@ -2142,6 +2212,7 @@ import(pathToFileURL(path.join(desktop, 'dist', 'electron-main.mjs')).href).catc
         const results = await verifyWorkspaceSummaryLive({ page, expect, screenshot, projectChat, projectFolder })
         const { verifySummaryTooltipsAndCopy } = await import('./summary-and-tooltips.spec-helper.mjs')
         results.presentation = await verifySummaryTooltipsAndCopy({ page, expect, screenshot, projectChat, openThemeSettings, closeSettings })
+        results.chatReturns = await checkChatReturns()
         results.backendSha256 = createHash('sha256').update(fs.readFileSync(path.join(sandbox.hermesHome,
           'plugins', 'hermes-codex-visual', 'turn_changes.py'))).digest('hex')
         results.runtime = { electron: runtime.electron, renderer: identity.appVersion }
@@ -2236,6 +2307,15 @@ import(pathToFileURL(path.join(desktop, 'dist', 'electron-main.mjs')).href).catc
       if (renameTabsFocus) {
         const { verifyRenameTabs } = await import('./rename-tabs.spec-helper.mjs')
         await verifyRenameTabs({ page, expect, projectChat, screenshot, prompts: mock.receivedPrompts })
+        return
+      }
+      if (rateLimitFocus) {
+        const result = await replyErrorCheck.verifyRateLimitCard({ page, expect, projectChat, editsPrompt,
+          screenshot, openThemeSettings, closeSettings, rateLimitAttempts: () => rateLimitRequests })
+        result.moduleSha256 = createHash('sha256').update(fs.readFileSync(process.env.HERMES_VISUAL_FIXTURE_PLUGIN)).digest('hex')
+        result.backendSha256 = createHash('sha256').update(fs.readFileSync(path.join(sandbox.hermesHome,
+          'plugins', 'hermes-codex-visual', 'turn_changes.py'))).digest('hex')
+        fs.writeFileSync(path.join(evidence, evidenceVersion + '-reply-error.json'), JSON.stringify(result, null, 2))
         return
       }
       if (replyErrorCheck) {
@@ -2408,6 +2488,10 @@ import(pathToFileURL(path.join(desktop, 'dist', 'electron-main.mjs')).href).catc
       await expect(sessionsTab).toHaveAttribute('aria-selected', 'true')
       await expect(sessionsTab).toBeVisible()
       await expect(botsTab).toBeVisible()
+      if (chatTransitionsFocus) {
+        await checkChatReturns()
+        return
+      }
       if (displayFocus) {
         if (process.env.HERMES_VISUAL_DISPLAY_SCROLL_ONLY === '1') {
           const { verifyDisplayScroll } = await import('./display-scroll.spec-helper.mjs')
@@ -2763,11 +2847,8 @@ import(pathToFileURL(path.join(desktop, 'dist', 'electron-main.mjs')).href).catc
         getComputedStyle(element, '::after').getPropertyValue(cssProperty), property)
       await expect(row.getByRole('status', { name: 'Сеанс выполняется' })).toBeAttached()
       await mock.waitForHeldStream()
-      const activity = page.locator('[data-hcv-live-turn]:has([data-hcv-thinking]), [data-slot="aui_response-loading"]:has([data-hcv-thinking])').last()
-      await expect(activity).toBeVisible()
-      await expect(activity.locator('[data-hcv-thinking]')).toHaveText('Думаю')
-      await expect(activity.locator(':scope > [data-hcv-live-time], :scope > [aria-hidden="true"]:not(.dither, [data-hcv-thinking])')).toBeHidden()
-      await expect.poll(() => activity.innerText()).toBe('Думаю')
+      await expect(page.locator('[data-slot="aui_response-group"] [data-message-streaming="true"]').last()).toBeAttached()
+      await expect(page.locator('[data-hcv-thinking], [data-hcv-live-turn]')).toHaveCount(0)
       await page.emulateMedia({ reducedMotion: 'no-preference' })
       await expect.poll(() => visual('animation-name')).toBe('hcv-sidebar-spin')
       await page.emulateMedia({ reducedMotion: 'reduce' })
@@ -2992,8 +3073,7 @@ import(pathToFileURL(path.join(desktop, 'dist', 'electron-main.mjs')).href).catc
         ['Release chat fixture', () => chatFixture?.release()],
         ['Release queue fixture child', () => queueFixture?.releaseChild()],
         ['Release queue fixture parent', () => queueFixture?.releaseParent()],
-        ['Release composer fixture', () => composerFixture?.next()],
-        ['Finish composer fixture', () => composerFixture?.finish()],
+        ['Release composer fixture', () => composerFixture?.release()],
         ['Release mock stream', () => mock.releaseHeldStream()],
       ],
       electronLaunchAttempted,

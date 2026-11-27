@@ -226,6 +226,55 @@ test('disconnect clears a loaded preview even when the gateway object is reused'
   } finally { e.cleanup() }
 })
 
+test('refresh leaves an unchanged activity button and badge intact', async () => {
+  let items = [skill, memory], invalid = 0
+  const e = setup(() => snapshot(items, 'scope-default', invalid))
+  const observed = []
+  const observer = new MutationObserver(records => observed.push(...records))
+  try {
+    await flush()
+    const button = document.querySelector('[data-hcv-activity-button]')
+    const badge = button.querySelector('[data-hcv-activity-count]')
+    const text = badge.firstChild
+    observer.observe(button, { attributes: true, childList: true, subtree: true })
+    await e.controller.refresh()
+    await flush()
+    assert.equal(observed.length, 0)
+    assert.equal(badge.firstChild, text)
+    assert.equal(badge.textContent, '2')
+    assert.equal(badge.hidden, false)
+    assert.equal(badge.dataset.hcvActivityUnknown, 'false')
+    assert.equal(button.getAttribute('aria-label'), 'Активность: ожидают решения 2')
+    assert.equal(button.title, 'Активность · 2')
+    assert.equal(button.getAttribute('aria-expanded'), 'false')
+
+    items = []
+    await e.controller.refresh()
+    await flush()
+    assert.equal(badge.textContent, '0')
+    assert.equal(badge.hidden, true)
+    assert.equal(badge.dataset.hcvActivityUnknown, 'false')
+    assert.equal(button.getAttribute('aria-label'), 'Активность: ожидают решения 0')
+    assert.equal(button.title, 'Активность · 0')
+
+    invalid = 1
+    await e.controller.refresh()
+    await flush()
+    assert.equal(badge.textContent, '?')
+    assert.equal(badge.hidden, false)
+    assert.equal(badge.dataset.hcvActivityUnknown, 'true')
+    assert.equal(button.getAttribute('aria-label'), 'Активность: Некоторые записи очереди не удалось прочитать.')
+    assert.equal(button.title, 'Активность: Некоторые записи очереди не удалось прочитать.')
+
+    e.controller.open()
+    await flush()
+    assert.equal(button.getAttribute('aria-expanded'), 'true')
+    e.controller.close()
+    await flush()
+    assert.equal(button.getAttribute('aria-expanded'), 'false')
+  } finally { observer.disconnect(); e.cleanup() }
+})
+
 test('notification deduplication includes the authoritative backend scope', async () => {
   let scope = 'scope-one'
   const e = setup(() => snapshot([skill], scope))
@@ -313,16 +362,18 @@ test('an unconfirmed proposal exposes its complete fallback preview and cannot b
   } finally { e.cleanup() }
 })
 
-test('missing skill files explain their content and link only a single exact creation match', async () => {
+test('linked files open a single matching creation and keep the separate file proposal reachable', async () => {
   const files = { ...skill, names: ['new-skill'], skill_action: 'files' }
-  const create = { ...skill, id: 'abcdabcd', names: ['new-skill'], version: 'create-v1', skill_action: 'create' }
+  const create = { ...skill, id: 'abcdabcd', names: ['new-skill'], version: 'create-v1', skill_action: 'create', summary: 'Сверяет тестовые отчёты.' }
   const unrelated = { ...create, id: 'eeeeeeee', names: ['another-skill'] }
   let items = [files, create, unrelated]
-  const e = setup(route => route === '/activity' ? snapshot(items) : {
-    ...detail(files), applicable: false, reason: 'Указанный навык сейчас не найден',
-    changes: [], missing_skill: 'new-skill', preview: 'Full record',
-    proposed_files: [{ file: 'references/guide.md', heading: 'Reference guide', content: '# Reference guide\nFull text' }],
-    explanation: { status: 'unavailable', text: '' },
+  const e = setup(route => {
+    if (route === '/activity') return snapshot(items)
+    if (route.endsWith('/abcdabcd')) return { ...detail(create), explanation: { status: 'pending', text: '' } }
+    return { ...detail(files), applicable: false, reason: 'Указанный навык сейчас не найден',
+      changes: [], missing_skill: 'new-skill', preview: 'Full record',
+      proposed_files: [{ file: 'references/guide.md', heading: 'Reference guide', content: 'Full text' }],
+      explanation: { status: 'unavailable', text: '' } }
   })
   try {
     await flush()
@@ -330,26 +381,56 @@ test('missing skill files explain their content and link only a single exact cre
     await flush()
     await e.controller.inspect(files)
     let view = JSON.stringify(e.view())
-    assert.match(view, /Файлы навыка/)
-    assert.match(view, /Предлагается записать в навык эти файлы/)
-    assert.match(view, /Reference guide · references\/guide.md/)
-    assert.match(view, /Full text/)
-    assert.match(view, /Рассмотреть создание навыка/)
-    assert.doesNotMatch(view, /Краткое описание недоступно/)
+    assert.equal(e.model().selected.id, create.id)
+    assert.match(view, /Предложение создать новый навык/)
+    assert.match(view, /Сверяет тестовые отчёты/)
+    assert.match(view, /Отдельное предложение по файлам/)
+    assert.doesNotMatch(view, /сейчас не найден|"type":"details"/)
+    assert.equal(e.calls.filter(call => call.options?.method === 'POST').length, 0)
+
+    await e.controller.inspect(files, true)
+    view = JSON.stringify(e.view())
+    assert.equal(e.model().selected.id, files.id)
+    assert.match(view, /Сначала|сначала/)
+    assert.match(view, /references\/guide.md/)
+    assert.doesNotMatch(view, /"type":"details"/)
     await e.controller.decide('approve')
     assert.equal(e.calls.filter(call => call.options?.method === 'POST').length, 0)
-    items = [files, unrelated]
-    await e.controller.refresh(true)
-    await e.controller.inspect(files)
-    view = JSON.stringify(e.view())
-    assert.match(view, /сначала создайте или восстановите навык/)
-    assert.doesNotMatch(view, /Рассмотреть создание навыка/)
-    items = [files, create, { ...create, id: 'dddddddd' }]
-    await e.controller.refresh(true)
-    await e.controller.inspect(files)
-    view = JSON.stringify(e.view())
-    assert.match(view, /В очереди есть предложение создать навык/)
-    assert.doesNotMatch(view, /Рассмотреть создание навыка/)
+
+    for (const ambiguous of [[unrelated], [create, { ...create, id: 'dddddddd' }]]) {
+      items = [files, ...ambiguous]
+      await e.controller.refresh(true)
+      await e.controller.inspect(files)
+      assert.equal(e.model().selected.id, files.id)
+    }
+  } finally { e.cleanup() }
+})
+
+test('creation shows progress and reports an explicit pre-write refusal from Hermes', async () => {
+  const create = { ...skill, skill_action: 'create', summary: 'Сверяет отчёты.', project: 'Аватар' }
+  const decision = deferred()
+  const e = setup((route, options) => options?.method === 'POST' ? decision.promise
+    : route === '/activity' ? snapshot([create]) : {
+      ...detail(create), explanation: { status: 'ready', text: 'Когда проверяешь отчёт, навык сверит цифры. Ты получишь список расхождений.' },
+    })
+  try {
+    await flush()
+    e.controller.open()
+    await flush()
+    await e.controller.inspect(create)
+    assert.match(JSON.stringify(e.view()), /Проект «Аватар»/)
+    assert.match(JSON.stringify(e.view()), /Ты получишь список расхождений/)
+    const request = e.controller.decide('approve')
+    assert.match(JSON.stringify(e.view()), /Ждём ответ Hermes/)
+    assert.match(JSON.stringify(e.view()), /Принимаем…/)
+    await e.controller.decide('approve')
+    decision.reject(new Error('Error: 422: {"detail":{"code":"skill_description_too_long","length":283,"limit":60}}'))
+    await request
+    await flush()
+    assert.match(JSON.stringify(e.view()), /Создание заблокировано. Длина описания 283, допустимо до 60 символов/)
+    assert.equal(e.model().detail.applicable, false)
+    assert.deepEqual(e.model().locked, [])
+    assert.equal(e.calls.filter(call => call.options?.method === 'POST').length, 1)
   } finally { e.cleanup() }
 })
 

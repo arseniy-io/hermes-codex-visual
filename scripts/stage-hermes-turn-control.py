@@ -106,6 +106,11 @@ def candidates(core=CORE):
             candidate = raw
         elif actual == hashes.get("previous_candidate"):
             candidate = apply(raw, follow_up[name], name)
+        elif isinstance(upgrade := hashes.get("upgrade"), dict) and actual == upgrade.get("from"):
+            transition = patches(upgrade["patch"])
+            if set(transition) != {name}:
+                raise RuntimeError("Invalid pinned upgrade: " + name)
+            candidate = apply(raw, transition[name], name)
         elif actual == hashes.get("baseline"):
             candidate = apply(raw, transformations[name], name)
             if name in follow_up:

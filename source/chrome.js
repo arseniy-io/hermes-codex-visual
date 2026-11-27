@@ -1249,7 +1249,8 @@ export function registerWorkspaceChrome(ctx, themeName) {
     ${windowPopup}[data-state], ${windowItem} { border-radius: 7.5px; }
   }
 
-  ${shell} [data-tree-group="grp-main"][data-window-top] > [data-panel-header]:has([data-zone-tabstrip]) {
+  ${shell} ${workspace} > [data-panel-header]:has([data-zone-tabstrip]),
+  ${shell} ${workspace}:has([data-workspace-chat-layer]:not([data-pane-hidden])) > [data-panel-header] {
     block-size: 48px !important;
     align-items: center;
     background: var(--hcv-chat);

@@ -86,6 +86,33 @@ class ActivityTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()
 
+    def ready_detail(self, rec):
+        detail = self.detail(rec)
+        deadline = time.monotonic() + 5
+        while detail["explanation"]["status"] == "pending" and time.monotonic() < deadline:
+            time.sleep(0.01)
+            detail = self.detail(rec)
+        self.assertEqual(detail["explanation"]["status"], "ready")
+        return detail
+
+    def project_chat(self):
+        from hermes_cli import projects_db as pdb
+        from hermes_state import SessionDB
+        avatar = self.home / "project-a"
+        directory = avatar / "notes"
+        directory.mkdir(parents=True)
+        with pdb.connect_closing(self.home / "projects.db") as conn:
+            pdb.create_project(conn, name="Аватар", folders=[str(avatar)])
+            other = pdb.create_project(conn, name="Мини-бизнес", folders=[str(self.home / "project-b")])
+            pdb.set_active(conn, other)
+        sid = "20261126_135000_avatar"
+        db = SessionDB(db_path=self.home / "state.db")
+        try:
+            db.create_session(sid, "desktop", cwd=str(directory), profile_name="default")
+        finally:
+            db.close()
+        return sid
+
     def decide(self, rec, detail, action="approve"):
         return self.client.post(f"/activity/{rec['subsystem']}/{rec['id']}/{action}", json={key: detail[key] for key in ("scope", "version", "signature")})
 
@@ -110,6 +137,22 @@ class ActivityTest(unittest.TestCase):
         self.assertEqual(_classify_review_result(_action_lines(transformed, {"tool": "skill_manage"}, False)), "skill")
         self.assertIsNone(self.activity.proposal_notification(tool_name="read_file", result=original))
         self.assertIsNone(self.activity.proposal_notification(tool_name="memory", result=original))
+
+    def test_foreground_attribution_uses_the_staging_chat_and_exact_proposal_version(self):
+        from tools import write_approval
+        self.skill()
+        sid = self.project_chat()
+        rec = write_approval.stage_write("skills",
+            {"action": "patch", "name": "demo", "old_string": "old", "new_string": "new"},
+            summary="fixture", origin="foreground")
+        self.assertIsNone(self.client.get("/activity").json()["items"][0]["project"])
+        raw = json.dumps({"success": True, "staged": True, "pending_id": rec["id"]})
+        self.activity.proposal_notification(tool_name="skill_manage", result=raw, session_id=sid)
+        self.assertEqual(self.client.get("/activity").json()["items"][0]["project"], "Аватар")
+        self.assertEqual(self.detail(rec)["project"], "Аватар")
+        pending = self.home / "pending" / "skills" / (rec["id"] + ".json")
+        pending.write_text(json.dumps(dict(rec, summary="replaced")), encoding="utf-8")
+        self.assertIsNone(self.client.get("/activity").json()["items"][0]["project"])
 
     def test_list_and_real_skill_apply(self):
         path = self.skill()
@@ -509,24 +552,26 @@ class ActivityTest(unittest.TestCase):
                     {"role": "assistant", "content": json.dumps({"activity_explanations": [
                         {"id": rec["id"], "what": "Уточнить правило", "why": "Чтобы точнее проверять"}]})}]
         seen, callbacks = {}, []
+        parent = SimpleNamespace(session_id=self.project_chat())
         def native_worker(agent, messages_snapshot, prompt, task_cfg=None, review_run=None, review_memory=False, explicit=False):
             seen["prompt"] = prompt
+            bg._run_review_fork(agent, messages_snapshot, prompt, task_cfg, review_run, SimpleNamespace())
+            seen["description"] = self.activity._REVIEW_LOCAL.frame["description"]
         def native_fork(agent, messages_snapshot, prompt, task_cfg, review_run, st, review_memory=False, explicit=False):
             st.review_messages = messages
         with patch.object(bg, "_run_review_in_thread", native_worker), patch.object(bg, "_run_review_fork", native_fork):
             self.activity._install_review_observer(SimpleNamespace(on_unload=callbacks.append))
             try:
-                bg._run_review_in_thread(None, [], "Исходное поручение")
+                target, _ = bg.spawn_background_review_thread(parent, [], review_skills=True, task_cfg={})
+                target()
                 self.assertIn("activity_explanations", seen["prompt"])
                 self.assertIn("create and all", seen["prompt"])
                 self.assertIn("one skill_manage batch", seen["prompt"])
-                self.activity._REVIEW_LOCAL.frame = {}
-                bg._run_review_fork(None, [], "prompt", None, None, SimpleNamespace(review_messages=[]))
-                self.assertIn("предложение для навыка", self.activity._REVIEW_LOCAL.frame["description"])
+                self.assertIn("предложение для навыка", seen["description"])
                 _, version, _ = self.activity._record("skills", rec["id"])
                 self.assertEqual(self.activity._read_intent("skills", rec["id"], version)["why"], "Чтобы точнее проверять")
+                self.assertEqual(self.client.get("/activity").json()["items"][0]["project"], "Аватар")
             finally:
-                self.activity._REVIEW_LOCAL.frame = None
                 callbacks[0]()
 
     def test_observer_records_a_real_native_review_lifecycle(self):
@@ -629,7 +674,10 @@ class ActivityTest(unittest.TestCase):
         self.assertEqual([f["heading"] for f in blocked["proposed_files"]], ["First guide", "Second guide"])
         self.assertEqual(self.decide(files, blocked).status_code, 422)
         self.assertFalse((self.home / "skills" / "new-review").exists())
-        self.assertEqual(self.decide(create, self.detail(create)).status_code, 200)
+        self.assertEqual(items[create["id"]]["summary"], "Test new skill")
+        creation = self.ready_detail(create)
+        self.assertEqual(creation["summary"], "Test new skill")
+        self.assertEqual(self.decide(create, creation).status_code, 200)
         updated = self.detail(files)
         self.assertTrue(updated["applicable"], updated)
         self.assertNotIn("missing_skill", updated)
@@ -638,6 +686,34 @@ class ActivityTest(unittest.TestCase):
                          "# First guide\nfirst content")
         self.assertEqual((self.home / "skills/new-review/references/second.md").read_text(encoding="utf-8"),
                          "# Second guide\nsecond content")
+        self.assertEqual(updated["explanation"], {"status": "unavailable", "text": ""})
+        self.assertEqual(self.model_mock.call_count, 1)
+
+    def test_overlong_creation_is_explained_before_any_approval_claim(self):
+        from tools import skill_manager_tool as sm
+        description = "x" * (sm.SKILL_PROMPT_DESC_LIMIT + 1)
+        name = "long-description"
+        rec = self.proposal(payload={"action": "batch", "operations": [
+            {"action": "create", "name": name, "content":
+             f"---\nname: {name}\ndescription: {description}\n---\nNew instructions\n"},
+        ]})
+        detail = self.detail(rec)
+        issue = {"code": "skill_description_too_long", "length": len(description), "limit": sm.SKILL_PROMPT_DESC_LIMIT}
+        self.assertFalse(detail["applicable"])
+        self.assertEqual(detail["creation_issue"], issue)
+        self.assertIn("New instructions", detail["preview"])
+        response = self.decide(rec, detail)
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertEqual(response.json()["detail"], issue)
+        self.assertFalse(self.activity._claim_path("skills", rec["id"], detail["version"]).exists())
+        self.assertFalse((self.home / "skills" / name).exists())
+        # An existing submitted receipt still lets the user understand the proposal and the blocker.
+        self.activity._claim_approval("skills", rec["id"], detail["version"])
+        reopened = self.ready_detail(rec)
+        self.assertEqual(reopened["creation_issue"], issue)
+        self.assertFalse(reopened["applicable"])
+        self.assertEqual(self.decide(rec, reopened).status_code, 409)
+        self.assertEqual(self.decide(rec, reopened, "reject").status_code, 200)
 
     def test_single_new_skill_batch_contains_and_applies_complete_files(self):
         rec = self.proposal(payload={"action": "batch", "operations": [
@@ -646,8 +722,18 @@ class ActivityTest(unittest.TestCase):
             {"action": "write_file", "name": "whole-review", "file_path": "references/guide.md",
              "file_content": "# Guide\nFull reference"},
         ]})
-        detail = self.detail(rec)
+        draft = self.activity._detail("skills", rec["id"])[0]
+        old_path, _ = self.activity._summary_paths("skills", rec["id"], draft["version"], draft["signature"], {})
+        old_path.parent.mkdir(parents=True)
+        self.activity._save_summary(old_path, draft["signature"], {"status": "ready", "text": "Устаревшие термины"})
+        purpose = "Когда проверяешь отчёт, навык сверит данные. Ты получишь список расхождений."
+        self.model_mock.return_value = purpose
+        detail = self.ready_detail(rec)
         self.assertEqual(detail["skill_action"], "create")
+        self.assertEqual(detail["explanation"]["text"], purpose)
+        self.assertIn("что владелец получит", self.model_mock.call_args.kwargs["instructions"])
+        self.assertIn("Instructions", self.model_mock.call_args.kwargs["user_input"])
+        self.assertNotIn("Full reference", self.model_mock.call_args.kwargs["user_input"])
         self.assertTrue(detail["applicable"], detail)
         self.assertIn("Full reference", detail["preview"])
         self.assertEqual(self.decide(rec, detail).status_code, 200)

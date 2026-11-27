@@ -176,6 +176,23 @@ test('options label native speed and effort controls, even when the fast catalog
   await new Promise(resolve => setTimeout(resolve, 1150))
   assert.equal(catalogRefreshes.length, 5)
   await wait()
+  // Hovering another control may mount a tooltip beside the model menu. It
+  // must leave the rest of the window alone, including a long chat behind it.
+  let documentScans = 0
+  const nativeQueryAll = document.querySelectorAll
+  document.querySelectorAll = function (...args) {
+    documentScans++
+    return nativeQueryAll.apply(this, args)
+  }
+  const otherMenu = document.createElement('div')
+  otherMenu.innerHTML = '<div data-slot="dropdown-menu-content"><div data-slot="tooltip-content">Other control</div></div>'
+  document.body.append(otherMenu)
+  await wait()
+  otherMenu.remove()
+  await wait()
+  document.querySelectorAll = nativeQueryAll
+  assert.equal(documentScans, 0)
+
   const standard = document.querySelector('[data-hcv-standard-speed]')
   assert.equal(standard.hasAttribute('aria-disabled'), false)
   const previous = document.querySelector('[data-previous-option]')
